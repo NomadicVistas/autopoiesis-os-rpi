@@ -57,12 +57,15 @@ function ensureState() {
   }
 }
 
+let VERSION;
+try {
+  VERSION = fs.readFileSync(path.resolve(__dirname, "../VERSION"), "utf8").trim();
+} catch {
+  VERSION = "0.1.0";
+}
+
 function version() {
-  try {
-    return fs.readFileSync(path.resolve(__dirname, "../VERSION"), "utf8").trim();
-  } catch {
-    return "0.1.0";
-  }
+  return VERSION;
 }
 
 function createDeviceId() {

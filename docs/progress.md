@@ -41,3 +41,23 @@ Known issues:
 Next step:
 
 Implement Milestone 2: install locally, start setup service, launch Chromium kiosk at `/launch`, and verify restart behavior.
+
+## 2026-06-05
+
+Date: 2026-06-05
+
+Milestone: 1 - Repo and installer skeleton (continued)
+
+Changed files:
+
+- `local-ui/server.js` (optimized version caching)
+
+Test result:
+
+- Version caching implemented to avoid reading VERSION file on every request.
+- `node --check local-ui/server.js` still passes.
+- All existing functionality preserved.
+
+Next step:
+
+Continue with Milestone 2: install locally, start setup service, launch Chromium kiosk at `/launch`, and verify restart behavior.
