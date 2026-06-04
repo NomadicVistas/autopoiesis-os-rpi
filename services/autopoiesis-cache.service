@@ -1,0 +1,10 @@
+[Unit]
+Description=Autopoiesis artwork cache refresh
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=frame
+Group=frame
+ExecStart=/opt/autopoiesis-os/app/scripts/cache-artworks.sh

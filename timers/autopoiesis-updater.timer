@@ -1,0 +1,11 @@
+[Unit]
+Description=Run Autopoiesis updater hourly
+
+[Timer]
+OnBootSec=10min
+OnUnitActiveSec=1h
+Persistent=true
+Unit=autopoiesis-updater.service
+
+[Install]
+WantedBy=timers.target

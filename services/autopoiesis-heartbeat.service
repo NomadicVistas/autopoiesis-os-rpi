@@ -1,0 +1,10 @@
+[Unit]
+Description=Autopoiesis heartbeat
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=frame
+Group=frame
+ExecStart=/opt/autopoiesis-os/app/scripts/heartbeat.sh

@@ -1,0 +1,17 @@
+[Unit]
+Description=Autopoiesis local setup and launcher UI
+After=network.target
+
+[Service]
+Type=simple
+User=frame
+Group=frame
+Environment=AUTOPOIESIS_DATA_DIR=/var/lib/autopoiesis-os
+Environment=AUTOPOIESIS_PORT=3030
+WorkingDirectory=/opt/autopoiesis-os/app/local-ui
+ExecStart=/opt/autopoiesis-os/app/scripts/start-setup.sh
+Restart=always
+RestartSec=3
+
+[Install]
+WantedBy=graphical.target

@@ -1,0 +1,11 @@
+[Unit]
+Description=Refresh Autopoiesis artwork cache hourly
+
+[Timer]
+OnBootSec=5min
+OnUnitActiveSec=1h
+Persistent=true
+Unit=autopoiesis-cache.service
+
+[Install]
+WantedBy=timers.target

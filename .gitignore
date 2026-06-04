@@ -1,0 +1,14 @@
+node_modules/
+.env
+*.log
+logs/*
+!logs/.gitkeep
+local-ui/.cache/
+local-ui/dist/
+*.sqlite
+*.sqlite-*
+device.json
+preferences.json
+pairing.json
+state.json
+cache-index.json

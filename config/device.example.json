@@ -1,0 +1,19 @@
+{
+  "deviceId": "rpi-generated-uuid",
+  "deviceName": "Autopoiesis Frame",
+  "ownerUserId": null,
+  "paired": false,
+  "pairingCode": null,
+  "serverUrl": "https://autopoiesis.art",
+  "framesUrl": "https://autopoiesis.art/frames",
+  "apiBaseUrl": "https://autopoiesis.art/api",
+  "wifiConfigured": false,
+  "firstRunComplete": false,
+  "remoteEnabled": true,
+  "subscriptionStatus": "unknown",
+  "softwareVersion": "0.1.0",
+  "updateChannel": "stable",
+  "autoUpdate": true,
+  "lastHeartbeatAt": null,
+  "lastSettingsSyncAt": null
+}

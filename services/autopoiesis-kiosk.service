@@ -1,0 +1,18 @@
+[Unit]
+Description=Autopoiesis Chromium kiosk
+After=graphical.target autopoiesis-setup.service
+Wants=autopoiesis-setup.service
+
+[Service]
+Type=simple
+User=frame
+Group=frame
+Environment=DISPLAY=:0
+Environment=XAUTHORITY=/home/frame/.Xauthority
+Environment=AUTOPOIESIS_LAUNCH_URL=http://localhost:3030/launch
+ExecStart=/opt/autopoiesis-os/app/scripts/start-kiosk.sh
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=graphical.target

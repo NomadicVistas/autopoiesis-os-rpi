@@ -1,0 +1,51 @@
+{
+  "device": {
+    "deviceName": "Autopoiesis Frame",
+    "ownerUserId": null,
+    "paired": false,
+    "pairingCode": null,
+    "serverUrl": "https://autopoiesis.art",
+    "framesUrl": "https://autopoiesis.art/frames",
+    "apiBaseUrl": "https://autopoiesis.art/api",
+    "wifiConfigured": false,
+    "firstRunComplete": false,
+    "remoteEnabled": true,
+    "subscriptionStatus": "unknown",
+    "softwareVersion": "0.1.0",
+    "updateChannel": "stable",
+    "autoUpdate": true,
+    "lastHeartbeatAt": null,
+    "lastSettingsSyncAt": null
+  },
+  "preferences": {
+    "language": "en",
+    "displayMode": "living-stream",
+    "activeArtists": [],
+    "allowImages": true,
+    "allowVideos": true,
+    "allowSoundWorks": true,
+    "allowGenerativeWorks": true,
+    "soundEnabled": false,
+    "volume": 50,
+    "autoplay": true,
+    "imageDuration": 60,
+    "videoAutoplay": true,
+    "soundAutoplay": false,
+    "nightMode": false,
+    "nightModeStart": "22:00",
+    "nightModeEnd": "08:00",
+    "brightness": 80,
+    "cacheLikedArtworks": true,
+    "cacheRecentArtworks": true,
+    "offlineFallbackMode": "liked-then-recent"
+  },
+  "state": {
+    "currentMode": "setup",
+    "networkOnline": false,
+    "currentArtworkId": null,
+    "lastError": null,
+    "lastBootAt": null,
+    "remoteDisabled": false,
+    "needsUpdate": false
+  }
+}
