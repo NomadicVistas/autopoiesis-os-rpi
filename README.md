@@ -56,3 +56,5 @@ It does not run Codex unattended and does not modify the system. Automated code 
 ```txt
 boot -> setup -> wifi -> config -> kiosk -> pairing -> sync -> cache -> updates -> disable -> cleanup
 ```
+
+with love pulse
