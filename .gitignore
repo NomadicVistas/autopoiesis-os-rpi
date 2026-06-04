@@ -1,14 +1,54 @@
-node_modules/
-.env
+# Logs
 *.log
 logs/*
 !logs/.gitkeep
-local-ui/.cache/
-local-ui/dist/
-*.sqlite
-*.sqlite-*
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Runtime and local device state
 device.json
 preferences.json
 pairing.json
 state.json
 cache-index.json
+*.sqlite
+*.sqlite-*
+pids
+*.pid
+*.seed
+*.pid.lock
+
+# Secrets
+.env
+.env.*
+!.env.example
+
+# Node and frontend tooling
+node_modules/
+jspm_packages/
+web_modules/
+coverage
+*.lcov
+.nyc_output
+.npm
+.eslintcache
+.stylelintcache
+.node_repl_history
+*.tgz
+.yarn-integrity
+.cache
+.parcel-cache
+.next
+out
+.nuxt
+dist
+.output
+.svelte-kit/
+.vite/
+vite.config.js.timestamp-*
+vite.config.ts.timestamp-*
+
+# Local UI generated files
+local-ui/.cache/
+local-ui/dist/
