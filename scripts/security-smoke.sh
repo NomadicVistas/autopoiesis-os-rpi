@@ -48,9 +48,10 @@ done
 curl -fsS "$BASE_URL/local/status" >"$TMP_DIR/status.json" || fail "GET /local/status failed"
 curl -fsS "$BASE_URL/local/pairing/status" >"$TMP_DIR/pairing-status.json" || fail "GET /local/pairing/status failed"
 curl -fsS "$BASE_URL/local/diagnostics" >"$TMP_DIR/diagnostics.json" || fail "GET /local/diagnostics failed"
+curl -fsS "$BASE_URL/local/health" >"$TMP_DIR/health.json" || fail "GET /local/health failed"
 
 COMBINED="$TMP_DIR/combined.json"
-cat "$TMP_DIR/status.json" "$TMP_DIR/pairing-status.json" "$TMP_DIR/diagnostics.json" >"$COMBINED"
+cat "$TMP_DIR/status.json" "$TMP_DIR/pairing-status.json" "$TMP_DIR/diagnostics.json" "$TMP_DIR/health.json" >"$COMBINED"
 
 if grep -F "$SECRET" "$COMBINED" >/dev/null; then
   fail "stored device API key leaked through a local JSON endpoint"
@@ -62,6 +63,7 @@ fi
 
 grep -F '"hasDeviceApiKey": true' "$TMP_DIR/status.json" >/dev/null || fail "/local/status did not expose redacted key presence"
 grep -F '"deviceKeyPresent": true' "$TMP_DIR/diagnostics.json" >/dev/null || fail "/local/diagnostics did not expose health key presence"
+grep -F '"deviceKeyPresent": true' "$TMP_DIR/health.json" >/dev/null || fail "/local/health did not expose health key presence"
 
 if git -C "$ROOT_DIR" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
   TRACKED_SENSITIVE="$(git -C "$ROOT_DIR" ls-files | grep -E '(^|/)(\.env|.*\.pem|.*\.key|secrets?)(/|$)' || true)"
@@ -71,4 +73,4 @@ if git -C "$ROOT_DIR" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
   fi
 fi
 
-echo "security smoke passed: local status, pairing status, and diagnostics redact device API keys"
+echo "security smoke passed: local status, pairing status, diagnostics, and health redact device API keys"

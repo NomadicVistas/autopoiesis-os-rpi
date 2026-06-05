@@ -58,6 +58,16 @@ The diagnostics endpoint is the quickest support snapshot for hardware testing. 
 
 Read `.diagnostics.health.status` first. It is `ok`, `warning`, or `error`, with `.diagnostics.health.issues[]` carrying stable issue codes such as `network_offline`, `offline_fallback`, `device_key_missing`, `storage_low`, `temperature_high`, `release_error`, `commands_pending`, and `service_failed`.
 
+For quick acceptance checks, use the compact health probe:
+
+```bash
+/opt/autopoiesis-os/app/scripts/health-check.sh
+curl -fsS http://127.0.0.1:3030/local/health
+curl -fsS 'http://127.0.0.1:3030/local/health?services=1'
+```
+
+`/local/health` returns the derived status, issue codes, device identity, mode, network/pairing state, release summary, pending command count, current broadcast, and timestamp without exposing stored API keys.
+
 ## Security Smoke
 
 ```bash

@@ -43,6 +43,7 @@ GET /api/frames/device/{deviceId}/artwork-feed
 
 ```txt
 GET  /local/status
+GET  /local/health
 GET  /local/diagnostics
 GET  /local/network/status
 POST /local/lan/connect
@@ -106,6 +107,32 @@ Diagnostics fields are intentionally compact and safe for admin/profile/support 
 - health
 
 `GET /local/diagnostics` returns the same object plus local systemd service states when available.
+
+`GET /local/health` returns a compact, redacted summary derived from diagnostics. It is intended for admin fleet scans, support scripts, and hardware acceptance checks that do not need the full telemetry payload. Add `?services=1` to include local systemd checks before deriving the health summary.
+
+Example:
+
+```json
+{
+  "ok": true,
+  "status": "warning",
+  "device": {
+    "deviceId": "rpi-example",
+    "deviceName": "Gallery frame",
+    "softwareVersion": "0.1.0"
+  },
+  "mode": "offline",
+  "network": {
+    "online": false,
+    "primary": null
+  },
+  "pairing": {
+    "paired": true
+  },
+  "pendingCommands": 0,
+  "collectedAt": "2026-06-06T00:15:00.000Z"
+}
+```
 
 Diagnostics health summary:
 

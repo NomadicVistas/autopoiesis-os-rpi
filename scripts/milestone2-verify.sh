@@ -53,5 +53,8 @@ curl -fsS "$SETUP_URL" >/dev/null
 echo "   services restart cleanly and setup UI still responds"
 
 echo
-echo "Milestone 2 verification passed."
+echo "6. Local health probe"
+"$(dirname "$0")/health-check.sh"
 
+echo
+echo "Milestone 2 verification passed."

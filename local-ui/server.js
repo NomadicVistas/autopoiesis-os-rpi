@@ -436,6 +436,38 @@ async function collectDiagnostics(options = {}) {
   return diagnostics;
 }
 
+function healthSummary(diagnostics) {
+  const health = diagnostics.health || {};
+  return {
+    ok: health.status !== "error",
+    status: health.status || "unknown",
+    health,
+    device: {
+      deviceId: diagnostics.deviceId || null,
+      deviceName: diagnostics.deviceName || null,
+      softwareVersion: diagnostics.softwareVersion || null
+    },
+    mode: diagnostics.mode || null,
+    network: {
+      online: Boolean(health.networkOnline),
+      primary: diagnostics.network ? diagnostics.network.primary || null : null
+    },
+    pairing: {
+      paired: Boolean(health.paired)
+    },
+    release: diagnostics.release
+      ? {
+          status: diagnostics.release.status || null,
+          targetVersion: diagnostics.release.targetVersion || null,
+          releaseId: diagnostics.release.releaseId || null
+        }
+      : null,
+    pendingCommands: diagnostics.pendingCommands || 0,
+    broadcast: diagnostics.broadcast || null,
+    collectedAt: diagnostics.collectedAt || null
+  };
+}
+
 function page(title, body, script = "") {
   return `<!doctype html>
 <html lang="en">
@@ -1201,6 +1233,10 @@ async function handle(req, res) {
     if (req.method === "GET" && url.pathname === "/local/status") return sendJson(res, publicStatus());
     if (req.method === "GET" && url.pathname === "/local/diagnostics") {
       return sendJson(res, { ok: true, diagnostics: await collectDiagnostics({ includeServices: true }) });
+    }
+    if (req.method === "GET" && url.pathname === "/local/health") {
+      const includeServices = url.searchParams.get("services") === "1";
+      return sendJson(res, healthSummary(await collectDiagnostics({ includeServices })));
     }
     if (req.method === "GET" && url.pathname === "/local/network/status") {
       return networkStatus((_, value) => sendJson(res, value, value.ok ? 200 : 503));

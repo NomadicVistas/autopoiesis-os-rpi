@@ -62,3 +62,12 @@ Context: ONLINE ADMIN cron pass. The Pi now sends `diagnostics.health` in heartb
 What changed: Updated `/data/.openclaw/workspace/autopoiesis/app/frontend/src/pages/AdminFrames.jsx` so selected device detail surfaces the newest heartbeat diagnostics health status, issue codes, and diagnostics timestamp.
 What needs review: The main `autopoiesis` checkout has a large unrelated dirty backlog, so this UI source change is intentionally left uncommitted there. Review/stage only `app/frontend/src/pages/AdminFrames.jsx` when the main repo is ready for a scoped commit.
 Next recommended action: Add latest-health summaries to the admin fleet list API and device cards once backend ownership/auth shape stabilizes.
+
+## 2026-06-06 - Compact local health probe
+
+Date/time: 2026-06-05 22:15 UTC / 2026-06-06 00:15 Europe/Berlin
+Agent: Pulse
+Context: LEAD / INTEGRATION cron pass. Diagnostics health now exists and admin detail can display it, but acceptance scripts and fleet adapters needed a smaller stable probe than the full diagnostics payload.
+What changed: Added `GET /local/health`, optional service-aware derivation with `?services=1`, and `scripts/health-check.sh`. Milestone 2 verification now calls the health script, and the security smoke test covers key redaction on the new endpoint.
+What needs review: Run `health-check.sh` on a physical Raspberry Pi after install to confirm warning/error thresholds match real hardware behavior.
+Next recommended action: Mirror this compact shape into the online admin fleet list so device cards can show latest status without opening heartbeat detail.

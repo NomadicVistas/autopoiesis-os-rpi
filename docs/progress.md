@@ -341,3 +341,40 @@ Commit note:
 Next step:
 
 Extend the admin fleet list endpoint/UI to include latest health status per device, so operators can scan the whole fleet without opening each frame.
+
+## 2026-06-06 - Compact local health probe
+
+Date: 2026-06-06
+
+Milestone: Lead/integration observability for support, admin adapters, and hardware validation
+
+Changed files:
+
+- `local-ui/server.js`
+- `scripts/health-check.sh`
+- `scripts/security-smoke.sh`
+- `scripts/milestone2-verify.sh`
+- `README.md`
+- `docs/api-contract.md`
+- `docs/troubleshooting.md`
+- `docs/progress.md`
+- `docs/agent-notes/pulse.md`
+- `/data/.openclaw/workspace/autopoiesis-os-program/ROLLING-LOG.md`
+
+Implemented:
+
+- Added `GET /local/health`, a compact redacted summary derived from the existing diagnostics health object.
+- Added optional `?services=1` support so systemd service state can be included before deriving health.
+- Added `scripts/health-check.sh` for Pi acceptance checks and folded it into the Milestone 2 verification flow.
+- Extended the security smoke gate to prove the new health endpoint does not leak stored device API keys.
+
+Verification:
+
+- `node --check local-ui/server.js` passed.
+- `bash -n install.sh update.sh uninstall-dev-tools.sh factory-reset.sh scripts/*.sh` passed.
+- `scripts/security-smoke.sh` passed, including `/local/health` redaction coverage.
+- Local smoke test passed for `scripts/health-check.sh` against `/local/health` and for service-aware `/local/health?services=1`.
+
+Next step:
+
+Use the same compact health shape when the online admin fleet list API grows latest-health summaries per device.
