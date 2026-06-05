@@ -245,3 +245,34 @@ Verification:
 Next step:
 
 Validate on physical Raspberry Pi hardware by disconnecting LAN/Wi-Fi after pairing, confirming kiosk lands on `/offline`, reconnecting the network, and confirming the retry returns to the remote Frames app.
+
+## 2026-06-05 - Diagnostics health summary
+
+Date: 2026-06-05
+
+Milestone: Lead/integration observability for support and admin surfaces
+
+Changed files:
+
+- `local-ui/server.js`
+- `docs/api-contract.md`
+- `docs/troubleshooting.md`
+- `docs/agent-notes/pulse.md`
+- `docs/progress.md`
+- `/data/.openclaw/workspace/autopoiesis-os-program/ROLLING-LOG.md`
+
+Implemented:
+
+- Added `diagnostics.health` to the local diagnostics payload and heartbeat diagnostics.
+- Health status is derived as `ok`, `warning`, or `error`.
+- Stable issue codes now cover pairing, missing device API key, network/offline fallback, storage pressure, low memory, high temperature, release/update state, pending commands, and failed systemd services when local service checks are included.
+
+Verification:
+
+- `node --check local-ui/server.js` passed.
+- `bash -n install.sh update.sh uninstall-dev-tools.sh factory-reset.sh scripts/*.sh` passed.
+- Local diagnostics smoke test passed: temporary local UI returned `diagnostics.health.status` plus expected setup issue codes.
+
+Next step:
+
+Use `diagnostics.health` in Admin > Frames and hardware validation reports so support does not have to infer device condition from raw telemetry.

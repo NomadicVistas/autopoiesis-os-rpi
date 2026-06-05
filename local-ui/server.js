@@ -289,6 +289,90 @@ async function serviceDiagnostics() {
   return services;
 }
 
+function percentNumber(value) {
+  const match = String(value || "").match(/^(\d+(?:\.\d+)?)%$/);
+  return match ? Number(match[1]) : null;
+}
+
+function diagnosticsHealth(diagnostics, data) {
+  const issues = [];
+  function add(level, code, message) {
+    issues.push({ level, code, message });
+  }
+
+  const paired = Boolean(data.device.paired);
+  const deviceKeyPresent = Boolean(data.device.deviceApiKey || data.device.device_api_key);
+  if (!paired) {
+    add("warning", "device_unpaired", "Device is not paired to an online Frames profile.");
+  } else if (!deviceKeyPresent) {
+    add("warning", "device_key_missing", "Paired device has no stored API key.");
+  }
+
+  const networkOnline = Boolean(data.network && data.network.online);
+  if (!networkOnline) {
+    add("warning", "network_offline", "No LAN or Wi-Fi connection is currently recorded.");
+  }
+  if (diagnostics.mode === "offline") {
+    add("warning", "offline_fallback", "Kiosk is using the local offline fallback.");
+  }
+
+  const disk = diagnostics.storage && diagnostics.storage.dataDisk;
+  if (disk && disk.ok) {
+    const capacity = percentNumber(disk.capacity);
+    if (capacity !== null && capacity >= 95) {
+      add("error", "storage_critical", "Data filesystem is at or above 95% capacity.");
+    } else if (capacity !== null && capacity >= 85) {
+      add("warning", "storage_high", "Data filesystem is at or above 85% capacity.");
+    }
+    if (Number.isFinite(disk.availableMb) && disk.availableMb < 256) {
+      add("error", "storage_low", "Less than 256 MB is available for device data.");
+    }
+  } else if (disk && disk.ok === false) {
+    add("warning", "storage_unknown", "Data filesystem status could not be collected.");
+  }
+
+  if (diagnostics.memory && Number.isFinite(diagnostics.memory.freeMb) && diagnostics.memory.freeMb < 128) {
+    add("warning", "memory_low", "Less than 128 MB of system memory is free.");
+  }
+
+  if (Number.isFinite(diagnostics.temperatureC)) {
+    if (diagnostics.temperatureC >= 85) {
+      add("error", "temperature_critical", "Device temperature is at or above 85 C.");
+    } else if (diagnostics.temperatureC >= 75) {
+      add("warning", "temperature_high", "Device temperature is at or above 75 C.");
+    }
+  }
+
+  if (diagnostics.release && diagnostics.release.status === "error") {
+    add("error", "release_error", "Last release/update attempt failed.");
+  } else if (diagnostics.release && diagnostics.release.status === "in_progress") {
+    add("warning", "release_in_progress", "A release/update attempt is in progress.");
+  }
+
+  if (diagnostics.pendingCommands > 0) {
+    add("warning", "commands_pending", "Remote commands are waiting to be processed.");
+  }
+
+  if (diagnostics.services) {
+    for (const [serviceName, serviceStatus] of Object.entries(diagnostics.services)) {
+      if (serviceStatus === "failed") {
+        add("error", "service_failed", serviceName + " is failed.");
+      }
+    }
+  }
+
+  const hasError = issues.some(issue => issue.level === "error");
+  const hasWarning = issues.some(issue => issue.level === "warning");
+  return {
+    status: hasError ? "error" : hasWarning ? "warning" : "ok",
+    issues,
+    paired,
+    networkOnline,
+    deviceKeyPresent,
+    checkedAt: diagnostics.collectedAt
+  };
+}
+
 async function collectDiagnostics(options = {}) {
   const data = status();
   const commands = readJson(paths.commands, []);
@@ -347,6 +431,7 @@ async function collectDiagnostics(options = {}) {
       : null
   };
   if (options.includeServices) diagnostics.services = await serviceDiagnostics();
+  diagnostics.health = diagnosticsHealth(diagnostics, data);
   writeJson(paths.diagnostics, diagnostics);
   return diagnostics;
 }

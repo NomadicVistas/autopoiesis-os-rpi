@@ -103,8 +103,30 @@ Diagnostics fields are intentionally compact and safe for admin/profile/support 
 - release
 - pendingCommands
 - broadcast
+- health
 
 `GET /local/diagnostics` returns the same object plus local systemd service states when available.
+
+Diagnostics health summary:
+
+```json
+{
+  "status": "ok|warning|error",
+  "issues": [
+    {
+      "level": "warning|error",
+      "code": "network_offline",
+      "message": "Human-readable support summary."
+    }
+  ],
+  "paired": true,
+  "networkOnline": true,
+  "deviceKeyPresent": true,
+  "checkedAt": "2026-06-05T21:15:00.000Z"
+}
+```
+
+Current issue codes include `device_unpaired`, `device_key_missing`, `network_offline`, `offline_fallback`, `storage_critical`, `storage_high`, `storage_low`, `storage_unknown`, `memory_low`, `temperature_critical`, `temperature_high`, `release_error`, `release_in_progress`, `commands_pending`, and `service_failed`.
 
 Settings sync:
 

@@ -55,3 +55,5 @@ curl -fsS http://127.0.0.1:3030/local/diagnostics
 ```
 
 The diagnostics endpoint is the quickest support snapshot for hardware testing. It reports software version, uptime, memory, temperature, network and pairing state, cache footprint, release state, pending command count, current broadcast, and local Autopoiesis service states when systemd is available.
+
+Read `.diagnostics.health.status` first. It is `ok`, `warning`, or `error`, with `.diagnostics.health.issues[]` carrying stable issue codes such as `network_offline`, `offline_fallback`, `device_key_missing`, `storage_low`, `temperature_high`, `release_error`, `commands_pending`, and `service_failed`.
