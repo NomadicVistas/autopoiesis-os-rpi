@@ -53,3 +53,12 @@ Context: QA / SECURITY cron pass. Device API keys are now stored locally, so the
 What changed: Added `scripts/security-smoke.sh` to launch the local UI against temporary keyed device state and verify `/local/status`, `/local/pairing/status`, and `/local/diagnostics` do not leak key values or key field names. The script also checks tracked files for sensitive-looking paths.
 What needs review: Run the smoke test on real Raspberry Pi hardware after installation, alongside the normal milestone verification.
 Next recommended action: Fold this gate into the final production-image checklist once physical Pi validation starts.
+
+## 2026-06-06 - Online admin diagnostics health readout
+
+Date/time: 2026-06-05 22:05 UTC / 2026-06-06 00:05 Europe/Berlin
+Agent: Pulse
+Context: ONLINE ADMIN cron pass. The Pi now sends `diagnostics.health` in heartbeat payloads, but Admin > Frames still exposed only the device summary fields and buried heartbeat payloads.
+What changed: Updated `/data/.openclaw/workspace/autopoiesis/app/frontend/src/pages/AdminFrames.jsx` so selected device detail surfaces the newest heartbeat diagnostics health status, issue codes, and diagnostics timestamp.
+What needs review: The main `autopoiesis` checkout has a large unrelated dirty backlog, so this UI source change is intentionally left uncommitted there. Review/stage only `app/frontend/src/pages/AdminFrames.jsx` when the main repo is ready for a scoped commit.
+Next recommended action: Add latest-health summaries to the admin fleet list API and device cards once backend ownership/auth shape stabilizes.

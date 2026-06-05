@@ -307,3 +307,37 @@ Verification:
 Next step:
 
 Run this smoke gate on physical Raspberry Pi hardware after install, then add it to the final production-image acceptance checklist.
+
+## 2026-06-06 - Online admin diagnostics health readout
+
+Date: 2026-06-06
+
+Milestone: MVP 0.5 - Managed Device Fleet
+
+Changed files:
+
+- `/data/.openclaw/workspace/autopoiesis/app/frontend/src/pages/AdminFrames.jsx`
+- `docs/progress.md`
+- `docs/agent-notes/pulse.md`
+- `/data/.openclaw/workspace/autopoiesis-os-program/ROLLING-LOG.md`
+
+Implemented:
+
+- Admin > Frames device detail now extracts the newest heartbeat carrying `payload.diagnostics`.
+- The selected device panel shows `diagnostics.health.status`, stable issue-code chips, and the timestamp of the heartbeat that supplied diagnostics.
+- The panel handles older devices that have not yet sent diagnostics by showing a clear waiting state.
+
+Verification:
+
+- `npm run build` passed in `/data/.openclaw/workspace/autopoiesis/app/frontend`.
+- `node --check local-ui/server.js` passed.
+- `bash -n install.sh update.sh uninstall-dev-tools.sh factory-reset.sh scripts/*.sh` passed.
+
+Commit note:
+
+- The main `autopoiesis` repo change was not committed because that checkout already contains a large unrelated dirty backlog.
+- The OS repo documentation/log update can be committed safely from the clean RPi checkout.
+
+Next step:
+
+Extend the admin fleet list endpoint/UI to include latest health status per device, so operators can scan the whole fleet without opening each frame.
