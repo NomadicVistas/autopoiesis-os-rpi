@@ -179,7 +179,8 @@ Local feed behavior:
 - POST /local/feed/sync fetches GET /api/frames/device/{deviceId}/feed and stores a normalized local feed.
 - Heartbeat responses may also carry feed, items, artworks, or broadcasts; the local UI normalizes those into the same feed state.
 - GET /local/feed returns active, display-eligible items only. Expired items, future scheduled items, and preference-disabled media types are filtered out.
-- The local UI also writes a feed cache manifest for items with cacheAllowed !== false and a media or thumbnail URL. The current manifest is metadata only; downloading/cache eviction remains a later cache-service task.
+- The local UI also writes a feed cache manifest for items with cacheAllowed !== false and a media or thumbnail URL. `scripts/cache-artworks.sh` downloads those eligible assets into the local runtime cache and writes `cache-index.json` with cached/failed asset status for offline display work.
+- Cache eviction and the final offline playback route are still separate follow-up tasks.
 - Feed items are sorted by priority, then created time, then explicit order.
 
 Commands:

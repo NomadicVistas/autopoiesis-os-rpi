@@ -258,6 +258,7 @@ Changed files:
 - `docs/api-contract.md`
 - `docs/troubleshooting.md`
 - `docs/agent-notes/pulse.md`
+
 - `docs/progress.md`
 - `/data/.openclaw/workspace/autopoiesis-os-program/ROLLING-LOG.md`
 
@@ -412,3 +413,36 @@ Verification:
 Next step:
 
 Connect the backend feed endpoint to the real artwork/blog/news/curatorial content model and have the cache service download the cache manifest entries for offline playback.
+
+## 2026-06-06 - Local cache worker foundation
+
+Date: 2026-06-06
+
+Milestone: MVP 0.3 - Offline Living Frame
+
+Changed files:
+
+- `scripts/cache-artworks.sh`
+- `README.md`
+- `docs/api-contract.md`
+- `docs/troubleshooting.md`
+- `docs/progress.md`
+- `docs/agent-notes/pulse.md`
+- `/data/.openclaw/workspace/autopoiesis-os-program/ROLLING-LOG.md`
+
+Implemented:
+
+- Replaced the cache placeholder with a real feed-cache worker.
+- The worker reads `feed-cache.json`, downloads eligible media and thumbnails into the runtime cache directory, and writes `cache-index.json`.
+- Each cached item records media/thumbnail URL, local path, status, and byte count.
+- Missing manifests, offline downloads, and partial failures are handled conservatively so the hourly timer leaves support-visible state instead of silently doing nothing.
+
+Verification:
+
+- `node --check local-ui/server.js` passed.
+- `bash -n install.sh update.sh uninstall-dev-tools.sh factory-reset.sh scripts/*.sh` passed.
+- Local cache smoke passed against a temporary HTTP file server: manifest item downloaded, `cache-index.json` reported one cached item and zero failed items.
+
+Next step:
+
+Use `cache-index.json` from the local offline fallback route so a disconnected paired frame can display cached artwork instead of only the static offline screen.

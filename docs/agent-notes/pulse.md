@@ -80,3 +80,12 @@ Context: BROADCAST / FEED cron pass. The Pi could receive `show_broadcast` comma
 What changed: Added normalized local feed state, `/local/feed`, `/local/feed/sync`, heartbeat feed ingestion, eligibility filtering, cache-manifest metadata, and a real local `/broadcast` display route for active broadcast commands.
 What needs review: Physical frame behavior still needs Pi validation for display timing, touchscreen dismissal expectations, and whether high-priority broadcasts should interrupt an already loaded remote Frames web app without a launch cycle.
 Next recommended action: Implement the backend `/api/frames/device/{deviceId}/feed` content query across artwork, blog, news, curatorial notes, and broadcasts; then connect `scripts/cache-artworks.sh` to the local feed cache manifest.
+
+## 2026-06-06 - Local cache worker foundation
+
+Date/time: 2026-06-05 22:35 UTC / 2026-06-06 00:35 Europe/Berlin
+Agent: Pulse
+Context: RPI APPLIANCE cron pass. The local feed path writes a cache eligibility manifest, but the hourly cache service still only logged a placeholder.
+What changed: Replaced `scripts/cache-artworks.sh` with a conservative downloader that reads `feed-cache.json`, stores media and thumbnails under the runtime cache directory, and writes `cache-index.json` with per-asset cached/failed status.
+What needs review: Real Pi validation should confirm cache directory ownership under the installed `frame` user and storage pressure behavior on the target SD card.
+Next recommended action: Teach `/offline` to read `cache-index.json` and show cached artwork when available, falling back to the current static offline screen only when the cache is empty.

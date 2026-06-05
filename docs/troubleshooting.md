@@ -48,6 +48,15 @@ nmcli connection show
 ls -lah /var/log/autopoiesis-os
 ```
 
+## Cache
+
+```bash
+/opt/autopoiesis-os/app/scripts/cache-artworks.sh
+cat /var/lib/autopoiesis-os/cache-index.json
+```
+
+The cache worker reads `/var/lib/autopoiesis-os/feed-cache.json`, downloads eligible media and thumbnails into the runtime cache, and writes `/var/lib/autopoiesis-os/cache-index.json`. Failed downloads are recorded in the index and log instead of aborting the whole timer pass.
+
 ## Diagnostics
 
 ```bash
