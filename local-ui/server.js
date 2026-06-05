@@ -66,6 +66,7 @@ function apiEndpoint(apiPath, device) {
 
 async function apiRequest(apiPath, options = {}) {
   const device = readJson(paths.device, {});
+  const deviceKey = device.deviceApiKey || device.device_api_key;
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), API_TIMEOUT_MS);
   try {
@@ -74,6 +75,7 @@ async function apiRequest(apiPath, options = {}) {
       signal: controller.signal,
       headers: {
         "content-type": "application/json",
+        ...(deviceKey ? { "x-frame-device-key": deviceKey } : {}),
         ...(options.headers || {})
       }
     });
@@ -169,6 +171,17 @@ function status() {
   const network = readJson(path.join(DATA_DIR, "network.json"), null);
   const pairing = readJson(paths.pairing, null);
   return { device, preferences, state, network, pairing, version: version() };
+}
+
+function redactDevice(device) {
+  const { deviceApiKey, device_api_key, ...publicDevice } = device || {};
+  if (deviceApiKey || device_api_key) publicDevice.hasDeviceApiKey = true;
+  return publicDevice;
+}
+
+function publicStatus() {
+  const data = status();
+  return { ...data, device: redactDevice(data.device) };
 }
 
 function page(title, body, script = "") {
@@ -631,6 +644,7 @@ async function startPairing() {
       ...device,
       ...remoteDevice,
       deviceId: remoteDevice.deviceId || device.deviceId,
+      deviceApiKey: result.deviceApiKey || remoteDevice.deviceApiKey || device.deviceApiKey,
       pairingCode: result.pairingCode,
       paired: Boolean(remoteDevice.paired)
     });
@@ -878,7 +892,7 @@ async function handle(req, res) {
     if (req.method === "GET" && url.pathname === "/offline") return html(res, renderOffline());
     if (req.method === "GET" && url.pathname === "/disabled") return html(res, renderDisabled());
     if (req.method === "GET" && url.pathname === "/style.css") return css(res);
-    if (req.method === "GET" && url.pathname === "/local/status") return sendJson(res, status());
+    if (req.method === "GET" && url.pathname === "/local/status") return sendJson(res, publicStatus());
     if (req.method === "GET" && url.pathname === "/local/network/status") {
       return networkStatus((_, value) => sendJson(res, value, value.ok ? 200 : 503));
     }
@@ -918,7 +932,7 @@ async function handle(req, res) {
     if (req.method === "GET" && url.pathname === "/local/pairing/status") {
       return sendJson(res, {
         ok: true,
-        device: readJson(paths.device, {}),
+        device: redactDevice(readJson(paths.device, {})),
         pairing: readJson(paths.pairing, {})
       });
     }

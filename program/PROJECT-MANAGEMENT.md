@@ -11,6 +11,7 @@
 - /frames opens fullscreen.
 - Heartbeat works.
 - Device appears in online profile.
+- Device remote calls use a stored per-device API key.
 
 ## MVP 0.2 - Personal Stream
 
@@ -33,6 +34,7 @@
 - Targeted broadcasts.
 - Device polling.
 - Delivery logs.
+- Device-authenticated acknowledgements.
 
 ## MVP 0.5 - Managed Device Fleet
 
@@ -41,6 +43,7 @@
 - Restart command.
 - Diagnostics.
 - Release tracking.
+- Admin token gate for fleet management.
 
 ## MVP 1.0 - Production Installer
 
@@ -49,4 +52,3 @@
 - Production cleanup.
 - Rollback.
 - Tested on physical Raspberry Pi.
-
