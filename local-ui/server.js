@@ -1490,7 +1490,9 @@ async function handle(req, res) {
     if (req.method === "GET" && url.pathname === "/broadcast") return html(res, renderBroadcast());
     if (req.method === "GET" && url.pathname === "/disabled") return html(res, renderDisabled());
     if (req.method === "GET" && url.pathname === "/style.css") return css(res);
-    if (req.method === "GET" && url.pathname === "/local/status") return sendJson(res, publicStatus());
+    if (req.method === "GET" && (url.pathname === "/local/status" || url.pathname === "/local/status.json")) {
+      return sendJson(res, publicStatus());
+    }
     if (req.method === "GET" && url.pathname === "/local/diagnostics") {
       return sendJson(res, { ok: true, diagnostics: await collectDiagnostics({ includeServices: true }) });
     }
@@ -1501,7 +1503,7 @@ async function handle(req, res) {
     if (req.method === "GET" && url.pathname === "/local/feed") {
       return sendJson(res, publicFeed());
     }
-    if (req.method === "GET" && url.pathname === "/local/network/status") {
+    if (req.method === "GET" && (url.pathname === "/local/network/status" || url.pathname === "/local/network/status.json")) {
       return networkStatus((_, value) => sendJson(res, value, value.ok ? 200 : 503));
     }
     if (req.method === "GET" && url.pathname === "/local/wifi/scan") {

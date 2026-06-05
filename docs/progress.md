@@ -309,6 +309,58 @@ Next step:
 
 Run this smoke gate on physical Raspberry Pi hardware after install, then add it to the final production-image acceptance checklist.
 
+## 2026-06-05 - Raspberry Pi hardware validation
+
+Date: 2026-06-05
+
+Milestone: Physical Pi setup and endpoint validation
+
+Hardware:
+
+- Raspberry Pi 3 Model B Rev 1.2.
+- Debian GNU/Linux 13 (trixie), 13.4.
+
+Install:
+
+- Removed the previous `/home/frame/autopoiesis-os-rpi` checkout.
+- Recloned `dev/pulse-initial-improvements` at `34c656f`.
+- Ran `sudo ./install.sh`.
+- Restarted `autopoiesis-setup.service` and `autopoiesis-kiosk.service`.
+- `sudo /opt/autopoiesis-os/app/scripts/milestone2-verify.sh` passed.
+
+Network:
+
+- LAN connected on `eth0` via `netplan-eth0`.
+- Wi-Fi hardware present as `wlan0`, disconnected during this run.
+
+Pairing:
+
+- Live Frames API registration succeeded with non-mock pairing.
+- Device remains unclaimed, so no local device API key is stored yet.
+- `device.json` contains a stable `rpi-` device ID and is `0600 frame frame`.
+
+Backend-dependent checks:
+
+- Heartbeat, settings sync, command polling, and release check endpoints are reachable but skip until the device is claimed.
+- These must be rerun after live pairing is completed from a Frames account.
+
+Pi fix:
+
+- Added compatibility aliases for `GET /local/status.json` and `GET /local/network/status.json`.
+- Confirmed `GET /local/diagnostics` is available for the handoff checks.
+- Did not change command allowlists or unattended update behavior.
+
+Journal notes:
+
+- Setup service reports `Autopoiesis local UI listening on http://127.0.0.1:3030`.
+- Kiosk service stays active.
+- Chromium logs Pi 3 GPU initialization errors including `GLES3 is unsupported` and `CollectGraphicsInfo failed`; kiosk remains running.
+
+Source:
+
+- Origin commit `72f41fb Validate Pi setup endpoints`.
+- Full local report on the validated Pi: `logs/2026-06-05-rpi-hardware-validation.md`. The `logs/*` path is gitignored, so this tracked summary is the portable report.
+
 ## 2026-06-06 - Online admin diagnostics health readout
 
 Date: 2026-06-06
