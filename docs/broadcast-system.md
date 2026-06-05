@@ -42,6 +42,16 @@ Pulse needs a broadcast system for sending messages or media to all or selected 
 
 Phase 1 uses polling. Device receives broadcasts through heartbeat response or a dedicated broadcasts endpoint.
 
+Device-side MVP behavior:
+
+- The RPi local UI normalizes feed items and broadcasts into one local feed state.
+- Expired broadcasts are rejected before display.
+- Scheduled broadcasts are ignored locally until their start time.
+- Active `show_broadcast` commands set `currentMode: broadcast` and route `/launch` to the local `/broadcast` page before returning to the normal Frames URL.
+- The local broadcast page marks the broadcast display complete through `POST /local/broadcast/dismiss` after its duration elapses, then returns to `/launch`.
+- Broadcast priority is preserved for feed ordering and diagnostics.
+- Cache eligibility is recorded as a manifest when `cacheAllowed` is not false and a media/thumbnail URL exists; actual media download/eviction belongs to the cache service.
+
 Suggested endpoint:
 
 GET /api/frames/device/{deviceId}/broadcasts
@@ -72,4 +82,3 @@ Suggested response shape:
 - View delivery logs.
 - Cancel future broadcast.
 - Expire active broadcast.
-

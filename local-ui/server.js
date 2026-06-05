@@ -26,6 +26,8 @@ const paths = {
   commands: path.join(DATA_DIR, "commands.json"),
   release: path.join(DATA_DIR, "release.json"),
   releaseState: path.join(DATA_DIR, "release-state.json"),
+  feed: path.join(DATA_DIR, "feed.json"),
+  feedCache: path.join(DATA_DIR, "feed-cache.json"),
   broadcast: path.join(DATA_DIR, "current-broadcast.json"),
   diagnostics: path.join(DATA_DIR, "diagnostics.json")
 };
@@ -189,6 +191,180 @@ function status() {
 function updateState(patch) {
   const state = readJson(paths.state, {});
   writeJson(paths.state, { ...state, ...patch });
+}
+
+function parseTimestamp(value) {
+  if (!value) return null;
+  const timestamp = Date.parse(value);
+  return Number.isFinite(timestamp) ? timestamp : null;
+}
+
+function isExpired(value, now = Date.now()) {
+  const timestamp = parseTimestamp(value);
+  return timestamp !== null && timestamp <= now;
+}
+
+function priorityRank(value) {
+  const priority = String(value || "normal").toLowerCase();
+  return {
+    emergency: 500,
+    critical: 400,
+    high: 300,
+    normal: 200,
+    low: 100
+  }[priority] || 200;
+}
+
+function feedItemTypeAllowed(item, preferences) {
+  const type = String(item.type || "").toLowerCase();
+  if (!preferences.allowImages && (type.includes("image") || type === "artwork")) return false;
+  if (!preferences.allowVideos && type.includes("video")) return false;
+  if (!preferences.allowSoundWorks && (type.includes("audio") || type.includes("sound"))) return false;
+  if (!preferences.allowGenerativeWorks && type.includes("generative")) return false;
+  return true;
+}
+
+function normalizeFeedItem(raw, source, index = 0) {
+  if (!raw || typeof raw !== "object") return null;
+  const id = raw.id || raw.feedItemId || raw.feed_item_id || raw.artworkId || raw.broadcastId || raw.broadcast_id;
+  if (!id) return null;
+  const type = raw.type || (source === "broadcast" ? "broadcast_message" : "artwork_image");
+  return {
+    id: String(id),
+    source,
+    type,
+    title: raw.title || raw.name || null,
+    artist: raw.artist || raw.artistName || raw.artist_name || null,
+    body: raw.body || raw.description || raw.message || null,
+    url: raw.url || raw.href || null,
+    mediaUrl: raw.mediaUrl || raw.media_url || raw.imageUrl || raw.videoUrl || raw.audioUrl || null,
+    thumbnailUrl: raw.thumbnailUrl || raw.thumbnail_url || null,
+    duration: Number(raw.duration || raw.durationSeconds || raw.duration_seconds || 0) || null,
+    soundRequired: Boolean(raw.soundRequired || raw.sound_required),
+    cacheAllowed: raw.cacheAllowed !== false && raw.cache_allowed !== false,
+    priority: String(raw.priority || "normal").toLowerCase(),
+    visibility: raw.visibility || raw.targeting || null,
+    createdAt: raw.createdAt || raw.created_at || null,
+    startsAt: raw.startsAt || raw.starts_at || raw.scheduledAt || raw.scheduled_at || null,
+    expiresAt: raw.expiresAt || raw.expires_at || null,
+    dismissible: raw.dismissible !== false,
+    order: Number(raw.order || raw.position || index) || index,
+    raw
+  };
+}
+
+function arrayValue(value) {
+  if (Array.isArray(value)) return value;
+  if (value && Array.isArray(value.items)) return value.items;
+  return [];
+}
+
+function normalizeFeedPayload(payload = {}) {
+  const now = new Date().toISOString();
+  const feedItems = arrayValue(payload.feed || payload.items || payload.artworks);
+  const broadcastItems = arrayValue(payload.broadcasts);
+  const items = [
+    ...feedItems.map((item, index) => normalizeFeedItem(item, "feed", index)),
+    ...broadcastItems.map((item, index) => normalizeFeedItem(item, "broadcast", index))
+  ].filter(Boolean);
+  return {
+    syncedAt: now,
+    source: payload.source || "remote",
+    items
+  };
+}
+
+function eligibleFeedItems(feed = readJson(paths.feed, {}), preferences = readJson(paths.preferences, {})) {
+  const now = Date.now();
+  return (feed.items || [])
+    .filter(item => !isExpired(item.expiresAt, now))
+    .filter(item => {
+      const startsAt = parseTimestamp(item.startsAt);
+      return startsAt === null || startsAt <= now;
+    })
+    .filter(item => feedItemTypeAllowed(item, preferences))
+    .sort((a, b) => {
+      const priorityDelta = priorityRank(b.priority) - priorityRank(a.priority);
+      if (priorityDelta !== 0) return priorityDelta;
+      const createdDelta = (parseTimestamp(b.createdAt) || 0) - (parseTimestamp(a.createdAt) || 0);
+      if (createdDelta !== 0) return createdDelta;
+      return (a.order || 0) - (b.order || 0);
+    });
+}
+
+function writeFeedState(feed) {
+  writeJson(paths.feed, feed);
+  const cacheItems = eligibleFeedItems(feed)
+    .filter(item => item.cacheAllowed && (item.mediaUrl || item.thumbnailUrl))
+    .map(item => ({
+      id: item.id,
+      source: item.source,
+      type: item.type,
+      mediaUrl: item.mediaUrl,
+      thumbnailUrl: item.thumbnailUrl,
+      priority: item.priority,
+      expiresAt: item.expiresAt || null
+    }));
+  writeJson(paths.feedCache, {
+    generatedAt: new Date().toISOString(),
+    count: cacheItems.length,
+    items: cacheItems
+  });
+}
+
+function publicFeed() {
+  const feed = readJson(paths.feed, { syncedAt: null, items: [] });
+  const items = eligibleFeedItems(feed).map(({ raw, ...item }) => item);
+  const cache = readJson(paths.feedCache, { generatedAt: null, count: 0, items: [] });
+  return {
+    ok: true,
+    syncedAt: feed.syncedAt || null,
+    totalItems: (feed.items || []).length,
+    eligibleItems: items.length,
+    cacheEligibleItems: cache.count || 0,
+    items
+  };
+}
+
+async function syncFeedFromRemote() {
+  const device = readJson(paths.device, {});
+  if (!device.deviceId || !device.paired) return { ok: false, skipped: true, reason: "Device is not paired" };
+  const result = await apiRequest("/frames/device/" + encodeURIComponent(device.deviceId) + "/feed");
+  const feed = normalizeFeedPayload(result);
+  writeFeedState(feed);
+  writeJson(paths.device, { ...device, lastFeedSyncAt: feed.syncedAt });
+  return {
+    ok: true,
+    syncedAt: feed.syncedAt,
+    totalItems: feed.items.length,
+    eligibleItems: eligibleFeedItems(feed).length
+  };
+}
+
+function activeBroadcast(now = Date.now()) {
+  const broadcast = readJson(paths.broadcast, null);
+  if (!broadcast) return null;
+  if (isExpired(broadcast.expiresAt, now)) {
+    updateState({ currentMode: "frame", currentBroadcastId: null, lastBroadcastExpiredAt: new Date().toISOString() });
+    return null;
+  }
+  const startsAt = parseTimestamp(broadcast.startsAt);
+  if (startsAt !== null && startsAt > now) return null;
+  return broadcast;
+}
+
+function dismissBroadcast(reason = "duration_elapsed") {
+  const broadcast = readJson(paths.broadcast, null);
+  updateState({
+    currentMode: "frame",
+    currentBroadcastId: null,
+    lastBroadcastDismissedAt: new Date().toISOString(),
+    lastBroadcastDismissReason: reason
+  });
+  if (broadcast) {
+    writeJson(paths.broadcast, { ...broadcast, dismissedAt: new Date().toISOString(), dismissReason: reason });
+  }
+  return { ok: true, broadcastId: broadcast ? broadcast.broadcastId || broadcast.id || null : null, reason };
 }
 
 function redactDevice(device) {
@@ -378,6 +554,8 @@ async function collectDiagnostics(options = {}) {
   const commands = readJson(paths.commands, []);
   const release = readJson(paths.releaseState, null);
   const broadcast = readJson(paths.broadcast, null);
+  const feed = readJson(paths.feed, { syncedAt: null, items: [] });
+  const cacheManifest = readJson(paths.feedCache, { generatedAt: null, count: 0 });
   const disk = await diskStatus(DATA_DIR);
   const diagnostics = {
     collectedAt: new Date().toISOString(),
@@ -422,11 +600,20 @@ async function collectDiagnostics(options = {}) {
         }
       : null,
     pendingCommands: Array.isArray(commands) ? commands.length : 0,
+    feed: {
+      syncedAt: feed.syncedAt || null,
+      totalItems: Array.isArray(feed.items) ? feed.items.length : 0,
+      eligibleItems: eligibleFeedItems(feed, data.preferences).length,
+      cacheEligibleItems: cacheManifest.count || 0,
+      cacheManifestGeneratedAt: cacheManifest.generatedAt || null
+    },
     broadcast: broadcast
       ? {
           broadcastId: broadcast.broadcastId || broadcast.id || null,
           shownAt: broadcast.shownAt || null,
-          title: broadcast.title || null
+          title: broadcast.title || null,
+          priority: broadcast.priority || null,
+          expiresAt: broadcast.expiresAt || null
         }
       : null
   };
@@ -463,6 +650,7 @@ function healthSummary(diagnostics) {
         }
       : null,
     pendingCommands: diagnostics.pendingCommands || 0,
+    feed: diagnostics.feed || null,
     broadcast: diagnostics.broadcast || null,
     collectedAt: diagnostics.collectedAt || null
   };
@@ -800,6 +988,51 @@ function renderDisabled() {
   );
 }
 
+function renderBroadcast() {
+  const broadcast = activeBroadcast();
+  if (!broadcast) {
+    return page(
+      "Autopoiesis Broadcast",
+      `<main class="screen fallback">
+        <section>
+          <p class="kicker">Autopoiesis Broadcast</p>
+          <h1>No active broadcast.</h1>
+          <p>The frame will return to the living stream.</p>
+        </section>
+      </main>`,
+      `setTimeout(() => { location.href = "/launch"; }, 1200);`
+    );
+  }
+  const duration = Number(broadcast.duration || broadcast.durationSeconds || 20);
+  const safeDuration = Number.isFinite(duration) && duration > 0 ? Math.min(duration, 3600) : 20;
+  const body = broadcast.body || broadcast.message || "";
+  const mediaUrl = broadcast.mediaUrl || broadcast.media_url || broadcast.imageUrl || null;
+  const media = mediaUrl
+    ? `<figure class="broadcast-media"><img src="${escapeHtml(mediaUrl)}" alt=""></figure>`
+    : "";
+  const expiry = broadcast.expiresAt
+    ? `<div><dt>Expires</dt><dd>${escapeHtml(broadcast.expiresAt)}</dd></div>`
+    : "";
+  return page(
+    "Autopoiesis Broadcast",
+    `<main class="screen broadcast-screen">
+      <section class="broadcast-panel">
+        <p class="kicker">${escapeHtml(broadcast.type || "broadcast")}</p>
+        <h1>${escapeHtml(broadcast.title || "Autopoiesis Broadcast")}</h1>
+        ${media}
+        ${body ? `<p>${escapeHtml(body)}</p>` : ""}
+        <dl class="status compact">
+          <div><dt>Priority</dt><dd>${escapeHtml(broadcast.priority || "normal")}</dd></div>
+          ${expiry}
+        </dl>
+      </section>
+    </main>`,
+    `setTimeout(() => {
+      fetch("/local/broadcast/dismiss", { method: "POST" }).finally(() => { location.href = "/launch"; });
+    }, ${Math.round(safeDuration * 1000)});`
+  );
+}
+
 async function remoteLaunchReachable(targetUrl) {
   async function probe(method) {
     const controller = new AbortController();
@@ -828,6 +1061,10 @@ async function renderLaunch(res) {
   if (data.state.remoteDisabled || data.device.remoteEnabled === false) {
     updateState({ currentMode: "disabled" });
     redirect(res, "/disabled");
+    return;
+  }
+  if (data.state.currentMode === "broadcast" && activeBroadcast()) {
+    redirect(res, "/broadcast");
     return;
   }
   if (!data.device.firstRunComplete || !data.device.paired) {
@@ -1055,6 +1292,9 @@ async function sendHeartbeat() {
   });
   if (result.settings) writeJson(paths.preferences, { ...data.preferences, ...result.settings });
   if (result.commands) writeJson(paths.commands, result.commands);
+  if (result.feed || result.items || result.artworks || result.broadcasts) {
+    writeFeedState(normalizeFeedPayload(result));
+  }
   writeJson(paths.device, { ...data.device, lastHeartbeatAt: new Date().toISOString() });
   return result;
 }
@@ -1173,13 +1413,32 @@ async function executeCommand(command) {
   }
   if (commandType === "show_broadcast") {
     const stateValue = readJson(paths.state, {});
-    writeJson(paths.broadcast, { ...payload, shownAt: new Date().toISOString() });
+    const broadcast = normalizeFeedItem(payload, "broadcast") || {
+      id: payload.broadcastId || payload.id || "broadcast-" + Date.now(),
+      source: "broadcast",
+      type: payload.type || "broadcast_message",
+      title: payload.title || null,
+      body: payload.body || payload.message || null,
+      priority: payload.priority || "normal",
+      expiresAt: payload.expiresAt || payload.expires_at || null,
+      duration: payload.duration || payload.durationSeconds || 20,
+      cacheAllowed: payload.cacheAllowed !== false && payload.cache_allowed !== false,
+      raw: payload
+    };
+    if (isExpired(broadcast.expiresAt)) {
+      return { ok: false, error: "Broadcast is expired", broadcastId: broadcast.id };
+    }
+    writeJson(paths.broadcast, {
+      ...broadcast,
+      broadcastId: payload.broadcastId || payload.id || broadcast.id,
+      shownAt: new Date().toISOString()
+    });
     writeJson(paths.state, {
       ...stateValue,
       currentMode: "broadcast",
-      currentBroadcastId: payload.broadcastId || null
+      currentBroadcastId: payload.broadcastId || payload.id || broadcast.id
     });
-    return { ok: true, broadcastId: payload.broadcastId || null };
+    return { ok: true, broadcastId: payload.broadcastId || payload.id || broadcast.id };
   }
   if (commandType === "factory_reset_request") {
     return { ok: false, error: "Factory reset requires local confirmation on the device" };
@@ -1228,6 +1487,7 @@ async function handle(req, res) {
     if (req.method === "GET" && url.pathname === "/network") return html(res, renderNetwork());
     if (req.method === "GET" && url.pathname === "/settings") return html(res, renderSettings());
     if (req.method === "GET" && url.pathname === "/offline") return html(res, renderOffline());
+    if (req.method === "GET" && url.pathname === "/broadcast") return html(res, renderBroadcast());
     if (req.method === "GET" && url.pathname === "/disabled") return html(res, renderDisabled());
     if (req.method === "GET" && url.pathname === "/style.css") return css(res);
     if (req.method === "GET" && url.pathname === "/local/status") return sendJson(res, publicStatus());
@@ -1237,6 +1497,9 @@ async function handle(req, res) {
     if (req.method === "GET" && url.pathname === "/local/health") {
       const includeServices = url.searchParams.get("services") === "1";
       return sendJson(res, healthSummary(await collectDiagnostics({ includeServices })));
+    }
+    if (req.method === "GET" && url.pathname === "/local/feed") {
+      return sendJson(res, publicFeed());
     }
     if (req.method === "GET" && url.pathname === "/local/network/status") {
       return networkStatus((_, value) => sendJson(res, value, value.ok ? 200 : 503));
@@ -1286,6 +1549,12 @@ async function handle(req, res) {
     }
     if (req.method === "POST" && url.pathname === "/local/heartbeat") {
       return sendJson(res, await sendHeartbeat());
+    }
+    if (req.method === "POST" && url.pathname === "/local/feed/sync") {
+      return sendJson(res, await syncFeedFromRemote());
+    }
+    if (req.method === "POST" && url.pathname === "/local/broadcast/dismiss") {
+      return sendJson(res, dismissBroadcast("duration_elapsed"));
     }
     if (req.method === "POST" && url.pathname === "/local/commands/process") {
       return sendJson(res, await processCommands());
@@ -1344,6 +1613,12 @@ label { display: grid; gap: 8px; color: #c8c6bb; font-size: 18px; }
 .network-list { display: grid; gap: 10px; margin: 24px 0; }
 .network-row { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; text-align: left; width: 100%; }
 .network-row span { overflow-wrap: anywhere; }
+.broadcast-screen { background: #121417; }
+.broadcast-panel { width: min(1100px, 100%); }
+.broadcast-panel h1 { font-size: clamp(42px, 7vw, 110px); }
+.broadcast-media { margin: 26px 0; }
+.broadcast-media img { display: block; width: 100%; max-height: 55vh; object-fit: contain; border-radius: 8px; }
+.compact { width: min(620px, 100%); }
 `);
 }
 

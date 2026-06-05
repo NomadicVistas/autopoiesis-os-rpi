@@ -378,3 +378,37 @@ Verification:
 Next step:
 
 Use the same compact health shape when the online admin fleet list API grows latest-health summaries per device.
+
+## 2026-06-06 - Local feed and broadcast display foundation
+
+Date: 2026-06-06
+
+Milestone: MVP 0.2/MVP 0.4 - Personal Stream and Broadcast System
+
+Changed files:
+
+- `local-ui/server.js`
+- `docs/api-contract.md`
+- `docs/broadcast-system.md`
+- `docs/progress.md`
+- `docs/agent-notes/pulse.md`
+- `/data/.openclaw/workspace/autopoiesis-os-program/ROLLING-LOG.md`
+
+Implemented:
+
+- Added local feed state at `/local/feed` plus `POST /local/feed/sync` for the remote device feed endpoint.
+- Heartbeat responses carrying `feed`, `items`, `artworks`, or `broadcasts` are normalized into the same local feed model.
+- Feed eligibility now filters expired items, future scheduled items, and media types disabled by local preferences.
+- Added a metadata-only cache eligibility manifest for media/thumbnail items with `cacheAllowed` enabled.
+- `show_broadcast` commands now normalize payloads, reject expired broadcasts, preserve priority/expiry/duration, and route active broadcasts through a local `/broadcast` display page.
+- Diagnostics and `/local/health` now include compact feed/cache and richer broadcast summary fields.
+
+Verification:
+
+- `node --check local-ui/server.js` passed.
+- `bash -n install.sh update.sh uninstall-dev-tools.sh factory-reset.sh scripts/*.sh` passed.
+- Local mock API smoke passed for feed sync, preference/expiry filtering, cache eligibility, command ack/completion, `/launch` broadcast routing, and `/broadcast` rendering.
+
+Next step:
+
+Connect the backend feed endpoint to the real artwork/blog/news/curatorial content model and have the cache service download the cache manifest entries for offline playback.

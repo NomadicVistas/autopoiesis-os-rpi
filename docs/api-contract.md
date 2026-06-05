@@ -45,6 +45,7 @@ GET /api/frames/device/{deviceId}/artwork-feed
 GET  /local/status
 GET  /local/health
 GET  /local/diagnostics
+GET  /local/feed
 GET  /local/network/status
 POST /local/lan/connect
 GET  /local/wifi/scan
@@ -56,6 +57,8 @@ GET  /local/pairing/status
 POST /local/pairing/check
 POST /local/settings/sync
 POST /local/heartbeat
+POST /local/feed/sync
+POST /local/broadcast/dismiss
 POST /local/commands/process
 POST /local/release/check
 POST /local/release/apply
@@ -171,6 +174,14 @@ Content stream:
 - POST /api/frames/artworks/{artworkId}/like
 - DELETE /api/frames/artworks/{artworkId}/like
 
+Local feed behavior:
+
+- POST /local/feed/sync fetches GET /api/frames/device/{deviceId}/feed and stores a normalized local feed.
+- Heartbeat responses may also carry feed, items, artworks, or broadcasts; the local UI normalizes those into the same feed state.
+- GET /local/feed returns active, display-eligible items only. Expired items, future scheduled items, and preference-disabled media types are filtered out.
+- The local UI also writes a feed cache manifest for items with cacheAllowed !== false and a media or thumbnail URL. The current manifest is metadata only; downloading/cache eviction remains a later cache-service task.
+- Feed items are sorted by priority, then created time, then explicit order.
+
 Commands:
 
 - GET /api/frames/device/{deviceId}/commands
@@ -230,6 +241,9 @@ Fields:
 - visibility
 - createdAt
 - expiresAt
+- startsAt
+- dismissible
+- source
 
 Supported types:
 

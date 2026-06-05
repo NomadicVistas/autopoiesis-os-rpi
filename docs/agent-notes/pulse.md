@@ -71,3 +71,12 @@ Context: LEAD / INTEGRATION cron pass. Diagnostics health now exists and admin d
 What changed: Added `GET /local/health`, optional service-aware derivation with `?services=1`, and `scripts/health-check.sh`. Milestone 2 verification now calls the health script, and the security smoke test covers key redaction on the new endpoint.
 What needs review: Run `health-check.sh` on a physical Raspberry Pi after install to confirm warning/error thresholds match real hardware behavior.
 Next recommended action: Mirror this compact shape into the online admin fleet list so device cards can show latest status without opening heartbeat detail.
+
+## 2026-06-06 - Local feed and broadcast display foundation
+
+Date/time: 2026-06-05 22:25 UTC / 2026-06-06 00:25 Europe/Berlin
+Agent: Pulse
+Context: BROADCAST / FEED cron pass. The Pi could receive `show_broadcast` commands, but it stored only raw current-broadcast JSON and had no local mixed-feed contract for artwork/news/blog/curatorial/broadcast items.
+What changed: Added normalized local feed state, `/local/feed`, `/local/feed/sync`, heartbeat feed ingestion, eligibility filtering, cache-manifest metadata, and a real local `/broadcast` display route for active broadcast commands.
+What needs review: Physical frame behavior still needs Pi validation for display timing, touchscreen dismissal expectations, and whether high-priority broadcasts should interrupt an already loaded remote Frames web app without a launch cycle.
+Next recommended action: Implement the backend `/api/frames/device/{deviceId}/feed` content query across artwork, blog, news, curatorial notes, and broadcasts; then connect `scripts/cache-artworks.sh` to the local feed cache manifest.
