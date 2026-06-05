@@ -9,12 +9,14 @@ const DATA_DIR = process.env.AUTOPOIESIS_DATA_DIR || "/var/lib/autopoiesis-os";
 const DEFAULTS_PATH =
   process.env.AUTOPOIESIS_DEFAULTS_PATH ||
   path.resolve(__dirname, "../config/defaults.json");
+const API_TIMEOUT_MS = Number(process.env.AUTOPOIESIS_API_TIMEOUT_MS || 8000);
 
 const paths = {
   device: path.join(DATA_DIR, "device.json"),
   preferences: path.join(DATA_DIR, "preferences.json"),
   state: path.join(DATA_DIR, "state.json"),
-  pairing: path.join(DATA_DIR, "pairing.json")
+  pairing: path.join(DATA_DIR, "pairing.json"),
+  commands: path.join(DATA_DIR, "commands.json")
 };
 
 function readJson(filePath, fallback) {
@@ -30,6 +32,43 @@ function writeJson(filePath, value) {
   fs.writeFileSync(filePath, `${JSON.stringify(value, null, 2)}\n`, {
     mode: 0o600
   });
+}
+
+function apiBase(device = readJson(paths.device, {})) {
+  return String(
+    process.env.AUTOPOIESIS_API_BASE_URL ||
+      device.apiBaseUrl ||
+      "https://autopoiesis.art/api"
+  ).replace(/\/+$/, "");
+}
+
+function apiEndpoint(apiPath, device) {
+  const cleanPath = apiPath.startsWith("/") ? apiPath : "/" + apiPath;
+  return apiBase(device) + cleanPath;
+}
+
+async function apiRequest(apiPath, options = {}) {
+  const device = readJson(paths.device, {});
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), API_TIMEOUT_MS);
+  try {
+    const response = await fetch(apiEndpoint(apiPath, device), {
+      ...options,
+      signal: controller.signal,
+      headers: {
+        "content-type": "application/json",
+        ...(options.headers || {})
+      }
+    });
+    const text = await response.text();
+    const body = text ? JSON.parse(text) : {};
+    if (!response.ok) {
+      throw new Error(body.error || `HTTP ${response.status}`);
+    }
+    return body;
+  } finally {
+    clearTimeout(timeout);
+  }
 }
 
 function defaults() {
@@ -87,7 +126,8 @@ function status() {
   const preferences = readJson(paths.preferences, {});
   const state = readJson(paths.state, {});
   const network = readJson(path.join(DATA_DIR, "network.json"), null);
-  return { device, preferences, state, network, version: version() };
+  const pairing = readJson(paths.pairing, null);
+  return { device, preferences, state, network, pairing, version: version() };
 }
 
 function page(title, body, script = "") {
@@ -200,9 +240,13 @@ function renderSetup() {
   const data = status();
   const paired = data.device.paired ? "Paired" : "Not paired";
   const network = data.network || {};
+  const pairing = data.pairing || {};
   const networkLabel = network.online
     ? `${network.primary || "network"} online`
     : "Offline";
+  const pairingDetail = pairing.pairingCode
+    ? `${pairing.pairingCode}${pairing.mock ? " (local fallback)" : ""}`
+    : paired;
   return page(
     "Autopoiesis Setup",
     `<main class="screen">
@@ -213,20 +257,25 @@ function renderSetup() {
         <dl class="status">
           <div><dt>Device</dt><dd>${escapeHtml(data.device.deviceId)}</dd></div>
           <div><dt>Network</dt><dd>${escapeHtml(networkLabel)}</dd></div>
-          <div><dt>Pairing</dt><dd>${paired}</dd></div>
+          <div><dt>Pairing</dt><dd>${escapeHtml(pairingDetail)}</dd></div>
           <div><dt>Mode</dt><dd>${escapeHtml(data.state.currentMode || "setup")}</dd></div>
         </dl>
         <div class="actions">
           <a class="button" href="/settings">Settings</a>
           <a class="button" href="/network">Network</a>
           <button data-start-pairing>Start pairing</button>
+          <button data-check-pairing>Check pairing</button>
           <a class="button primary" href="/launch">Launch frame</a>
         </div>
-        <p class="note">Pairing uses a local mock flow until the production API is available.</p>
+        <p class="note">Online pairing is used when the Frames API is reachable; local fallback remains available for offline setup.</p>
       </section>
     </main>`,
     `document.querySelector("[data-start-pairing]").addEventListener("click", async () => {
       await fetch("/local/pairing/start", { method: "POST" });
+      location.reload();
+    });
+    document.querySelector("[data-check-pairing]").addEventListener("click", async () => {
+      await fetch("/local/pairing/check", { method: "POST" });
       location.reload();
     });`
   );
@@ -499,17 +548,122 @@ function connectLan(callback) {
   });
 }
 
-function startPairing() {
+function localPairingFallback(error) {
   const code = Math.random().toString(36).slice(2, 6).toUpperCase() + "-" + Math.floor(1000 + Math.random() * 9000);
   const device = readJson(paths.device, {});
   const pairing = {
     pairingCode: code,
     expiresAt: new Date(Date.now() + 15 * 60 * 1000).toISOString(),
-    mock: true
+    mock: true,
+    error: error ? error.message : null
   };
   writeJson(paths.pairing, pairing);
   writeJson(paths.device, { ...device, pairingCode: code, paired: false });
   return pairing;
+}
+
+async function startPairing() {
+  const device = readJson(paths.device, {});
+  try {
+    const result = await apiRequest("/frames/device/register", {
+      method: "POST",
+      body: JSON.stringify({
+        deviceId: device.deviceId,
+        deviceName: device.deviceName || "Autopoiesis Frame",
+        softwareVersion: version(),
+        metadata: {
+          hostname: os.hostname(),
+          platform: os.platform(),
+          release: os.release()
+        }
+      })
+    });
+    const remoteDevice = result.device || {};
+    const pairing = {
+      pairingCode: result.pairingCode,
+      expiresAt: result.expiresAt,
+      mock: false,
+      registeredAt: new Date().toISOString()
+    };
+    writeJson(paths.pairing, pairing);
+    writeJson(paths.device, {
+      ...device,
+      ...remoteDevice,
+      deviceId: remoteDevice.deviceId || device.deviceId,
+      pairingCode: result.pairingCode,
+      paired: Boolean(remoteDevice.paired)
+    });
+    return pairing;
+  } catch (error) {
+    return localPairingFallback(error);
+  }
+}
+
+async function checkPairing() {
+  const device = readJson(paths.device, {});
+  if (!device.deviceId) return { ok: false, error: "Missing device ID" };
+  try {
+    const result = await apiRequest(`/frames/device/${encodeURIComponent(device.deviceId)}/pairing-status`);
+    writeJson(paths.device, {
+      ...device,
+      paired: Boolean(result.paired),
+      ownerUserId: result.ownerUserId || device.ownerUserId || null,
+      firstRunComplete: Boolean(result.paired) || device.firstRunComplete
+    });
+    if (result.pairing) {
+      writeJson(paths.pairing, {
+        pairingCode: result.pairing.pairingCode || result.pairing.pairing_code || device.pairingCode || null,
+        expiresAt: result.pairing.expiresAt || result.pairing.expires_at || null,
+        mock: false,
+        status: result.pairing.status || null
+      });
+    }
+    if (result.paired) await syncSettingsFromRemote();
+    return result;
+  } catch (error) {
+    return { ok: false, error: error.message, pairing: readJson(paths.pairing, {}) };
+  }
+}
+
+async function syncSettingsFromRemote() {
+  const device = readJson(paths.device, {});
+  if (!device.deviceId || !device.paired) return { ok: false, error: "Device is not paired" };
+  const result = await apiRequest(`/frames/device/${encodeURIComponent(device.deviceId)}/settings`);
+  if (result.settings) {
+    writeJson(paths.preferences, { ...readJson(paths.preferences, {}), ...result.settings });
+    writeJson(paths.device, { ...device, lastSettingsSyncAt: new Date().toISOString() });
+  }
+  return result;
+}
+
+async function pushSettingsToRemote(device, preferences) {
+  if (!device.deviceId || !device.paired) return { ok: false, skipped: true, reason: "Device is not paired" };
+  const result = await apiRequest(`/frames/device/${encodeURIComponent(device.deviceId)}/settings`, {
+    method: "POST",
+    body: JSON.stringify({ settings: { ...preferences, updatedAt: new Date().toISOString() } })
+  });
+  writeJson(paths.device, { ...device, lastSettingsSyncAt: new Date().toISOString() });
+  return result;
+}
+
+async function sendHeartbeat() {
+  const data = status();
+  if (!data.device.deviceId || !data.device.paired) return { ok: false, skipped: true, reason: "Device is not paired" };
+  const result = await apiRequest(`/frames/device/${encodeURIComponent(data.device.deviceId)}/heartbeat`, {
+    method: "POST",
+    body: JSON.stringify({
+      softwareVersion: version(),
+      currentMode: data.state.currentMode || "setup",
+      currentArtworkId: data.state.currentArtworkId || null,
+      networkOnline: Boolean(data.state.networkOnline),
+      networkType: data.state.networkType || null,
+      storageStatus: data.state.storageStatus || {}
+    })
+  });
+  if (result.settings) writeJson(paths.preferences, { ...data.preferences, ...result.settings });
+  if (result.commands) writeJson(paths.commands, result.commands);
+  writeJson(paths.device, { ...data.device, lastHeartbeatAt: new Date().toISOString() });
+  return result;
 }
 
 async function handle(req, res) {
@@ -546,10 +700,19 @@ async function handle(req, res) {
       const preferences = { ...readJson(paths.preferences, {}), ...(body.preferences || {}) };
       writeJson(paths.device, device);
       writeJson(paths.preferences, preferences);
-      return sendJson(res, { ok: true });
+      let remote = { ok: false, skipped: true };
+      try {
+        remote = await pushSettingsToRemote(device, preferences);
+      } catch (error) {
+        remote = { ok: false, error: error.message };
+      }
+      return sendJson(res, { ok: true, remote });
     }
     if (req.method === "POST" && url.pathname === "/local/pairing/start") {
-      return sendJson(res, { ok: true, ...startPairing() });
+      return sendJson(res, { ok: true, ...(await startPairing()) });
+    }
+    if (req.method === "POST" && url.pathname === "/local/pairing/check") {
+      return sendJson(res, { ok: true, ...(await checkPairing()) });
     }
     if (req.method === "GET" && url.pathname === "/local/pairing/status") {
       return sendJson(res, {
@@ -557,6 +720,12 @@ async function handle(req, res) {
         device: readJson(paths.device, {}),
         pairing: readJson(paths.pairing, {})
       });
+    }
+    if (req.method === "POST" && url.pathname === "/local/settings/sync") {
+      return sendJson(res, await syncSettingsFromRemote());
+    }
+    if (req.method === "POST" && url.pathname === "/local/heartbeat") {
+      return sendJson(res, await sendHeartbeat());
     }
     if (req.method === "POST" && url.pathname === "/local/system/restart") {
       return sendJson(res, { ok: false, error: "Restart requires privileged systemd wiring in a later milestone." }, 501);

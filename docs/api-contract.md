@@ -51,6 +51,9 @@ POST /local/wifi/connect
 POST /local/settings
 POST /local/pairing/start
 GET  /local/pairing/status
+POST /local/pairing/check
+POST /local/settings/sync
+POST /local/heartbeat
 POST /local/system/restart
 POST /local/system/factory-reset
 POST /local/system/update-now

@@ -143,3 +143,40 @@ Verification:
 
 - Confirmed all seven cron jobs are enabled, scheduled, and set to gpt-5.4/high.
 - Ran node and shell syntax checks after repo changes.
+
+## 2026-06-05 - Device API wiring
+
+Date: 2026-06-05
+
+Milestone: MVP 0.1 - Pairable Frames Device
+
+Changed files:
+
+- local-ui/server.js
+- scripts/heartbeat.sh
+- scripts/sync-settings.sh
+- scripts/pair-device.sh
+- scripts/check-remote-status.sh
+- docs/api-contract.md
+- docs/agent-notes/pulse.md
+- program/ROLLING-LOG.md
+
+Implemented:
+
+- Local UI now registers the device with the Frames API when starting pairing.
+- Server pairing codes are stored locally and displayed in setup.
+- Pairing status can be checked from the local UI.
+- Remote settings can sync down to local preferences.
+- Local settings push to the Frames API when paired.
+- Heartbeat posts to the Frames API and stores queued commands locally.
+- Scripts now call the local UI endpoints instead of placeholder-only behavior.
+
+Verification:
+
+- node --check local-ui/server.js passed.
+- bash -n install/update/reset/scripts passed.
+- Mock Frames API smoke test passed for register, pairing check, settings sync, heartbeat, and command storage.
+
+Next step:
+
+Build Profile > Frames UI and admin UI around the new backend APIs.

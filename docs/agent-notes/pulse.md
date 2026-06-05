@@ -17,3 +17,12 @@ Context: Ewoud asked to continue to the next phase after cron setup.
 What changed: Added initial Flask/SQLite Frames API foundation in the main Autopoiesis backend using aos_ tables.
 What needs review: Auth/subscriber enforcement is still scaffold-level; endpoints currently accept explicit userId for MVP integration testing.
 Next recommended action: Build Profile > Frames UI and admin UI on top of these APIs, then wire the RPi local UI to the register/pair/settings/heartbeat endpoints.
+
+## 2026-06-05 - RPi API wiring
+
+Date/time: 2026-06-05 09:20 UTC
+Agent: Pulse
+Context: Next phase after backend MVP start.
+What changed: Wired the RPi local UI and scripts to the Frames API for registration, pairing status, settings sync, heartbeat, and command storage. Local fallback pairing remains for offline setup.
+What needs review: Run against the deployed autopoiesis.art backend once the Frames API is deployed, then validate on physical Raspberry Pi hardware.
+Next recommended action: Build Profile > Frames UI so users can claim the server pairing code.
