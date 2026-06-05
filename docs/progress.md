@@ -187,3 +187,50 @@ Build Profile > Frames UI and admin UI around the new backend APIs.
 - Added `scripts/process-commands.sh` plus `autopoiesis-command-executor.service/.timer` to process commands every 2 minutes.
 - Added `scripts/update-from-release.sh` with artifact tarball support, checksum validation, git fallback, rollback metadata, and kiosk restart.
 - Command support: `sync_settings`, `clear_cache`, `restart_display`, `restart_device` with explicit reboot opt-in, `update_device`, `disable_device`, `enable_device`, `show_broadcast`, and guarded `factory_reset_request`.
+
+## 2026-06-05 - Raspberry Pi hardware validation
+
+Hardware:
+
+- Raspberry Pi 3 Model B Rev 1.2.
+- Debian GNU/Linux 13 (trixie), 13.4.
+
+Install:
+
+- Removed the previous `/home/frame/autopoiesis-os-rpi` checkout.
+- Recloned `dev/pulse-initial-improvements` at `34c656f`.
+- Ran `sudo ./install.sh`.
+- Restarted `autopoiesis-setup.service` and `autopoiesis-kiosk.service`.
+- `sudo /opt/autopoiesis-os/app/scripts/milestone2-verify.sh` passed.
+
+Network:
+
+- LAN connected on `eth0` via `netplan-eth0`.
+- Wi-Fi hardware present as `wlan0`, disconnected during this run.
+
+Pairing:
+
+- Live Frames API registration succeeded with non-mock pairing.
+- Device remains unclaimed, so no local device API key is stored yet.
+- `device.json` contains a stable `rpi-` device ID and is `0600 frame frame`.
+
+Backend-dependent checks:
+
+- Heartbeat, settings sync, command polling, and release check endpoints are reachable but skip until the device is claimed.
+- These must be rerun after live pairing is completed from a Frames account.
+
+Pi fix:
+
+- Added `GET /local/status.json`, `GET /local/network/status.json`, and `GET /local/diagnostics` for the handoff checks.
+- Added sanitized local diagnostics to heartbeat payloads.
+- Did not change command allowlists or unattended update behavior.
+
+Journal notes:
+
+- Setup service reports `Autopoiesis local UI listening on http://127.0.0.1:3030`.
+- Kiosk service stays active.
+- Chromium logs Pi 3 GPU initialization errors including `GLES3 is unsupported` and `CollectGraphicsInfo failed`; kiosk remains running.
+
+Full local report:
+
+- `logs/2026-06-05-rpi-hardware-validation.md` on the validated Pi. The `logs/*` path is gitignored, so this tracked summary is the portable report.

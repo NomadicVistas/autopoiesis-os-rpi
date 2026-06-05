@@ -184,6 +184,56 @@ function publicStatus() {
   return { ...data, device: redactDevice(data.device) };
 }
 
+function readText(filePath) {
+  try {
+    return fs.readFileSync(filePath, "utf8").replace(/\0/g, "").trim();
+  } catch {
+    return null;
+  }
+}
+
+function osRelease() {
+  const text = readText("/etc/os-release");
+  if (!text) return {};
+  return Object.fromEntries(
+    text
+      .split("\n")
+      .filter(Boolean)
+      .map((line) => {
+        const index = line.indexOf("=");
+        const key = index === -1 ? line : line.slice(0, index);
+        const value = index === -1 ? "" : line.slice(index + 1).replace(/^"|"$/g, "");
+        return [key, value];
+      })
+  );
+}
+
+function diagnostics() {
+  const stat = fs.statfsSync("/");
+  const diskFreeMb = Math.round((stat.bavail * stat.bsize) / 1024 / 1024);
+  const diskTotalMb = Math.round((stat.blocks * stat.bsize) / 1024 / 1024);
+  const tempRaw = readText("/sys/class/thermal/thermal_zone0/temp");
+  const temperatureC = tempRaw ? Math.round((Number(tempRaw) / 1000) * 10) / 10 : null;
+  return {
+    model: readText("/proc/device-tree/model"),
+    os: osRelease(),
+    hostname: os.hostname(),
+    uptimeSeconds: Math.round(os.uptime()),
+    loadAverage: os.loadavg(),
+    memory: {
+      totalMb: Math.round(os.totalmem() / 1024 / 1024),
+      freeMb: Math.round(os.freemem() / 1024 / 1024)
+    },
+    storage: {
+      diskFreeMb,
+      diskTotalMb,
+      diskUsedPercent: diskTotalMb ? Math.round(((diskTotalMb - diskFreeMb) / diskTotalMb) * 1000) / 10 : null
+    },
+    temperatureC,
+    collectedAt: new Date().toISOString()
+  };
+}
+
 function page(title, body, script = "") {
   return `<!doctype html>
 <html lang="en">
@@ -712,7 +762,8 @@ async function sendHeartbeat() {
       currentArtworkId: data.state.currentArtworkId || null,
       networkOnline: Boolean(data.state.networkOnline),
       networkType: data.state.networkType || null,
-      storageStatus: data.state.storageStatus || {}
+      storageStatus: data.state.storageStatus || diagnostics().storage,
+      diagnostics: diagnostics()
     })
   });
   if (result.settings) writeJson(paths.preferences, { ...data.preferences, ...result.settings });
@@ -892,10 +943,13 @@ async function handle(req, res) {
     if (req.method === "GET" && url.pathname === "/offline") return html(res, renderOffline());
     if (req.method === "GET" && url.pathname === "/disabled") return html(res, renderDisabled());
     if (req.method === "GET" && url.pathname === "/style.css") return css(res);
-    if (req.method === "GET" && url.pathname === "/local/status") return sendJson(res, publicStatus());
-    if (req.method === "GET" && url.pathname === "/local/network/status") {
+    if (req.method === "GET" && (url.pathname === "/local/status" || url.pathname === "/local/status.json")) {
+      return sendJson(res, publicStatus());
+    }
+    if (req.method === "GET" && (url.pathname === "/local/network/status" || url.pathname === "/local/network/status.json")) {
       return networkStatus((_, value) => sendJson(res, value, value.ok ? 200 : 503));
     }
+    if (req.method === "GET" && url.pathname === "/local/diagnostics") return sendJson(res, diagnostics());
     if (req.method === "GET" && url.pathname === "/local/wifi/scan") {
       return html(res, renderWifiScan());
     }
