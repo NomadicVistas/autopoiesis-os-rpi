@@ -34,6 +34,7 @@ systemctl daemon-reload
 systemctl enable autopoiesis-setup.service
 systemctl enable autopoiesis-kiosk.service
 systemctl enable autopoiesis-heartbeat.timer
+systemctl enable autopoiesis-command-executor.timer
 systemctl enable autopoiesis-updater.timer
 systemctl enable autopoiesis-cache.timer
 

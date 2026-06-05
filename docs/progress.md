@@ -180,3 +180,10 @@ Verification:
 Next step:
 
 Build Profile > Frames UI and admin UI around the new backend APIs.
+## Pi Command and Release Executor
+
+- Added local `/local/commands/process` endpoint to fetch queued commands from heartbeat, acknowledge them, execute local actions, and report completed/error status.
+- Added `/local/release/check` and `/local/release/apply` endpoints for release-channel lookup and local update execution.
+- Added `scripts/process-commands.sh` plus `autopoiesis-command-executor.service/.timer` to process commands every 2 minutes.
+- Added `scripts/update-from-release.sh` with artifact tarball support, checksum validation, git fallback, rollback metadata, and kiosk restart.
+- Command support: `sync_settings`, `clear_cache`, `restart_display`, `restart_device` with explicit reboot opt-in, `update_device`, `disable_device`, `enable_device`, `show_broadcast`, and guarded `factory_reset_request`.

@@ -10,13 +10,21 @@ const DEFAULTS_PATH =
   process.env.AUTOPOIESIS_DEFAULTS_PATH ||
   path.resolve(__dirname, "../config/defaults.json");
 const API_TIMEOUT_MS = Number(process.env.AUTOPOIESIS_API_TIMEOUT_MS || 8000);
+const CACHE_DIR = process.env.AUTOPOIESIS_CACHE_DIR || path.join(DATA_DIR, "cache");
+const LOG_DIR = process.env.AUTOPOIESIS_LOG_DIR || "/var/log/autopoiesis-os";
+const UPDATE_SCRIPT =
+  process.env.AUTOPOIESIS_RELEASE_UPDATE_SCRIPT ||
+  path.resolve(__dirname, "../scripts/update-from-release.sh");
 
 const paths = {
   device: path.join(DATA_DIR, "device.json"),
   preferences: path.join(DATA_DIR, "preferences.json"),
   state: path.join(DATA_DIR, "state.json"),
   pairing: path.join(DATA_DIR, "pairing.json"),
-  commands: path.join(DATA_DIR, "commands.json")
+  commands: path.join(DATA_DIR, "commands.json"),
+  release: path.join(DATA_DIR, "release.json"),
+  releaseState: path.join(DATA_DIR, "release-state.json"),
+  broadcast: path.join(DATA_DIR, "current-broadcast.json")
 };
 
 function readJson(filePath, fallback) {
@@ -32,6 +40,15 @@ function writeJson(filePath, value) {
   fs.writeFileSync(filePath, `${JSON.stringify(value, null, 2)}\n`, {
     mode: 0o600
   });
+}
+
+function appendLog(name, message) {
+  try {
+    fs.mkdirSync(LOG_DIR, { recursive: true });
+    fs.appendFileSync(path.join(LOG_DIR, name), new Date().toISOString() + " " + message + "\n");
+  } catch {
+    // Logging must never break command execution.
+  }
 }
 
 function apiBase(device = readJson(paths.device, {})) {
@@ -69,6 +86,30 @@ async function apiRequest(apiPath, options = {}) {
   } finally {
     clearTimeout(timeout);
   }
+}
+
+async function ackCommand(deviceId, commandId, statusValue, extra = {}) {
+  return apiRequest(
+    "/frames/device/" + encodeURIComponent(deviceId) + "/commands/" + encodeURIComponent(commandId) + "/ack",
+    {
+      method: "POST",
+      body: JSON.stringify({ status: statusValue, ...extra })
+    }
+  );
+}
+
+function execFilePromise(command, args, options = {}) {
+  return new Promise((resolve, reject) => {
+    execFile(command, args, options, (error, stdout, stderr) => {
+      if (error) {
+        error.stdout = stdout;
+        error.stderr = stderr;
+        reject(error);
+        return;
+      }
+      resolve({ stdout, stderr });
+    });
+  });
 }
 
 function defaults() {
@@ -666,6 +707,166 @@ async function sendHeartbeat() {
   return result;
 }
 
+async function checkRelease() {
+  const device = readJson(paths.device, {});
+  if (!device.deviceId || !device.paired) return { ok: false, skipped: true, reason: "Device is not paired" };
+  const result = await apiRequest("/frames/device/" + encodeURIComponent(device.deviceId) + "/release");
+  const release = result.release || null;
+  writeJson(paths.release, {
+    checkedAt: new Date().toISOString(),
+    release
+  });
+  return { ok: true, release, currentVersion: version() };
+}
+
+async function applyRelease(release) {
+  if (!release) return { ok: false, skipped: true, reason: "No release available" };
+  const targetVersion = release.version;
+  if (!targetVersion) return { ok: false, error: "Release has no version" };
+  if (targetVersion === version()) return { ok: true, skipped: true, reason: "Already on target version", version: targetVersion };
+  writeJson(paths.release, { checkedAt: new Date().toISOString(), release });
+  writeJson(paths.releaseState, {
+    status: "in_progress",
+    targetVersion,
+    releaseId: release.id || null,
+    startedAt: new Date().toISOString(),
+    previousVersion: version()
+  });
+  try {
+    const execution = await execFilePromise(UPDATE_SCRIPT, [paths.release], {
+      env: {
+        ...process.env,
+        AUTOPOIESIS_DATA_DIR: DATA_DIR,
+        AUTOPOIESIS_LOG_DIR: LOG_DIR
+      },
+      timeout: Number(process.env.AUTOPOIESIS_UPDATE_TIMEOUT_MS || 300000)
+    });
+    try {
+      VERSION = fs.readFileSync(path.resolve(__dirname, "../VERSION"), "utf8").trim();
+    } catch {
+      VERSION = targetVersion;
+    }
+    const stateValue = {
+      status: "completed",
+      targetVersion,
+      releaseId: release.id || null,
+      previousVersion: readJson(paths.releaseState, {}).previousVersion || null,
+      completedAt: new Date().toISOString(),
+      stdout: execution.stdout.trim(),
+      stderr: execution.stderr.trim()
+    };
+    writeJson(paths.releaseState, stateValue);
+    return { ok: true, release, version: version(), update: stateValue };
+  } catch (error) {
+    const stateValue = {
+      status: "error",
+      targetVersion,
+      releaseId: release.id || null,
+      previousVersion: readJson(paths.releaseState, {}).previousVersion || null,
+      failedAt: new Date().toISOString(),
+      error: error.stderr || error.message
+    };
+    writeJson(paths.releaseState, stateValue);
+    return { ok: false, release, error: stateValue.error, update: stateValue };
+  }
+}
+
+async function checkAndApplyRelease(payload = {}) {
+  if (payload.release && payload.release.version) return applyRelease(payload.release);
+  if (payload.version) return applyRelease(payload);
+  const checked = await checkRelease();
+  if (!checked.ok || !checked.release) return checked;
+  return applyRelease(checked.release);
+}
+
+async function executeCommand(command) {
+  const commandType = command.commandType || command.command_type;
+  const payload = command.payload || {};
+  appendLog("commands.log", "execute " + command.id + " " + commandType);
+  if (commandType === "sync_settings") {
+    return syncSettingsFromRemote();
+  }
+  if (commandType === "clear_cache") {
+    fs.rmSync(CACHE_DIR, { recursive: true, force: true });
+    fs.mkdirSync(CACHE_DIR, { recursive: true });
+    return { ok: true, cleared: CACHE_DIR };
+  }
+  if (commandType === "restart_display") {
+    await execFilePromise("systemctl", ["restart", "autopoiesis-kiosk.service"]);
+    return { ok: true, restarted: "autopoiesis-kiosk.service" };
+  }
+  if (commandType === "restart_device") {
+    if (process.env.AUTOPOIESIS_ALLOW_REBOOT !== "1") {
+      return { ok: false, error: "Reboot command refused unless AUTOPOIESIS_ALLOW_REBOOT=1" };
+    }
+    await execFilePromise("systemctl", ["reboot"]);
+    return { ok: true, rebooting: true };
+  }
+  if (commandType === "update_device") {
+    return checkAndApplyRelease(payload);
+  }
+  if (commandType === "disable_device") {
+    const device = readJson(paths.device, {});
+    const stateValue = readJson(paths.state, {});
+    writeJson(paths.device, { ...device, remoteEnabled: false });
+    writeJson(paths.state, { ...stateValue, remoteDisabled: true });
+    return { ok: true, remoteEnabled: false };
+  }
+  if (commandType === "enable_device") {
+    const device = readJson(paths.device, {});
+    const stateValue = readJson(paths.state, {});
+    writeJson(paths.device, { ...device, remoteEnabled: true });
+    writeJson(paths.state, { ...stateValue, remoteDisabled: false });
+    return { ok: true, remoteEnabled: true };
+  }
+  if (commandType === "show_broadcast") {
+    const stateValue = readJson(paths.state, {});
+    writeJson(paths.broadcast, { ...payload, shownAt: new Date().toISOString() });
+    writeJson(paths.state, {
+      ...stateValue,
+      currentMode: "broadcast",
+      currentBroadcastId: payload.broadcastId || null
+    });
+    return { ok: true, broadcastId: payload.broadcastId || null };
+  }
+  if (commandType === "factory_reset_request") {
+    return { ok: false, error: "Factory reset requires local confirmation on the device" };
+  }
+  return { ok: false, error: "Unknown command type: " + commandType };
+}
+
+async function processCommands() {
+  const device = readJson(paths.device, {});
+  if (!device.deviceId || !device.paired) return { ok: false, skipped: true, reason: "Device is not paired" };
+  const heartbeat = await sendHeartbeat();
+  const commands = heartbeat.commands || readJson(paths.commands, []);
+  const results = [];
+  for (const command of commands) {
+    if (!command.id) continue;
+    try {
+      await ackCommand(device.deviceId, command.id, "acknowledged");
+      const result = await executeCommand(command);
+      if (result && result.ok === false) {
+        await ackCommand(device.deviceId, command.id, "error", { error: result.error || "Command failed" });
+      } else {
+        await ackCommand(device.deviceId, command.id, "completed");
+      }
+      results.push({ commandId: command.id, commandType: command.commandType, result });
+    } catch (error) {
+      const message = error.stderr || error.message;
+      appendLog("commands-error.log", command.id + " " + message);
+      try {
+        await ackCommand(device.deviceId, command.id, "error", { error: message });
+      } catch (ackError) {
+        appendLog("commands-error.log", command.id + " ack failed " + ackError.message);
+      }
+      results.push({ commandId: command.id, commandType: command.commandType, error: message });
+    }
+  }
+  writeJson(paths.commands, []);
+  return { ok: true, processed: results.length, results };
+}
+
 async function handle(req, res) {
   const url = new URL(req.url, `http://${req.headers.host}`);
   try {
@@ -727,6 +928,15 @@ async function handle(req, res) {
     if (req.method === "POST" && url.pathname === "/local/heartbeat") {
       return sendJson(res, await sendHeartbeat());
     }
+    if (req.method === "POST" && url.pathname === "/local/commands/process") {
+      return sendJson(res, await processCommands());
+    }
+    if (req.method === "POST" && url.pathname === "/local/release/check") {
+      return sendJson(res, await checkRelease());
+    }
+    if (req.method === "POST" && url.pathname === "/local/release/apply") {
+      return sendJson(res, await checkAndApplyRelease());
+    }
     if (req.method === "POST" && url.pathname === "/local/system/restart") {
       return sendJson(res, { ok: false, error: "Restart requires privileged systemd wiring in a later milestone." }, 501);
     }
@@ -734,7 +944,7 @@ async function handle(req, res) {
       return sendJson(res, { ok: false, error: "Factory reset endpoint is reserved until confirmation and privilege handling are implemented." }, 501);
     }
     if (req.method === "POST" && url.pathname === "/local/system/update-now") {
-      return sendJson(res, { ok: false, error: "Manual update endpoint is reserved until update rollback is implemented." }, 501);
+      return sendJson(res, await checkAndApplyRelease());
     }
     sendJson(res, { ok: false, error: "Not found" }, 404);
   } catch (error) {

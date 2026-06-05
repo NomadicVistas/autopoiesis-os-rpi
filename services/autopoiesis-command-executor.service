@@ -1,0 +1,9 @@
+[Unit]
+Description=Autopoiesis command executor
+After=autopoiesis-setup.service network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=root
+ExecStart=/opt/autopoiesis-os/app/scripts/process-commands.sh
