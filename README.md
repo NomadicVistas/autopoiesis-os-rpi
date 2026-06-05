@@ -24,6 +24,7 @@ Milestone 2 is scaffolded for physical Pi validation. The local UI can:
 - scan and connect Wi-Fi through nmcli
 - start a mock pairing flow
 - redirect `/launch` to setup, disabled, offline fallback, or `/frames` depending on local state and remote reachability
+- run a local security smoke test that checks device API key redaction and tracked secret hygiene
 - verify setup, kiosk, HTTP, Chromium, network, and restart behavior on a Pi
 
 ## Install
@@ -34,6 +35,7 @@ From this repo:
 sudo ./install.sh
 sudo systemctl start autopoiesis-setup.service autopoiesis-kiosk.service
 sudo /opt/autopoiesis-os/app/scripts/milestone2-verify.sh
+sudo /opt/autopoiesis-os/app/scripts/security-smoke.sh
 ```
 
 During development you can run the local UI without installing:
@@ -41,6 +43,12 @@ During development you can run the local UI without installing:
 ```bash
 cd local-ui
 AUTOPOIESIS_DATA_DIR=/tmp/autopoiesis-os node server.js
+```
+
+Run the local security smoke test before shipping an image or exposing the local UI beyond localhost:
+
+```bash
+./scripts/security-smoke.sh
 ```
 
 Open:

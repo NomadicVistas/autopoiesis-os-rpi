@@ -44,3 +44,12 @@ Context: LEAD / INTEGRATION cron pass after kiosk offline fallback. Diagnostics 
 What changed: Added a derived `diagnostics.health` object with `ok`/`warning`/`error` status and stable issue codes for pairing, device API key, network/offline fallback, storage, memory, temperature, release state, pending commands, and failed local services.
 What needs review: Confirm thresholds on physical Raspberry Pi hardware, especially storage, temperature, and whether unpaired/network-offline warnings are right for setup flows.
 Next recommended action: Surface latest heartbeat `diagnostics.health` in Admin > Frames fleet/detail views and include it in RPi hardware validation reports.
+
+## 2026-06-05 - QA/security smoke gate
+
+Date/time: 2026-06-05 21:50 UTC
+Agent: Pulse
+Context: QA / SECURITY cron pass. Device API keys are now stored locally, so the Pi repo needs a repeatable acceptance gate proving support endpoints expose only safe redacted state.
+What changed: Added `scripts/security-smoke.sh` to launch the local UI against temporary keyed device state and verify `/local/status`, `/local/pairing/status`, and `/local/diagnostics` do not leak key values or key field names. The script also checks tracked files for sensitive-looking paths.
+What needs review: Run the smoke test on real Raspberry Pi hardware after installation, alongside the normal milestone verification.
+Next recommended action: Fold this gate into the final production-image checklist once physical Pi validation starts.

@@ -276,3 +276,34 @@ Verification:
 Next step:
 
 Use `diagnostics.health` in Admin > Frames and hardware validation reports so support does not have to infer device condition from raw telemetry.
+
+## 2026-06-05 - QA/security smoke gate
+
+Date: 2026-06-05
+
+Milestone: QA/security production hygiene
+
+Changed files:
+
+- `scripts/security-smoke.sh`
+- `README.md`
+- `docs/production-cleanup.md`
+- `docs/troubleshooting.md`
+- `docs/progress.md`
+- `docs/agent-notes/pulse.md`
+
+Implemented:
+
+- Added a repeatable local security smoke test that starts the local UI against temporary device state containing a fake device API key.
+- The test verifies that `/local/status`, `/local/pairing/status`, and `/local/diagnostics` do not leak the key or device key field names.
+- The test confirms safe key-presence flags remain visible for support and fails if sensitive-looking files are tracked in Git.
+
+Verification:
+
+- `node --check local-ui/server.js` passed.
+- `bash -n install.sh update.sh uninstall-dev-tools.sh factory-reset.sh scripts/*.sh` passed.
+- `scripts/security-smoke.sh` passed.
+
+Next step:
+
+Run this smoke gate on physical Raspberry Pi hardware after install, then add it to the final production-image acceptance checklist.
