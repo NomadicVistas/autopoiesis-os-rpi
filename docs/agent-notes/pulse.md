@@ -9,3 +9,11 @@ What changed: Created lead docs, project-management directory, database tag, and
 What needs review: Physical Raspberry Pi validation still needs the RPi-side agent or a configured hardware target.
 Next recommended action: Build MVP 0.1 foundations in order: online profile, database, API, pairing, sync, kiosk, heartbeat.
 
+## 2026-06-05 - MVP 0.1 backend start
+
+Date/time: 2026-06-05 09:25 UTC
+Agent: Pulse
+Context: Ewoud asked to continue to the next phase after cron setup.
+What changed: Added initial Flask/SQLite Frames API foundation in the main Autopoiesis backend using aos_ tables.
+What needs review: Auth/subscriber enforcement is still scaffold-level; endpoints currently accept explicit userId for MVP integration testing.
+Next recommended action: Build Profile > Frames UI and admin UI on top of these APIs, then wire the RPi local UI to the register/pair/settings/heartbeat endpoints.
