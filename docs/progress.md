@@ -531,3 +531,39 @@ Verification:
 Next step:
 
 Mirror the same latest-`updatedAt` rule in the online Frames backend so POST/GET settings responses always return authoritative timestamps and can report conflicts explicitly.
+
+## 2026-06-06 - Readiness contract
+
+Date: 2026-06-06
+
+Milestone: Lead/integration rollout readiness
+
+Changed files:
+
+- `local-ui/server.js`
+- `scripts/readiness-check.sh`
+- `scripts/security-smoke.sh`
+- `scripts/milestone2-verify.sh`
+- `README.md`
+- `docs/api-contract.md`
+- `docs/progress.md`
+- `docs/agent-notes/pulse.md`
+- `/data/.openclaw/workspace/autopoiesis-os-program/ROLLING-LOG.md`
+
+Implemented:
+
+- Added `GET /local/readiness`, a redacted phase-level rollout snapshot derived from diagnostics.
+- Readiness phases cover local UI, network, pairing/device key, settings sync, content/feed, cache, commands, and release state.
+- Added cache index fields to diagnostics and health issue codes for cache failures or empty completed cache runs.
+- Added `scripts/readiness-check.sh` and included it in Milestone 2 verification.
+- Extended the security smoke gate to verify readiness output does not leak stored device API keys.
+
+Verification:
+
+- `node --check local-ui/server.js` passed.
+- `bash -n install.sh update.sh uninstall-dev-tools.sh factory-reset.sh scripts/*.sh` passed.
+- Local readiness smoke passed for an unpaired device, a paired/cache-ready device, and a cache-failure blocked device.
+
+Next step:
+
+Run `scripts/readiness-check.sh` on physical Raspberry Pi hardware after live pairing, then use the blocker list as the acceptance checklist for rollout.

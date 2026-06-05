@@ -98,3 +98,12 @@ Context: API / DATABASE / SYNC cron pass. Device settings sync existed, but expl
 What changed: Added local/remote `updatedAt` tracking, stamped local settings saves, routed sync/push/heartbeat settings through one resolver, rejected stale remote settings, and exposed conflicts through diagnostics `settingsSync` plus health issue code `settings_conflict`.
 What needs review: The online Frames backend should return authoritative `updatedAt` values for every settings GET/POST response and should eventually report conflicts explicitly instead of relying only on device-side rejection.
 Next recommended action: Mirror latest-`updatedAt` conflict handling in the backend aos settings rows and admin/profile API responses.
+
+## 2026-06-06 - Local rollout readiness contract
+
+Date/time: 2026-06-05 23:15 UTC / 2026-06-06 01:15 Europe/Berlin
+Agent: Pulse
+Context: LEAD / INTEGRATION cron pass. Health and diagnostics were available, but rollout still needed one cross-system readiness answer that QA, Pi validation, and admin adapters could consume.
+What changed: Added `GET /local/readiness`, derived from diagnostics, with phase summaries for local UI, network, pairing/device key, settings sync, content/feed, cache, commands, and release state. Diagnostics now also includes cache index counts and cache-related health issue codes.
+What needs review: Run the readiness check on physical Raspberry Pi hardware after live pairing and after a real feed/cache cycle to confirm the blocker thresholds match deployment reality.
+Next recommended action: Use readiness blockers as the acceptance checklist for the first managed rollout, then mirror the same phase summaries into Admin > Frames fleet cards.

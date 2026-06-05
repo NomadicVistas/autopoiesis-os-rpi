@@ -44,6 +44,7 @@ GET /api/frames/device/{deviceId}/artwork-feed
 ```txt
 GET  /local/status
 GET  /local/health
+GET  /local/readiness
 GET  /local/diagnostics
 GET  /local/feed
 GET  /local/network/status
@@ -113,6 +114,8 @@ Diagnostics fields are intentionally compact and safe for admin/profile/support 
 
 `GET /local/health` returns a compact, redacted summary derived from diagnostics. It is intended for admin fleet scans, support scripts, and hardware acceptance checks that do not need the full telemetry payload. Add `?services=1` to include local systemd checks before deriving the health summary.
 
+`GET /local/readiness` returns a redacted, phase-level rollout snapshot derived from diagnostics. It includes setup/local UI, network, pairing, settings sync, content/feed, cache, command executor, and release phases. Add `?services=0` to skip local systemd service checks when running outside an installed Pi environment.
+
 Example:
 
 ```json
@@ -156,7 +159,9 @@ Diagnostics health summary:
 }
 ```
 
-Current issue codes include `device_unpaired`, `device_key_missing`, `network_offline`, `offline_fallback`, `storage_critical`, `storage_high`, `storage_low`, `storage_unknown`, `memory_low`, `temperature_critical`, `temperature_high`, `release_error`, `release_in_progress`, `settings_conflict`, `commands_pending`, and `service_failed`.
+Current issue codes include `device_unpaired`, `device_key_missing`, `network_offline`, `offline_fallback`, `storage_critical`, `storage_high`, `storage_low`, `storage_unknown`, `memory_low`, `temperature_critical`, `temperature_high`, `release_error`, `release_in_progress`, `settings_conflict`, `commands_pending`, `cache_failures`, `cache_empty`, and `service_failed`.
+
+Cache-aware diagnostics add feed cache index fields: `cacheIndexGeneratedAt`, `cacheIndexedItems`, `cacheCachedItems`, and `cacheFailedItems`.
 
 Settings sync:
 

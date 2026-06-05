@@ -26,6 +26,7 @@ Milestone 2 is scaffolded for physical Pi validation. The local UI can:
 - redirect `/launch` to setup, disabled, offline fallback, or `/frames` depending on local state and remote reachability
 - build a local cache index from eligible feed media through the hourly cache timer
 - expose a compact `/local/health` probe for support, admin adapters, and hardware acceptance checks
+- expose a phase-level `/local/readiness` probe for setup, pairing, sync, content, cache, commands, and release rollout checks
 - run a local security smoke test that checks device API key redaction and tracked secret hygiene
 - verify setup, kiosk, HTTP, Chromium, network, and restart behavior on a Pi
 
@@ -57,6 +58,12 @@ Check the compact local health summary:
 
 ```bash
 ./scripts/health-check.sh
+```
+
+Check rollout readiness across the local integration phases:
+
+```bash
+./scripts/readiness-check.sh
 ```
 
 Run one local cache refresh after a feed sync:

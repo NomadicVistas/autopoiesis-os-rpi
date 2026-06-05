@@ -57,4 +57,8 @@ echo "6. Local health probe"
 "$(dirname "$0")/health-check.sh"
 
 echo
+echo "7. Local readiness probe"
+"$(dirname "$0")/readiness-check.sh"
+
+echo
 echo "Milestone 2 verification passed."

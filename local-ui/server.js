@@ -28,6 +28,7 @@ const paths = {
   releaseState: path.join(DATA_DIR, "release-state.json"),
   feed: path.join(DATA_DIR, "feed.json"),
   feedCache: path.join(DATA_DIR, "feed-cache.json"),
+  cacheIndex: path.join(DATA_DIR, "cache-index.json"),
   broadcast: path.join(DATA_DIR, "current-broadcast.json"),
   diagnostics: path.join(DATA_DIR, "diagnostics.json")
 };
@@ -621,6 +622,19 @@ function diagnosticsHealth(diagnostics, data) {
     add("warning", "commands_pending", "Remote commands are waiting to be processed.");
   }
 
+  if (diagnostics.feed) {
+    if (diagnostics.feed.cacheFailedItems > 0) {
+      add("warning", "cache_failures", "One or more eligible feed cache assets failed to download.");
+    }
+    if (
+      diagnostics.feed.cacheEligibleItems > 0 &&
+      diagnostics.feed.cacheIndexedItems === 0 &&
+      diagnostics.feed.cacheIndexGeneratedAt
+    ) {
+      add("warning", "cache_empty", "The cache worker ran but did not cache any eligible feed assets.");
+    }
+  }
+
   if (diagnostics.services) {
     for (const [serviceName, serviceStatus] of Object.entries(diagnostics.services)) {
       if (serviceStatus === "failed") {
@@ -648,6 +662,7 @@ async function collectDiagnostics(options = {}) {
   const broadcast = readJson(paths.broadcast, null);
   const feed = readJson(paths.feed, { syncedAt: null, items: [] });
   const cacheManifest = readJson(paths.feedCache, { generatedAt: null, count: 0 });
+  const cacheIndex = readJson(paths.cacheIndex, { generatedAt: null, cachedCount: 0, failedCount: 0, items: [] });
   const disk = await diskStatus(DATA_DIR);
   const diagnostics = {
     collectedAt: new Date().toISOString(),
@@ -708,7 +723,11 @@ async function collectDiagnostics(options = {}) {
       totalItems: Array.isArray(feed.items) ? feed.items.length : 0,
       eligibleItems: eligibleFeedItems(feed, data.preferences).length,
       cacheEligibleItems: cacheManifest.count || 0,
-      cacheManifestGeneratedAt: cacheManifest.generatedAt || null
+      cacheManifestGeneratedAt: cacheManifest.generatedAt || null,
+      cacheIndexGeneratedAt: cacheIndex.generatedAt || null,
+      cacheIndexedItems: Array.isArray(cacheIndex.items) ? cacheIndex.items.length : 0,
+      cacheCachedItems: cacheIndex.cachedCount || 0,
+      cacheFailedItems: cacheIndex.failedCount || 0
     },
     broadcast: broadcast
       ? {
@@ -724,6 +743,120 @@ async function collectDiagnostics(options = {}) {
   diagnostics.health = diagnosticsHealth(diagnostics, data);
   writeJson(paths.diagnostics, diagnostics);
   return diagnostics;
+}
+
+function phase(ready, statusValue, summary, details = {}) {
+  return { ready: Boolean(ready), status: statusValue, summary, ...details };
+}
+
+function serviceActive(services, serviceName) {
+  if (!services || !Object.prototype.hasOwnProperty.call(services, serviceName)) return null;
+  return services[serviceName] === "active";
+}
+
+function readinessSummary(diagnostics) {
+  const health = diagnostics.health || {};
+  const networkOnline = Boolean(health.networkOnline);
+  const paired = Boolean(health.paired);
+  const deviceKeyPresent = Boolean(health.deviceKeyPresent);
+  const feed = diagnostics.feed || {};
+  const release = diagnostics.release || null;
+  const services = diagnostics.services || null;
+  const commandExecutorActive = serviceActive(services, "autopoiesis-command-executor.service");
+  const cacheServiceActive = serviceActive(services, "autopoiesis-cache.service");
+  const heartbeatServiceActive = serviceActive(services, "autopoiesis-heartbeat.service");
+
+  const phases = {
+    localUi: phase(true, "ready", "Local UI responded and produced diagnostics."),
+    network: phase(
+      networkOnline,
+      networkOnline ? "ready" : "needs_network",
+      networkOnline ? "LAN or Wi-Fi is online." : "No LAN or Wi-Fi connection is recorded.",
+      { primary: diagnostics.network ? diagnostics.network.primary || null : null }
+    ),
+    pairing: phase(
+      paired && deviceKeyPresent,
+      paired ? (deviceKeyPresent ? "ready" : "missing_device_key") : "unpaired",
+      paired
+        ? (deviceKeyPresent ? "Device is paired and has a stored API key." : "Device is paired but no API key is stored.")
+        : "Device is not paired to an online Frames profile.",
+      { paired, deviceKeyPresent }
+    ),
+    sync: phase(
+      paired && deviceKeyPresent && !((diagnostics.settingsSync || {}).conflict),
+      (diagnostics.settingsSync || {}).conflict ? "conflict" : paired && deviceKeyPresent ? "ready" : "waiting_for_pairing",
+      (diagnostics.settingsSync || {}).conflict
+        ? "Local settings are newer than the latest remote payload."
+        : paired && deviceKeyPresent
+          ? "Settings sync is available."
+          : "Settings sync waits for pairing and device key storage.",
+      { settingsSync: diagnostics.settingsSync || null, heartbeatServiceActive }
+    ),
+    content: phase(
+      Boolean(feed.syncedAt || feed.totalItems || feed.eligibleItems),
+      feed.syncedAt ? "ready" : "waiting_for_feed",
+      feed.syncedAt ? "A feed has been synced locally." : "No local feed sync has completed yet.",
+      { feed }
+    ),
+    cache: phase(
+      feed.cacheEligibleItems === 0 || feed.cacheCachedItems > 0,
+      feed.cacheEligibleItems === 0
+        ? "no_cache_needed"
+        : feed.cacheCachedItems > 0
+          ? "ready"
+          : feed.cacheIndexGeneratedAt
+            ? "empty_or_failed"
+            : "waiting_for_cache_worker",
+      feed.cacheEligibleItems === 0
+        ? "No current feed items require cache."
+        : feed.cacheCachedItems > 0
+          ? "At least one eligible feed asset is cached."
+          : feed.cacheIndexGeneratedAt
+            ? "Cache worker ran but no eligible assets are cached."
+            : "Cache worker has not indexed the current feed manifest yet.",
+      { cacheServiceActive }
+    ),
+    commands: phase(
+      paired && deviceKeyPresent && diagnostics.pendingCommands === 0,
+      diagnostics.pendingCommands > 0 ? "pending_commands" : paired && deviceKeyPresent ? "ready" : "waiting_for_pairing",
+      diagnostics.pendingCommands > 0
+        ? "Remote commands are queued for processing."
+        : paired && deviceKeyPresent
+          ? "Remote command processing is available."
+          : "Command processing waits for pairing and device key storage.",
+      { pendingCommands: diagnostics.pendingCommands || 0, commandExecutorActive }
+    ),
+    release: phase(
+      !release || release.status !== "error",
+      release && release.status ? release.status : "idle",
+      release && release.status === "error"
+        ? "Last release/update attempt failed."
+        : release && release.status === "in_progress"
+          ? "A release/update attempt is in progress."
+          : "No release blocker is recorded.",
+      { release }
+    )
+  };
+
+  const blockers = [];
+  for (const [name, value] of Object.entries(phases)) {
+    if (!value.ready && value.status !== "no_cache_needed") blockers.push({ phase: name, status: value.status, summary: value.summary });
+  }
+  const hasError = health.status === "error" || blockers.some(item => ["missing_device_key", "conflict", "empty_or_failed", "pending_commands", "error"].includes(item.status));
+  const statusValue = hasError ? "blocked" : blockers.length ? "not_ready" : "ready";
+  return {
+    ok: statusValue === "ready",
+    status: statusValue,
+    healthStatus: health.status || "unknown",
+    device: {
+      deviceId: diagnostics.deviceId || null,
+      deviceName: diagnostics.deviceName || null,
+      softwareVersion: diagnostics.softwareVersion || null
+    },
+    phases,
+    blockers,
+    collectedAt: diagnostics.collectedAt || null
+  };
 }
 
 function healthSummary(diagnostics) {
@@ -1608,6 +1741,10 @@ async function handle(req, res) {
     if (req.method === "GET" && url.pathname === "/local/health") {
       const includeServices = url.searchParams.get("services") === "1";
       return sendJson(res, healthSummary(await collectDiagnostics({ includeServices })));
+    }
+    if (req.method === "GET" && url.pathname === "/local/readiness") {
+      const includeServices = url.searchParams.get("services") !== "0";
+      return sendJson(res, readinessSummary(await collectDiagnostics({ includeServices })));
     }
     if (req.method === "GET" && url.pathname === "/local/feed") {
       return sendJson(res, publicFeed());
