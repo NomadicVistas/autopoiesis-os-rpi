@@ -498,3 +498,36 @@ Verification:
 Next step:
 
 Use `cache-index.json` from the local offline fallback route so a disconnected paired frame can display cached artwork instead of only the static offline screen.
+
+## 2026-06-06 - Settings sync conflict handling
+
+Date: 2026-06-06
+
+Milestone: MVP 0.1 - Pairable Frames Device
+
+Changed files:
+
+- `local-ui/server.js`
+- `docs/api-contract.md`
+- `docs/progress.md`
+- `docs/agent-notes/pulse.md`
+- `/data/.openclaw/workspace/autopoiesis-os-program/ROLLING-LOG.md`
+
+Implemented:
+
+- Added device-side settings sync metadata with local/remote `updatedAt` tracking.
+- Local settings saves now stamp preferences before writing or pushing to the Frames API.
+- Remote settings from explicit sync, push responses, and heartbeat responses now pass through one resolver.
+- Stale remote settings are rejected when their `updatedAt` is older than the local settings timestamp.
+- Settings conflicts are exposed through heartbeat diagnostics as `settingsSync` plus a `settings_conflict` health warning.
+- Untimestamped remote payloads remain accepted for legacy compatibility and are marked as `remote_applied_untimestamped`.
+
+Verification:
+
+- `node --check local-ui/server.js` passed.
+- `bash -n install.sh update.sh uninstall-dev-tools.sh factory-reset.sh scripts/*.sh` passed.
+- Mock Frames API smoke passed for stale remote settings rejection, `settings_conflict` health reporting, and newer remote settings application.
+
+Next step:
+
+Mirror the same latest-`updatedAt` rule in the online Frames backend so POST/GET settings responses always return authoritative timestamps and can report conflicts explicitly.

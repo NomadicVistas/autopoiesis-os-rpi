@@ -156,7 +156,7 @@ Diagnostics health summary:
 }
 ```
 
-Current issue codes include `device_unpaired`, `device_key_missing`, `network_offline`, `offline_fallback`, `storage_critical`, `storage_high`, `storage_low`, `storage_unknown`, `memory_low`, `temperature_critical`, `temperature_high`, `release_error`, `release_in_progress`, `commands_pending`, and `service_failed`.
+Current issue codes include `device_unpaired`, `device_key_missing`, `network_offline`, `offline_fallback`, `storage_critical`, `storage_high`, `storage_low`, `storage_unknown`, `memory_low`, `temperature_critical`, `temperature_high`, `release_error`, `release_in_progress`, `settings_conflict`, `commands_pending`, and `service_failed`.
 
 Settings sync:
 
@@ -166,6 +166,15 @@ Settings sync:
 - POST /api/frames/user/preferences
 - GET /api/frames/user/devices
 - POST /api/frames/user/devices/pair
+
+Device settings conflict behavior:
+
+- Settings payloads should include `updatedAt` as an ISO timestamp. The Pi also accepts legacy `updated_at` and normalizes it locally.
+- Local setting changes are stamped before they are written or pushed to the Frames API.
+- Remote settings from explicit sync, push responses, and heartbeat responses are applied only when their `updatedAt` is equal to or newer than the local settings timestamp.
+- If the remote payload is stale, the Pi keeps local preferences, records `settingsSync.status = local_newer`, and exposes a `settings_conflict` diagnostics health warning.
+- Untimestamped remote payloads are still applied for legacy API compatibility, but are recorded as `remote_applied_untimestamped`.
+- Heartbeat diagnostics include a compact `settingsSync` object with status, source, conflict, reason, localUpdatedAt, remoteUpdatedAt, and checkedAt.
 
 Content stream:
 

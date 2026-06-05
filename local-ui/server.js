@@ -199,6 +199,94 @@ function parseTimestamp(value) {
   return Number.isFinite(timestamp) ? timestamp : null;
 }
 
+function timestampString(value) {
+  const timestamp = parseTimestamp(value);
+  return timestamp === null ? null : new Date(timestamp).toISOString();
+}
+
+function normalizeSettings(settings = {}) {
+  if (!settings || typeof settings !== "object") return {};
+  const normalized = { ...settings };
+  if (!normalized.updatedAt && normalized.updated_at) normalized.updatedAt = normalized.updated_at;
+  delete normalized.updated_at;
+  return normalized;
+}
+
+function settingsUpdatedAt(settings = {}, fallback = null) {
+  return timestampString(settings.updatedAt || settings.updated_at || settings.modifiedAt || settings.modified_at || fallback);
+}
+
+function writeSettingsSyncStatus(patch) {
+  const device = readJson(paths.device, {});
+  const syncedAt =
+    patch.syncedAt ||
+    (!patch.conflict && patch.status !== "local_changed" ? patch.checkedAt : device.lastSettingsSyncAt || null);
+  writeJson(paths.device, {
+    ...device,
+    lastSettingsSyncAt: syncedAt,
+    lastSettingsConflictAt: patch.conflict ? patch.checkedAt || new Date().toISOString() : device.lastSettingsConflictAt || null,
+    settingsUpdatedAt: patch.localUpdatedAt || patch.remoteUpdatedAt || device.settingsUpdatedAt || null,
+    settingsSync: {
+      ...(device.settingsSync || {}),
+      ...patch
+    }
+  });
+}
+
+function applyRemoteSettingsPayload(result = {}, source = "settings_sync") {
+  const remoteSettings = normalizeSettings(result.settings || result.preferences || {});
+  if (!Object.keys(remoteSettings).length) return { applied: false, skipped: true, reason: "No settings in response" };
+
+  const now = new Date().toISOString();
+  const preferences = readJson(paths.preferences, {});
+  const device = readJson(paths.device, {});
+  const remoteUpdatedAt = settingsUpdatedAt(remoteSettings, result.updatedAt || result.settingsUpdatedAt || result.settings_updated_at);
+  const localUpdatedAt = settingsUpdatedAt(
+    preferences,
+    device.settingsUpdatedAt || (device.settingsSync || {}).localUpdatedAt || (device.settingsSync || {}).remoteUpdatedAt
+  );
+
+  if (remoteUpdatedAt && localUpdatedAt && parseTimestamp(remoteUpdatedAt) < parseTimestamp(localUpdatedAt)) {
+    writeSettingsSyncStatus({
+      status: "local_newer",
+      source,
+      conflict: true,
+      reason: "remote_settings_stale",
+      localUpdatedAt,
+      remoteUpdatedAt,
+      checkedAt: now
+    });
+    return {
+      applied: false,
+      conflict: true,
+      reason: "remote_settings_stale",
+      localUpdatedAt,
+      remoteUpdatedAt
+    };
+  }
+
+  const appliedUpdatedAt = remoteUpdatedAt || now;
+  writeJson(paths.preferences, {
+    ...preferences,
+    ...remoteSettings,
+    updatedAt: appliedUpdatedAt
+  });
+  writeSettingsSyncStatus({
+    status: remoteUpdatedAt ? "remote_applied" : "remote_applied_untimestamped",
+    source,
+    conflict: false,
+    localUpdatedAt: appliedUpdatedAt,
+    remoteUpdatedAt,
+    checkedAt: now
+  });
+  return {
+    applied: true,
+    conflict: false,
+    localUpdatedAt: appliedUpdatedAt,
+    remoteUpdatedAt
+  };
+}
+
 function isExpired(value, now = Date.now()) {
   const timestamp = parseTimestamp(value);
   return timestamp !== null && timestamp <= now;
@@ -525,6 +613,10 @@ function diagnosticsHealth(diagnostics, data) {
     add("warning", "release_in_progress", "A release/update attempt is in progress.");
   }
 
+  if (diagnostics.settingsSync && diagnostics.settingsSync.conflict) {
+    add("warning", "settings_conflict", "Local settings are newer than the remote settings payload.");
+  }
+
   if (diagnostics.pendingCommands > 0) {
     add("warning", "commands_pending", "Remote commands are waiting to be processed.");
   }
@@ -597,6 +689,17 @@ async function collectDiagnostics(options = {}) {
           completedAt: release.completedAt || null,
           failedAt: release.failedAt || null,
           error: release.error || null
+        }
+      : null,
+    settingsSync: data.device.settingsSync
+      ? {
+          status: data.device.settingsSync.status || null,
+          source: data.device.settingsSync.source || null,
+          conflict: Boolean(data.device.settingsSync.conflict),
+          reason: data.device.settingsSync.reason || null,
+          localUpdatedAt: data.device.settingsSync.localUpdatedAt || null,
+          remoteUpdatedAt: data.device.settingsSync.remoteUpdatedAt || null,
+          checkedAt: data.device.settingsSync.checkedAt || null
         }
       : null,
     pendingCommands: Array.isArray(commands) ? commands.length : 0,
@@ -1257,21 +1360,27 @@ async function syncSettingsFromRemote() {
   const device = readJson(paths.device, {});
   if (!device.deviceId || !device.paired) return { ok: false, error: "Device is not paired" };
   const result = await apiRequest(`/frames/device/${encodeURIComponent(device.deviceId)}/settings`);
-  if (result.settings) {
-    writeJson(paths.preferences, { ...readJson(paths.preferences, {}), ...result.settings });
-    writeJson(paths.device, { ...device, lastSettingsSyncAt: new Date().toISOString() });
-  }
-  return result;
+  const sync = applyRemoteSettingsPayload(result, "settings_sync");
+  return { ...result, sync };
 }
 
 async function pushSettingsToRemote(device, preferences) {
   if (!device.deviceId || !device.paired) return { ok: false, skipped: true, reason: "Device is not paired" };
+  const submittedUpdatedAt = settingsUpdatedAt(preferences) || new Date().toISOString();
   const result = await apiRequest(`/frames/device/${encodeURIComponent(device.deviceId)}/settings`, {
     method: "POST",
-    body: JSON.stringify({ settings: { ...preferences, updatedAt: new Date().toISOString() } })
+    body: JSON.stringify({ settings: { ...preferences, updatedAt: submittedUpdatedAt } })
   });
-  writeJson(paths.device, { ...device, lastSettingsSyncAt: new Date().toISOString() });
-  return result;
+  writeSettingsSyncStatus({
+    status: "synced",
+    source: "settings_push",
+    conflict: false,
+    localUpdatedAt: submittedUpdatedAt,
+    remoteUpdatedAt: settingsUpdatedAt(result.settings || {}, result.updatedAt || submittedUpdatedAt),
+    checkedAt: new Date().toISOString()
+  });
+  const sync = result.settings ? applyRemoteSettingsPayload(result, "settings_push_response") : null;
+  return { ...result, sync };
 }
 
 async function sendHeartbeat() {
@@ -1290,12 +1399,12 @@ async function sendHeartbeat() {
       diagnostics
     })
   });
-  if (result.settings) writeJson(paths.preferences, { ...data.preferences, ...result.settings });
+  if (result.settings) applyRemoteSettingsPayload(result, "heartbeat");
   if (result.commands) writeJson(paths.commands, result.commands);
   if (result.feed || result.items || result.artworks || result.broadcasts) {
     writeFeedState(normalizeFeedPayload(result));
   }
-  writeJson(paths.device, { ...data.device, lastHeartbeatAt: new Date().toISOString() });
+  writeJson(paths.device, { ...readJson(paths.device, {}), lastHeartbeatAt: new Date().toISOString() });
   return result;
 }
 
@@ -1522,9 +1631,17 @@ async function handle(req, res) {
     if (req.method === "POST" && url.pathname === "/local/settings") {
       const body = JSON.parse(await readBody(req) || "{}");
       const device = { ...readJson(paths.device, {}), ...(body.device || {}) };
-      const preferences = { ...readJson(paths.preferences, {}), ...(body.preferences || {}) };
+      const localUpdatedAt = settingsUpdatedAt(body.preferences || {}) || new Date().toISOString();
+      const preferences = { ...readJson(paths.preferences, {}), ...(body.preferences || {}), updatedAt: localUpdatedAt };
       writeJson(paths.device, device);
       writeJson(paths.preferences, preferences);
+      writeSettingsSyncStatus({
+        status: "local_changed",
+        source: "local_settings",
+        conflict: false,
+        localUpdatedAt,
+        checkedAt: localUpdatedAt
+      });
       let remote = { ok: false, skipped: true };
       try {
         remote = await pushSettingsToRemote(device, preferences);

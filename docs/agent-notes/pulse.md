@@ -89,3 +89,12 @@ Context: RPI APPLIANCE cron pass. The local feed path writes a cache eligibility
 What changed: Replaced `scripts/cache-artworks.sh` with a conservative downloader that reads `feed-cache.json`, stores media and thumbnails under the runtime cache directory, and writes `cache-index.json` with per-asset cached/failed status.
 What needs review: Real Pi validation should confirm cache directory ownership under the installed `frame` user and storage pressure behavior on the target SD card.
 Next recommended action: Teach `/offline` to read `cache-index.json` and show cached artwork when available, falling back to the current static offline screen only when the cache is empty.
+
+## 2026-06-06 - Settings sync conflict handling
+
+Date/time: 2026-06-05 22:45 UTC / 2026-06-06 00:45 Europe/Berlin
+Agent: Pulse
+Context: API / DATABASE / SYNC cron pass. Device settings sync existed, but explicit sync and heartbeat responses would blindly merge remote settings over local preferences.
+What changed: Added local/remote `updatedAt` tracking, stamped local settings saves, routed sync/push/heartbeat settings through one resolver, rejected stale remote settings, and exposed conflicts through diagnostics `settingsSync` plus health issue code `settings_conflict`.
+What needs review: The online Frames backend should return authoritative `updatedAt` values for every settings GET/POST response and should eventually report conflicts explicitly instead of relying only on device-side rejection.
+Next recommended action: Mirror latest-`updatedAt` conflict handling in the backend aos settings rows and admin/profile API responses.
