@@ -2,7 +2,7 @@
 
 Autopoiesis OS turns a Raspberry Pi display into a dedicated fullscreen frame for:
 
-https://autopoiesis.art/frames
+https://autopoiesis.art/display?shuffle=1
 
 This repository is not a custom Linux distribution. It is an appliance layer for Raspberry Pi OS:
 
@@ -23,7 +23,7 @@ Milestone 2 is scaffolded for physical Pi validation. The local UI can:
 - connect Ethernet/LAN through DHCP when available
 - scan and connect Wi-Fi through nmcli
 - start a mock pairing flow
-- redirect `/launch` to setup, disabled, offline fallback, or `/frames` depending on local state and remote reachability
+- redirect `/launch` to setup, disabled, offline fallback, or the live display route depending on local state and remote reachability
 - build a local cache index from eligible feed media through the hourly cache timer
 - expose a compact `/local/health` probe for support, admin adapters, and hardware acceptance checks
 - expose a phase-level `/local/readiness` probe for setup, pairing, sync, content, cache, commands, and release rollout checks

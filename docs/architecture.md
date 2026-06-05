@@ -27,7 +27,7 @@ Logs:
 1. Raspberry Pi OS boots into the existing graphical target.
 2. `autopoiesis-setup.service` starts the local Node launcher on port `3030`.
 3. `autopoiesis-kiosk.service` waits briefly for the local launcher and starts Chromium in kiosk mode at `http://localhost:3030/launch`.
-4. The launcher decides whether to show setup, disabled, offline, or the remote frames URL.
+4. The launcher decides whether to show setup, disabled, offline, or the remote display URL.
 
 ## Network Flow
 

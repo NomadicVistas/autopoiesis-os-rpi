@@ -143,6 +143,11 @@ function ensureState() {
       deviceId: createDeviceId(),
       softwareVersion: version()
     });
+  } else if (device.framesUrl === "https://autopoiesis.art/frames") {
+    writeJson(paths.device, {
+      ...device,
+      framesUrl: base.device.framesUrl || "https://autopoiesis.art/display?shuffle=1"
+    });
   }
   if (!fs.existsSync(paths.preferences)) {
     writeJson(paths.preferences, base.preferences);
@@ -1308,7 +1313,7 @@ async function renderLaunch(res) {
     redirect(res, "/setup");
     return;
   }
-  const launchUrl = data.device.framesUrl || "https://autopoiesis.art/frames";
+  const launchUrl = data.device.framesUrl || "https://autopoiesis.art/display?shuffle=1";
   if (!(await remoteLaunchReachable(launchUrl))) {
     updateState({
       currentMode: "offline",

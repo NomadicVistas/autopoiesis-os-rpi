@@ -5,7 +5,7 @@
   "paired": false,
   "pairingCode": null,
   "serverUrl": "https://autopoiesis.art",
-  "framesUrl": "https://autopoiesis.art/frames",
+  "framesUrl": "https://autopoiesis.art/display?shuffle=1",
   "apiBaseUrl": "https://autopoiesis.art/api",
   "wifiConfigured": false,
   "lanConfigured": false,
