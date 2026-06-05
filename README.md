@@ -23,7 +23,7 @@ Milestone 2 is scaffolded for physical Pi validation. The local UI can:
 - connect Ethernet/LAN through DHCP when available
 - scan and connect Wi-Fi through nmcli
 - start a mock pairing flow
-- redirect `/launch` to setup or `/frames` depending on local state
+- redirect `/launch` to setup, disabled, offline fallback, or `/frames` depending on local state and remote reachability
 - verify setup, kiosk, HTTP, Chromium, network, and restart behavior on a Pi
 
 ## Install

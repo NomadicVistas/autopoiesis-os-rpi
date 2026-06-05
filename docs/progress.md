@@ -216,3 +216,32 @@ Verification:
 Next step:
 
 Teach the online Admin > Frames device detail view to surface the latest diagnostics payload from heartbeats once this Pi payload is deployed.
+
+## 2026-06-05 - Kiosk offline launch fallback
+
+Date: 2026-06-05
+
+Milestone: RPi appliance runtime hardening
+
+Changed files:
+
+- `local-ui/server.js`
+- `README.md`
+- `docs/agent-notes/rpi-agent.md`
+- `docs/progress.md`
+- `/data/.openclaw/workspace/autopoiesis-os-program/ROLLING-LOG.md`
+
+Implemented:
+
+- `/launch` now probes the configured Frames URL before redirecting kiosk Chromium to the remote app.
+- If the remote frame is unreachable, the launcher records offline mode and redirects to the local `/offline` fallback instead of a Chromium network error page.
+- The offline page records the last fallback check and retries `/launch` automatically so network recovery can self-heal.
+
+Verification:
+
+- `node --check local-ui/server.js` passed.
+- Local smoke test passed for unreachable remote -> `/offline` and reachable remote -> configured Frames URL.
+
+Next step:
+
+Validate on physical Raspberry Pi hardware by disconnecting LAN/Wi-Fi after pairing, confirming kiosk lands on `/offline`, reconnecting the network, and confirming the retry returns to the remote Frames app.

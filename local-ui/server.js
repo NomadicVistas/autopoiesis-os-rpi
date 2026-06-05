@@ -10,6 +10,8 @@ const DEFAULTS_PATH =
   process.env.AUTOPOIESIS_DEFAULTS_PATH ||
   path.resolve(__dirname, "../config/defaults.json");
 const API_TIMEOUT_MS = Number(process.env.AUTOPOIESIS_API_TIMEOUT_MS || 8000);
+const LAUNCH_PROBE_TIMEOUT_MS = Number(process.env.AUTOPOIESIS_LAUNCH_PROBE_TIMEOUT_MS || 2500);
+const OFFLINE_RETRY_SECONDS = Number(process.env.AUTOPOIESIS_OFFLINE_RETRY_SECONDS || 30);
 const CACHE_DIR = process.env.AUTOPOIESIS_CACHE_DIR || path.join(DATA_DIR, "cache");
 const LOG_DIR = process.env.AUTOPOIESIS_LOG_DIR || "/var/log/autopoiesis-os";
 const UPDATE_SCRIPT =
@@ -182,6 +184,11 @@ function status() {
   const network = readJson(path.join(DATA_DIR, "network.json"), null);
   const pairing = readJson(paths.pairing, null);
   return { device, preferences, state, network, pairing, version: version() };
+}
+
+function updateState(patch) {
+  const state = readJson(paths.state, {});
+  writeJson(paths.state, { ...state, ...patch });
 }
 
 function redactDevice(device) {
@@ -641,6 +648,10 @@ scanWifi();`
 }
 
 function renderOffline() {
+  const data = status();
+  const retrySeconds = Number.isFinite(OFFLINE_RETRY_SECONDS) && OFFLINE_RETRY_SECONDS > 0
+    ? OFFLINE_RETRY_SECONDS
+    : 30;
   return page(
     "Autopoiesis Offline",
     `<main class="screen fallback">
@@ -648,8 +659,14 @@ function renderOffline() {
         <p class="kicker">Autopoiesis Frame</p>
         <h1>Offline mode</h1>
         <p>The frame is keeping a calm local fallback ready while the network is unavailable.</p>
+        <dl class="status">
+          <div><dt>Device</dt><dd>${escapeHtml(data.device.deviceId || "unknown")}</dd></div>
+          <div><dt>Last check</dt><dd>${escapeHtml(data.state.lastOfflineFallbackAt || "pending")}</dd></div>
+          <div><dt>Retry</dt><dd>${escapeHtml(retrySeconds)} seconds</dd></div>
+        </dl>
       </section>
-    </main>`
+    </main>`,
+    `setTimeout(() => { location.href = "/launch"; }, ${Math.round(retrySeconds * 1000)});`
   );
 }
 
@@ -666,17 +683,59 @@ function renderDisabled() {
   );
 }
 
-function renderLaunch(res) {
+async function remoteLaunchReachable(targetUrl) {
+  async function probe(method) {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), LAUNCH_PROBE_TIMEOUT_MS);
+    try {
+      const response = await fetch(targetUrl, {
+        method,
+        redirect: "manual",
+        signal: controller.signal
+      });
+      return response.status >= 200 && response.status < 500;
+    } finally {
+      clearTimeout(timeout);
+    }
+  }
+  try {
+    if (await probe("HEAD")) return true;
+    return probe("GET");
+  } catch {
+    return false;
+  }
+}
+
+async function renderLaunch(res) {
   const data = status();
   if (data.state.remoteDisabled || data.device.remoteEnabled === false) {
+    updateState({ currentMode: "disabled" });
     redirect(res, "/disabled");
     return;
   }
   if (!data.device.firstRunComplete || !data.device.paired) {
+    updateState({ currentMode: "setup" });
     redirect(res, "/setup");
     return;
   }
-  redirect(res, data.device.framesUrl || "https://autopoiesis.art/frames");
+  const launchUrl = data.device.framesUrl || "https://autopoiesis.art/frames";
+  if (!(await remoteLaunchReachable(launchUrl))) {
+    updateState({
+      currentMode: "offline",
+      networkOnline: false,
+      lastOfflineFallbackAt: new Date().toISOString(),
+      lastRemoteLaunchUrl: launchUrl
+    });
+    redirect(res, "/offline");
+    return;
+  }
+  updateState({
+    currentMode: "frame",
+    networkOnline: true,
+    lastLaunchAt: new Date().toISOString(),
+    lastRemoteLaunchUrl: launchUrl
+  });
+  redirect(res, launchUrl);
 }
 
 function redirect(res, location) {
