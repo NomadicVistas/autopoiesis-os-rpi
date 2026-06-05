@@ -26,3 +26,12 @@ Context: Next phase after backend MVP start.
 What changed: Wired the RPi local UI and scripts to the Frames API for registration, pairing status, settings sync, heartbeat, and command storage. Local fallback pairing remains for offline setup.
 What needs review: Run against the deployed autopoiesis.art backend once the Frames API is deployed, then validate on physical Raspberry Pi hardware.
 Next recommended action: Build Profile > Frames UI so users can claim the server pairing code.
+
+## 2026-06-05 - Diagnostics integration
+
+Date/time: 2026-06-05 20:15 UTC
+Agent: Pulse
+Context: LEAD / INTEGRATION cron pass. The main blocker remains physical Raspberry Pi validation, and the admin/API/QA workstreams need one shared device health shape.
+What changed: Added a local diagnostics endpoint and included the same diagnostics object in heartbeat payloads.
+What needs review: Validate the values on real Pi hardware, especially temperature, disk, service states, and whether the cached NetworkManager state is fresh enough during setup.
+Next recommended action: Persist and display latest heartbeat diagnostics in Admin > Frames so remote support has a single fleet health view.

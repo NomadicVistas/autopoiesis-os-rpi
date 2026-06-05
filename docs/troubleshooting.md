@@ -47,3 +47,11 @@ nmcli connection show
 ```bash
 ls -lah /var/log/autopoiesis-os
 ```
+
+## Diagnostics
+
+```bash
+curl -fsS http://127.0.0.1:3030/local/diagnostics
+```
+
+The diagnostics endpoint is the quickest support snapshot for hardware testing. It reports software version, uptime, memory, temperature, network and pairing state, cache footprint, release state, pending command count, current broadcast, and local Autopoiesis service states when systemd is available.

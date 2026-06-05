@@ -187,3 +187,32 @@ Build Profile > Frames UI and admin UI around the new backend APIs.
 - Added `scripts/process-commands.sh` plus `autopoiesis-command-executor.service/.timer` to process commands every 2 minutes.
 - Added `scripts/update-from-release.sh` with artifact tarball support, checksum validation, git fallback, rollback metadata, and kiosk restart.
 - Command support: `sync_settings`, `clear_cache`, `restart_display`, `restart_device` with explicit reboot opt-in, `update_device`, `disable_device`, `enable_device`, `show_broadcast`, and guarded `factory_reset_request`.
+
+## 2026-06-05 - Device diagnostics contract
+
+Date: 2026-06-05
+
+Milestone: Lead/integration observability for QA, admin, and hardware validation
+
+Changed files:
+
+- `local-ui/server.js`
+- `docs/api-contract.md`
+- `docs/troubleshooting.md`
+- `docs/agent-notes/pulse.md`
+
+Implemented:
+
+- Added `GET /local/diagnostics` for a compact device support snapshot.
+- Heartbeat now sends the same diagnostics object to the Frames API.
+- Diagnostics includes version, hostname, uptime, load, memory, temperature, cached network/pairing state, data/cache storage, release state, pending command count, current broadcast, and local systemd service states when requested locally.
+
+Verification:
+
+- `node --check local-ui/server.js` passed.
+- `bash -n install.sh update.sh uninstall-dev-tools.sh factory-reset.sh scripts/*.sh` passed.
+- Mock local UI/API smoke test passed for `GET /local/diagnostics` and heartbeat diagnostics upload.
+
+Next step:
+
+Teach the online Admin > Frames device detail view to surface the latest diagnostics payload from heartbeats once this Pi payload is deployed.

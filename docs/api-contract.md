@@ -43,6 +43,7 @@ GET /api/frames/device/{deviceId}/artwork-feed
 
 ```txt
 GET  /local/status
+GET  /local/diagnostics
 GET  /local/network/status
 POST /local/lan/connect
 GET  /local/wifi/scan
@@ -54,6 +55,9 @@ GET  /local/pairing/status
 POST /local/pairing/check
 POST /local/settings/sync
 POST /local/heartbeat
+POST /local/commands/process
+POST /local/release/check
+POST /local/release/apply
 POST /local/system/restart
 POST /local/system/factory-reset
 POST /local/system/update-now
@@ -67,6 +71,40 @@ Device lifecycle:
 - GET /api/frames/device/{deviceId}/pairing-status
 - POST /api/frames/device/{deviceId}/pair
 - POST /api/frames/device/{deviceId}/heartbeat
+
+Heartbeat request body includes:
+
+- softwareVersion
+- currentMode
+- currentArtworkId
+- networkOnline
+- networkType
+- storageStatus
+- diagnostics
+
+Diagnostics fields are intentionally compact and safe for admin/profile/support surfaces:
+
+- collectedAt
+- deviceId
+- deviceName
+- softwareVersion
+- hostname
+- platform
+- arch
+- kernel
+- uptimeSeconds
+- loadAverage
+- memory
+- temperatureC
+- mode
+- network
+- pairing
+- storage
+- release
+- pendingCommands
+- broadcast
+
+`GET /local/diagnostics` returns the same object plus local systemd service states when available.
 
 Settings sync:
 

@@ -24,8 +24,19 @@ const paths = {
   commands: path.join(DATA_DIR, "commands.json"),
   release: path.join(DATA_DIR, "release.json"),
   releaseState: path.join(DATA_DIR, "release-state.json"),
-  broadcast: path.join(DATA_DIR, "current-broadcast.json")
+  broadcast: path.join(DATA_DIR, "current-broadcast.json"),
+  diagnostics: path.join(DATA_DIR, "diagnostics.json")
 };
+
+const DIAGNOSTIC_SERVICES = [
+  "autopoiesis-setup.service",
+  "autopoiesis-kiosk.service",
+  "autopoiesis-heartbeat.service",
+  "autopoiesis-command-executor.service",
+  "autopoiesis-cache.service",
+  "autopoiesis-updater.service",
+  "autopoiesis-watchdog.service"
+];
 
 function readJson(filePath, fallback) {
   try {
@@ -182,6 +193,155 @@ function redactDevice(device) {
 function publicStatus() {
   const data = status();
   return { ...data, device: redactDevice(data.device) };
+}
+
+function readTemperatureC() {
+  try {
+    const raw = fs.readFileSync("/sys/class/thermal/thermal_zone0/temp", "utf8").trim();
+    const value = Number(raw);
+    return Number.isFinite(value) ? Math.round((value / 1000) * 10) / 10 : null;
+  } catch {
+    return null;
+  }
+}
+
+function directoryStats(dirPath) {
+  const stats = { exists: false, files: 0, bytes: 0 };
+  function walk(currentPath) {
+    let entries;
+    try {
+      entries = fs.readdirSync(currentPath, { withFileTypes: true });
+    } catch {
+      return;
+    }
+    for (const entry of entries) {
+      const entryPath = path.join(currentPath, entry.name);
+      if (entry.isDirectory()) {
+        walk(entryPath);
+      } else if (entry.isFile()) {
+        try {
+          const fileStats = fs.statSync(entryPath);
+          stats.files += 1;
+          stats.bytes += fileStats.size;
+        } catch {
+          // Ignore files that disappear while diagnostics are collected.
+        }
+      }
+    }
+  }
+  try {
+    if (!fs.existsSync(dirPath)) return stats;
+  } catch {
+    return stats;
+  }
+  stats.exists = true;
+  walk(dirPath);
+  stats.mb = Math.round((stats.bytes / 1024 / 1024) * 10) / 10;
+  return stats;
+}
+
+async function diskStatus(targetPath) {
+  try {
+    fs.mkdirSync(targetPath, { recursive: true });
+  } catch {
+    // df can still report the parent filesystem if the directory exists later.
+  }
+  try {
+    const { stdout } = await execFilePromise("df", ["-Pk", targetPath], { timeout: 3000 });
+    const line = stdout.trim().split("\n")[1];
+    if (!line) return { ok: false, error: "df returned no filesystem row" };
+    const parts = line.trim().split(/\s+/);
+    const totalKb = Number(parts[1]);
+    const usedKb = Number(parts[2]);
+    const availableKb = Number(parts[3]);
+    const capacity = parts[4] || null;
+    return {
+      ok: true,
+      filesystem: parts[0],
+      totalMb: Math.round(totalKb / 1024),
+      usedMb: Math.round(usedKb / 1024),
+      availableMb: Math.round(availableKb / 1024),
+      capacity,
+      mountpoint: parts.slice(5).join(" ")
+    };
+  } catch (error) {
+    return { ok: false, error: error.message };
+  }
+}
+
+async function serviceDiagnostics() {
+  const services = {};
+  for (const serviceName of DIAGNOSTIC_SERVICES) {
+    try {
+      const { stdout } = await execFilePromise("systemctl", ["is-active", serviceName], { timeout: 2000 });
+      services[serviceName] = stdout.trim() || "unknown";
+    } catch (error) {
+      services[serviceName] = (error.stdout || error.stderr || "unavailable").trim();
+    }
+  }
+  return services;
+}
+
+async function collectDiagnostics(options = {}) {
+  const data = status();
+  const commands = readJson(paths.commands, []);
+  const release = readJson(paths.releaseState, null);
+  const broadcast = readJson(paths.broadcast, null);
+  const disk = await diskStatus(DATA_DIR);
+  const diagnostics = {
+    collectedAt: new Date().toISOString(),
+    deviceId: data.device.deviceId || null,
+    deviceName: data.device.deviceName || null,
+    softwareVersion: version(),
+    hostname: os.hostname(),
+    platform: os.platform(),
+    arch: os.arch(),
+    kernel: os.release(),
+    uptimeSeconds: Math.round(os.uptime()),
+    loadAverage: os.loadavg().map(value => Math.round(value * 100) / 100),
+    memory: {
+      totalMb: Math.round(os.totalmem() / 1024 / 1024),
+      freeMb: Math.round(os.freemem() / 1024 / 1024)
+    },
+    temperatureC: readTemperatureC(),
+    mode: data.state.currentMode || "setup",
+    network: data.network || null,
+    pairing: {
+      paired: Boolean(data.device.paired),
+      pairingCodePresent: Boolean((data.pairing || {}).pairingCode || data.device.pairingCode),
+      pairingMock: Boolean((data.pairing || {}).mock),
+      pairingStatus: (data.pairing || {}).status || null,
+      pairingExpiresAt: (data.pairing || {}).expiresAt || null
+    },
+    storage: {
+      dataDir: DATA_DIR,
+      cacheDir: CACHE_DIR,
+      dataDisk: disk,
+      cache: directoryStats(CACHE_DIR)
+    },
+    release: release
+      ? {
+          status: release.status || null,
+          targetVersion: release.targetVersion || null,
+          releaseId: release.releaseId || null,
+          previousVersion: release.previousVersion || null,
+          completedAt: release.completedAt || null,
+          failedAt: release.failedAt || null,
+          error: release.error || null
+        }
+      : null,
+    pendingCommands: Array.isArray(commands) ? commands.length : 0,
+    broadcast: broadcast
+      ? {
+          broadcastId: broadcast.broadcastId || broadcast.id || null,
+          shownAt: broadcast.shownAt || null,
+          title: broadcast.title || null
+        }
+      : null
+  };
+  if (options.includeServices) diagnostics.services = await serviceDiagnostics();
+  writeJson(paths.diagnostics, diagnostics);
+  return diagnostics;
 }
 
 function page(title, body, script = "") {
@@ -704,6 +864,7 @@ async function pushSettingsToRemote(device, preferences) {
 async function sendHeartbeat() {
   const data = status();
   if (!data.device.deviceId || !data.device.paired) return { ok: false, skipped: true, reason: "Device is not paired" };
+  const diagnostics = await collectDiagnostics();
   const result = await apiRequest(`/frames/device/${encodeURIComponent(data.device.deviceId)}/heartbeat`, {
     method: "POST",
     body: JSON.stringify({
@@ -712,7 +873,8 @@ async function sendHeartbeat() {
       currentArtworkId: data.state.currentArtworkId || null,
       networkOnline: Boolean(data.state.networkOnline),
       networkType: data.state.networkType || null,
-      storageStatus: data.state.storageStatus || {}
+      storageStatus: data.state.storageStatus || diagnostics.storage,
+      diagnostics
     })
   });
   if (result.settings) writeJson(paths.preferences, { ...data.preferences, ...result.settings });
@@ -893,6 +1055,9 @@ async function handle(req, res) {
     if (req.method === "GET" && url.pathname === "/disabled") return html(res, renderDisabled());
     if (req.method === "GET" && url.pathname === "/style.css") return css(res);
     if (req.method === "GET" && url.pathname === "/local/status") return sendJson(res, publicStatus());
+    if (req.method === "GET" && url.pathname === "/local/diagnostics") {
+      return sendJson(res, { ok: true, diagnostics: await collectDiagnostics({ includeServices: true }) });
+    }
     if (req.method === "GET" && url.pathname === "/local/network/status") {
       return networkStatus((_, value) => sendJson(res, value, value.ok ? 200 : 503));
     }
