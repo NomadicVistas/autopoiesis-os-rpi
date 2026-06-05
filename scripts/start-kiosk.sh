@@ -3,8 +3,18 @@ set -euo pipefail
 
 URL="${AUTOPOIESIS_LAUNCH_URL:-http://localhost:3030/launch}"
 PROFILE_DIR="${AUTOPOIESIS_CHROMIUM_PROFILE:-/var/lib/autopoiesis-os/chromium}"
+WAIT_SECONDS="${AUTOPOIESIS_KIOSK_WAIT_SECONDS:-30}"
 
 mkdir -p "$PROFILE_DIR"
+
+if command -v curl >/dev/null 2>&1; then
+  for ((i = 0; i < WAIT_SECONDS; i++)); do
+    if curl -fsS --max-time 2 "$URL" >/dev/null 2>&1; then
+      break
+    fi
+    sleep 1
+  done
+fi
 
 CHROMIUM_BIN="$(command -v chromium-browser || command -v chromium || true)"
 if [[ -z "$CHROMIUM_BIN" ]]; then

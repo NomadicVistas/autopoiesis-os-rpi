@@ -86,7 +86,8 @@ function status() {
   const device = readJson(paths.device, {});
   const preferences = readJson(paths.preferences, {});
   const state = readJson(paths.state, {});
-  return { device, preferences, state, version: version() };
+  const network = readJson(path.join(DATA_DIR, "network.json"), null);
+  return { device, preferences, state, network, version: version() };
 }
 
 function page(title, body, script = "") {
@@ -113,28 +114,115 @@ function escapeHtml(value) {
     .replaceAll('"', "&quot;");
 }
 
+function splitNmcliLine(line) {
+  const values = [];
+  let current = "";
+  let escaped = false;
+  for (const char of line) {
+    if (escaped) {
+      current += char;
+      escaped = false;
+    } else if (char === "\\") {
+      escaped = true;
+    } else if (char === ":") {
+      values.push(current);
+      current = "";
+    } else {
+      current += char;
+    }
+  }
+  values.push(current);
+  return values;
+}
+
+function writeNetworkState(network) {
+  writeJson(path.join(DATA_DIR, "network.json"), network);
+  const state = readJson(paths.state, {});
+  writeJson(paths.state, {
+    ...state,
+    networkOnline: Boolean(network.online),
+    networkType: network.primary || null
+  });
+  if (network.lan && network.lan.connected) {
+    const device = readJson(paths.device, {});
+    writeJson(paths.device, { ...device, lanConfigured: true });
+  }
+}
+
+function networkStatus(callback) {
+  execFile("nmcli", ["-t", "-f", "DEVICE,TYPE,STATE,CONNECTION", "device", "status"], (error, stdout) => {
+    if (error) {
+      const network = { online: false, primary: null, lan: { available: false }, wifi: { available: false } };
+      writeNetworkState(network);
+      callback(null, {
+        ok: false,
+        error: "Network status unavailable. NetworkManager/nmcli may not be installed or accessible.",
+        network
+      });
+      return;
+    }
+    const devices = stdout
+      .split("\n")
+      .filter(Boolean)
+      .map(line => {
+        const [device, type, state, connection] = splitNmcliLine(line);
+        return { device, type, state, connection };
+      });
+    const ethernet = devices.find(item => item.type === "ethernet");
+    const wifi = devices.find(item => item.type === "wifi");
+    const connected = devices.find(item => item.state === "connected" && (item.type === "ethernet" || item.type === "wifi"));
+    const network = {
+      online: Boolean(connected),
+      primary: connected ? (connected.type === "ethernet" ? "lan" : "wifi") : null,
+      lan: ethernet
+        ? {
+            available: true,
+            connected: ethernet.state === "connected",
+            device: ethernet.device,
+            connection: ethernet.connection || null
+          }
+        : { available: false },
+      wifi: wifi
+        ? {
+            available: true,
+            connected: wifi.state === "connected",
+            device: wifi.device,
+            connection: wifi.connection || null
+          }
+        : { available: false }
+    };
+    writeNetworkState(network);
+    callback(null, { ok: true, network, devices });
+  });
+}
+
 function renderSetup() {
   const data = status();
   const paired = data.device.paired ? "Paired" : "Not paired";
+  const network = data.network || {};
+  const networkLabel = network.online
+    ? `${network.primary || "network"} online`
+    : "Offline";
   return page(
     "Autopoiesis Setup",
     `<main class="screen">
       <section class="panel">
         <p class="kicker">Autopoiesis Frame</p>
         <h1>Setup</h1>
-        <p class="muted">Prepare this frame for Wi-Fi, pairing, and display mode.</p>
+        <p class="muted">Prepare this frame for network, pairing, and display mode.</p>
         <dl class="status">
           <div><dt>Device</dt><dd>${escapeHtml(data.device.deviceId)}</dd></div>
+          <div><dt>Network</dt><dd>${escapeHtml(networkLabel)}</dd></div>
           <div><dt>Pairing</dt><dd>${paired}</dd></div>
           <div><dt>Mode</dt><dd>${escapeHtml(data.state.currentMode || "setup")}</dd></div>
         </dl>
         <div class="actions">
           <a class="button" href="/settings">Settings</a>
-          <a class="button" href="/local/wifi/scan">Scan Wi-Fi</a>
+          <a class="button" href="/network">Network</a>
           <button data-start-pairing>Start pairing</button>
           <a class="button primary" href="/launch">Launch frame</a>
         </div>
-        <p class="note">Wi-Fi and pairing use local mock flows until the production API is available.</p>
+        <p class="note">Pairing uses a local mock flow until the production API is available.</p>
       </section>
     </main>`,
     `document.querySelector("[data-start-pairing]").addEventListener("click", async () => {
@@ -181,6 +269,111 @@ function renderSettings() {
       });
       location.href = "/setup";
     });`
+  );
+}
+
+function renderNetwork() {
+  return page(
+    "Autopoiesis Network",
+    `<main class="screen">
+      <section class="panel wide">
+        <p class="kicker">Local network</p>
+        <h1>Network</h1>
+        <div id="network-status" class="status"></div>
+        <div class="actions">
+          <button data-refresh-network>Refresh</button>
+          <button data-connect-lan>Use LAN</button>
+          <a class="button" href="/local/wifi/scan">Scan Wi-Fi</a>
+          <a class="button primary" href="/setup">Back</a>
+        </div>
+        <p class="note">LAN uses Ethernet with DHCP through NetworkManager when available.</p>
+      </section>
+    </main>`,
+    `const statusEl = document.getElementById("network-status");
+function row(label, value) {
+  return "<div><dt>" + label + "</dt><dd>" + value + "</dd></div>";
+}
+async function refreshNetwork() {
+  statusEl.innerHTML = row("Status", "Checking...");
+  const response = await fetch("/local/network/status");
+  const data = await response.json();
+  const network = data.network || {};
+  const lan = network.lan || {};
+  const wifi = network.wifi || {};
+  statusEl.innerHTML = [
+    row("Status", network.online ? "Online" : "Offline"),
+    row("Primary", network.primary || "none"),
+    row("LAN", lan.available ? ((lan.connected ? "Connected" : "Available") + (lan.device ? " on " + lan.device : "")) : "Unavailable"),
+    row("Wi-Fi", wifi.available ? ((wifi.connected ? "Connected" : "Available") + (wifi.device ? " on " + wifi.device : "")) : "Unavailable")
+  ].join("");
+}
+document.querySelector("[data-refresh-network]").addEventListener("click", refreshNetwork);
+document.querySelector("[data-connect-lan]").addEventListener("click", async () => {
+  await fetch("/local/lan/connect", { method: "POST" });
+  await refreshNetwork();
+});
+refreshNetwork();`
+  );
+}
+
+function renderWifiScan() {
+  return page(
+    "Autopoiesis Wi-Fi",
+    `<main class="screen">
+      <section class="panel wide">
+        <p class="kicker">Local network</p>
+        <h1>Wi-Fi</h1>
+        <div id="wifi-list" class="network-list"></div>
+        <form id="wifi-form" class="grid">
+          <label>Network name <input name="ssid" autocomplete="off" required></label>
+          <label>Password <input name="password" type="password" autocomplete="current-password"></label>
+          <button class="primary" type="submit">Connect</button>
+          <a class="button" href="/network">Back</a>
+        </form>
+      </section>
+    </main>`,
+    `const list = document.getElementById("wifi-list");
+const form = document.getElementById("wifi-form");
+function escapeText(value) {
+  return String(value).replace(/[&<>"]/g, char => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", "\"": "&quot;" }[char]));
+}
+async function scanWifi() {
+  list.textContent = "Scanning...";
+  const response = await fetch("/local/wifi/scan.json");
+  const data = await response.json();
+  if (!data.ok) {
+    list.textContent = data.error || "Wi-Fi scan unavailable.";
+    return;
+  }
+  list.innerHTML = data.networks.map(network => (
+    "<button type=\"button\" class=\"network-row\" data-ssid=\"" + escapeText(network.ssid) + "\">" +
+    "<span>" + escapeText(network.ssid) + "</span>" +
+    "<span>" + Number(network.signal || 0) + "% " + escapeText(network.security || "open") + "</span>" +
+    "</button>"
+  )).join("") || "No Wi-Fi networks found.";
+  list.querySelectorAll("[data-ssid]").forEach(button => {
+    button.addEventListener("click", () => {
+      form.elements.ssid.value = button.dataset.ssid;
+      form.elements.password.focus();
+    });
+  });
+}
+form.addEventListener("submit", async event => {
+  event.preventDefault();
+  const body = {
+    ssid: form.elements.ssid.value,
+    password: form.elements.password.value
+  };
+  const response = await fetch("/local/wifi/connect", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(body)
+  });
+  const data = await response.json();
+  list.textContent = data.ok ? "Connected. Returning to network status..." : (data.error || "Connection failed.");
+  if (data.ok) setTimeout(() => { location.href = "/network"; }, 900);
+});
+scanWifi();`
   );
 }
 
@@ -259,7 +452,7 @@ function scanWifi(callback) {
       .split("\n")
       .filter(Boolean)
       .map(line => {
-        const [ssid, signal, security] = line.split(":");
+        const [ssid, signal, security] = splitNmcliLine(line);
         return { ssid, signal: Number(signal), security };
       })
       .filter(network => network.ssid);
@@ -285,6 +478,27 @@ function connectWifi(ssid, password, callback) {
   });
 }
 
+function connectLan(callback) {
+  networkStatus((_, statusValue) => {
+    const lan = statusValue.network && statusValue.network.lan;
+    if (!lan || !lan.available || !lan.device) {
+      callback(null, { ok: false, error: "No Ethernet/LAN device is available." });
+      return;
+    }
+    if (lan.connected) {
+      callback(null, { ok: true, message: "LAN is already connected.", network: statusValue.network });
+      return;
+    }
+    execFile("nmcli", ["device", "connect", lan.device], (error, stdout, stderr) => {
+      if (error) {
+        callback(null, { ok: false, error: stderr.trim() || error.message });
+        return;
+      }
+      networkStatus((__, refreshed) => callback(null, { ok: true, message: stdout.trim(), network: refreshed.network }));
+    });
+  });
+}
+
 function startPairing() {
   const code = Math.random().toString(36).slice(2, 6).toUpperCase() + "-" + Math.floor(1000 + Math.random() * 9000);
   const device = readJson(paths.device, {});
@@ -304,17 +518,27 @@ async function handle(req, res) {
     if ((req.method === "GET" || req.method === "HEAD") && url.pathname === "/") return redirect(res, "/launch");
     if ((req.method === "GET" || req.method === "HEAD") && url.pathname === "/launch") return renderLaunch(res);
     if (req.method === "GET" && url.pathname === "/setup") return html(res, renderSetup());
+    if (req.method === "GET" && url.pathname === "/network") return html(res, renderNetwork());
     if (req.method === "GET" && url.pathname === "/settings") return html(res, renderSettings());
     if (req.method === "GET" && url.pathname === "/offline") return html(res, renderOffline());
     if (req.method === "GET" && url.pathname === "/disabled") return html(res, renderDisabled());
     if (req.method === "GET" && url.pathname === "/style.css") return css(res);
     if (req.method === "GET" && url.pathname === "/local/status") return sendJson(res, status());
+    if (req.method === "GET" && url.pathname === "/local/network/status") {
+      return networkStatus((_, value) => sendJson(res, value, value.ok ? 200 : 503));
+    }
     if (req.method === "GET" && url.pathname === "/local/wifi/scan") {
+      return html(res, renderWifiScan());
+    }
+    if (req.method === "GET" && url.pathname === "/local/wifi/scan.json") {
       return scanWifi((_, value) => sendJson(res, value));
     }
     if (req.method === "POST" && url.pathname === "/local/wifi/connect") {
       const body = JSON.parse(await readBody(req) || "{}");
       return connectWifi(body.ssid, body.password, (_, value) => sendJson(res, value, value.ok ? 200 : 400));
+    }
+    if (req.method === "POST" && url.pathname === "/local/lan/connect") {
+      return connectLan((_, value) => sendJson(res, value, value.ok ? 200 : 400));
     }
     if (req.method === "POST" && url.pathname === "/local/settings") {
       const body = JSON.parse(await readBody(req) || "{}");
@@ -379,6 +603,9 @@ button, .button, input { min-height: 56px; border-radius: 8px; border: 1px solid
 label { display: grid; gap: 8px; color: #c8c6bb; font-size: 18px; }
 .check { display: flex; align-items: center; gap: 12px; }
 .check input { min-height: auto; width: 24px; height: 24px; }
+.network-list { display: grid; gap: 10px; margin: 24px 0; }
+.network-row { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; text-align: left; width: 100%; }
+.network-row span { overflow-wrap: anywhere; }
 `);
 }
 

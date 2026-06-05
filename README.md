@@ -15,13 +15,16 @@ This repository is not a custom Linux distribution. It is an appliance layer for
 
 ## Current Prototype
 
-Milestone 1 is scaffolded. The local UI can:
+Milestone 2 is scaffolded for physical Pi validation. The local UI can:
 
 - create/read device, preference, and state JSON files
 - show setup, settings, offline, disabled, and launch routes
-- scan Wi-Fi through `nmcli` when available
+- show network status for LAN and Wi-Fi through nmcli
+- connect Ethernet/LAN through DHCP when available
+- scan and connect Wi-Fi through nmcli
 - start a mock pairing flow
 - redirect `/launch` to setup or `/frames` depending on local state
+- verify setup, kiosk, HTTP, Chromium, network, and restart behavior on a Pi
 
 ## Install
 
@@ -30,6 +33,7 @@ From this repo:
 ```bash
 sudo ./install.sh
 sudo systemctl start autopoiesis-setup.service autopoiesis-kiosk.service
+sudo /opt/autopoiesis-os/app/scripts/milestone2-verify.sh
 ```
 
 During development you can run the local UI without installing:
@@ -45,6 +49,12 @@ Open:
 http://localhost:3030/setup
 ```
 
+Network setup is available at:
+
+```txt
+http://localhost:3030/network
+```
+
 ## Cron / Hourly Audit
 
 This repo includes `scripts/hourly-audit.sh`. It is intentionally read-only and writes reports under `logs/`.
@@ -54,7 +64,7 @@ It does not run Codex unattended and does not modify the system. Automated code 
 ## Priority
 
 ```txt
-boot -> setup -> wifi -> config -> kiosk -> pairing -> sync -> cache -> updates -> disable -> cleanup
+boot -> setup -> lan/wifi -> config -> kiosk -> pairing -> sync -> cache -> updates -> disable -> cleanup
 ```
 
 with love pulse

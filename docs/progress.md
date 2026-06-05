@@ -61,3 +61,85 @@ Test result:
 Next step:
 
 Continue with Milestone 2: install locally, start setup service, launch Chromium kiosk at `/launch`, and verify restart behavior.
+
+## 2026-06-05 - Milestone 2 scaffold
+
+Date: 2026-06-05
+
+Milestone: 2 - Physical Pi kiosk validation and LAN support
+
+Changed files:
+
+- `local-ui/server.js`
+- `config/defaults.json`
+- `config/device.example.json`
+- `scripts/start-kiosk.sh`
+- `scripts/network-status.sh`
+- `scripts/connect-lan.sh`
+- `scripts/milestone2-verify.sh`
+- `README.md`
+- `docs/*.md`
+
+Implemented:
+
+- Local network status API and UI for LAN and Wi-Fi.
+- LAN activation through NetworkManager DHCP.
+- Wi-Fi scan UI separated from the JSON API.
+- Kiosk startup wait for the local `/launch` route.
+- Repeatable Milestone 2 verification script for setup, kiosk, HTTP, Chromium, network state, and restart behavior.
+
+Known issues:
+
+- Physical Pi validation still has to be run on the target device.
+- Pairing remains mock/local only.
+- Production cloud API integration is still pending.
+
+## 2026-06-05 - Brief-led program setup
+
+Date: 2026-06-05
+
+Milestone: Program foundation for Autopoiesis OS + Frames
+
+Changed files:
+
+- docs/pulse-brief.md
+- docs/product-roadmap.md
+- docs/database-schema.md
+- docs/broadcast-system.md
+- docs/admin-system.md
+- docs/online-frames-profile.md
+- docs/agent-notes/*.md
+- docs/api-contract.md
+- /data/.openclaw/workspace/autopoiesis-os-program/*
+
+Implemented:
+
+- Created the Pulse lead brief and roadmap from Ewoud's attached PDF.
+- Added database schema proposal with program tag autopoiesis_os_frames, namespace aos, and table prefix aos_.
+- Added admin system requirements for users, subscribers, subscriptions, devices, broadcasts, releases, and device commands.
+- Added Profile > Frames product definition and broadcast system spec.
+- Added agent notes for Pulse/RPi coordination.
+- Created a separate program-management directory for logs, cron registry, and MVP management.
+
+Next step:
+
+Continue MVP 0.1 implementation through the active aos-* cron system.
+
+## 2026-06-05 - Cron system
+
+Date: 2026-06-05
+
+Milestone: Major build automation
+
+Implemented:
+
+- Removed the earlier single daily autopoiesis-os-iterate cron to avoid duplicate OS automation.
+- Created seven active aos-* OpenClaw cron jobs using gpt-5.4 with high thinking.
+- Configured Telegram delivery to the Pulse channel for concise cliffnotes reports.
+- Workstreams: lead integration, RPi appliance, online admin, API/database/sync, broadcast/feed, release/rollout, QA/security.
+- Recorded cron IDs under program/CRON-REGISTRY.md.
+
+Verification:
+
+- Confirmed all seven cron jobs are enabled, scheduled, and set to gpt-5.4/high.
+- Ran node and shell syntax checks after repo changes.

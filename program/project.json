@@ -1,0 +1,15 @@
+{
+  "program": "Autopoiesis OS + Frames Platform",
+  "dbTag": "autopoiesis_os_frames",
+  "dbNamespace": "aos",
+  "tablePrefix": "aos_",
+  "githubRepo": "https://github.com/NomadicVistas/autopoiesis-os-rpi/",
+  "leadAgent": "Pulse",
+  "deviceAgent": "Raspberry Pi agent",
+  "currentPrimaryTarget": "Raspberry Pi touchscreen appliance",
+  "futureTargets": ["desktop", "phone", "tablet", "ambient display devices"],
+  "cronPrefix": "aos-",
+  "status": "active-build",
+  "createdAt": "2026-06-05T08:10:00Z"
+}
+

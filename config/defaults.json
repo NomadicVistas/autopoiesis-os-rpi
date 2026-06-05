@@ -8,6 +8,7 @@
     "framesUrl": "https://autopoiesis.art/frames",
     "apiBaseUrl": "https://autopoiesis.art/api",
     "wifiConfigured": false,
+    "lanConfigured": false,
     "firstRunComplete": false,
     "remoteEnabled": true,
     "subscriptionStatus": "unknown",
@@ -42,6 +43,7 @@
   "state": {
     "currentMode": "setup",
     "networkOnline": false,
+    "networkType": null,
     "currentArtworkId": null,
     "lastError": null,
     "lastBootAt": null,
