@@ -241,6 +241,15 @@ AUTOPOIESIS_PAIRING_CONTRACT_TOKEN="$TOKEN" ./scripts/pairing-contract-check.sh 
 
 The pairing contract check validates read-only staging evidence for `POST /api/frames/device/register`, `POST /api/frames/user/devices/pair`, and `GET /api/frames/device/{deviceId}/pairing-status`. It requires a bounded pairing-code TTL, a durable device credential in the registration response, a claimed owner/device relationship after user pairing, settings handoff shape, final paired status, and redaction of pairing hashes, user tokens, secrets, and local appliance paths. The optional adapter endpoint is for CI/staging evidence; it should not run a destructive live pairing flow.
 
+Validate hosted device-route authentication before treating pairing/API sync as staging-ready:
+
+```bash
+./scripts/device-auth-contract-check.sh /path/to/device-auth-contract-bundle.json
+AUTOPOIESIS_DEVICE_AUTH_CONTRACT_TOKEN="$TOKEN" ./scripts/device-auth-contract-check.sh "https://autopoiesis.art/api/admin/frames/device-auth-contract-bundle"
+```
+
+The device auth contract check validates read-only staging evidence for the keyed device-only routes: pairing status, settings read/write, heartbeat, stream, command polling, command acknowledgement, and release manifest checks. For each route, the bundle must prove that the correct per-device credential succeeds, while missing, wrong, and cross-device credentials are rejected with 401/403/404-style failures. The bundle must not expose raw device API keys, pairing hashes, private tokens, secrets, or local appliance paths.
+
 Validate the hosted heartbeat response before backend sync/admin evidence is treated as staging-ready:
 
 ```bash
@@ -274,6 +283,7 @@ Run the hosted staging contract suite before handing backend work to physical Pi
 AUTOPOIESIS_AOS_MIGRATION_CONTRACT_SOURCE=/path/to/migrations \
 AUTOPOIESIS_AOS_SCHEMA_CONTRACT_SOURCE=/path/to/schema-introspection.json \
 AUTOPOIESIS_PAIRING_CONTRACT_SOURCE=/path/to/pairing-contract-bundle.json \
+AUTOPOIESIS_DEVICE_AUTH_CONTRACT_SOURCE=/path/to/device-auth-contract-bundle.json \
 AUTOPOIESIS_HEARTBEAT_CONTRACT_SOURCE=/path/to/heartbeat-contract-bundle.json \
 AUTOPOIESIS_STREAM_CONTRACT_SOURCE=/path/to/stream-response.json \
 AUTOPOIESIS_ONLINE_ADMIN_CONTRACT_SOURCE=/path/to/online-admin-bundle.json \
@@ -281,7 +291,7 @@ AUTOPOIESIS_RELEASE_MANIFEST_SOURCE=/path/to/release.json \
 ./scripts/hosted-contract-suite-check.sh --strict
 ```
 
-The suite runs the existing hosted gates in dependency order: migrations, final schema, pairing, heartbeat, stream, online admin, then release manifest. In non-strict mode it runs every provided source and fails only if a gate named in `AUTOPOIESIS_HOSTED_CONTRACT_REQUIRE` is missing. Individual token and strictness variables are passed through to the underlying checkers unchanged.
+The suite runs the existing hosted gates in dependency order: migrations, final schema, pairing, device auth, heartbeat, stream, online admin, then release manifest. In non-strict mode it runs every provided source and fails only if a gate named in `AUTOPOIESIS_HOSTED_CONTRACT_REQUIRE` is missing. Individual token and strictness variables are passed through to the underlying checkers unchanged.
 
 Validate a release manifest before a device applies it:
 

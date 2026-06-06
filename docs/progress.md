@@ -1,5 +1,47 @@
 # Progress
 
+## 2026-06-06 - Hosted device auth contract gate
+
+Date: 2026-06-06
+
+Milestone: LEAD / INTEGRATION - device credential boundary
+
+Changed files:
+
+- `scripts/device-auth-contract-check.sh`
+- `scripts/hosted-contract-suite-check.sh`
+- `README.md`
+- `docs/api-contract.md`
+- `docs/database-schema.md`
+- `docs/agent-notes/backend-device-auth-contract-issue.md`
+- `docs/agent-notes/hosted-contract-suite-issue.md`
+- `docs/agent-notes/pulse.md`
+- `docs/progress.md`
+- `/data/.openclaw/workspace/autopoiesis-os-program/ROLLING-LOG.md`
+
+Implemented:
+
+- Added `scripts/device-auth-contract-check.sh`, a saved-bundle or live-URL verifier for hosted device-only route authentication evidence.
+- The checker requires correct per-device credentials to succeed while missing, wrong, and cross-device credentials are rejected for pairing status, settings read/write, heartbeat, stream, command polling, command acknowledgement, and release routes.
+- The checker validates route device-id consistency on authorized responses and rejects raw device API keys, API-key field names, pairing-code hashes, bearer tokens, private/admin tokens, secrets, passwords, and local appliance paths.
+- Wired the device-auth gate into `scripts/hosted-contract-suite-check.sh`; strict hosted readiness now requires migration, schema, pairing, device-auth, heartbeat, stream, online-admin, and release sources.
+- Added a backend handoff issue note defining the optional staging/CI device-auth bundle.
+
+Verification:
+
+- `node --check local-ui/server.js` passed.
+- `bash -n install.sh update.sh uninstall-dev-tools.sh factory-reset.sh scripts/*.sh` passed.
+- `git diff --check` passed.
+- `scripts/device-auth-contract-check.sh` passed against a representative all-route auth bundle fixture.
+- `scripts/device-auth-contract-check.sh` rejected a route missing cross-device rejection evidence.
+- `scripts/hosted-contract-suite-check.sh` passed with a required device-auth source.
+- `scripts/hosted-contract-suite-check.sh` rejected a missing required device-auth source.
+- `scripts/security-smoke.sh` passed.
+
+Next step:
+
+Generate the device-auth bundle from hosted route integration tests or a staging-only admin adapter, then run the expanded hosted suite before trusting heartbeat, stream, command, release, or physical Pi validation results.
+
 ## 2026-06-06 - Support bundle acceptance gate
 
 Date: 2026-06-06

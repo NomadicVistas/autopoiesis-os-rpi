@@ -1,5 +1,14 @@
 # Pulse Agent Notes
 
+## 2026-06-06 - Hosted device auth contract gate
+
+Date/time: 2026-06-06 21:15 UTC / 2026-06-06 23:15 Europe/Berlin
+Agent: Pulse
+Context: LEAD / INTEGRATION cron pass. Pairing and heartbeat contracts were in place, but the hosted suite still did not prove that device-only routes reject absent credentials, invalid credentials, or credentials belonging to another frame.
+What changed: Added `scripts/device-auth-contract-check.sh`, a read-only staging/CI bundle gate for pairing status, settings read/write, heartbeat, stream, command polling, command acknowledgement, and release route authentication. Wired it into `scripts/hosted-contract-suite-check.sh` between pairing and heartbeat.
+What needs review: Backend CI should generate the device-auth bundle from real route-level authorization tests or a staging-only admin adapter. The bundle must never include raw device keys or stored credential field names.
+Next recommended action: Run the expanded hosted suite with real migration/schema/pairing/device-auth/heartbeat/stream/admin/release fixtures before physical Pi validation.
+
 ## 2026-06-06 - Support bundle acceptance gate
 
 Date/time: 2026-06-06 20:35 UTC / 2026-06-06 22:35 Europe/Berlin

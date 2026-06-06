@@ -221,6 +221,16 @@ The user-pairing section should mirror `POST /api/frames/user/devices/pair`: aut
 
 Pairing codes should be short uppercase alphanumeric text with optional hyphen separators, should expire after registration, and should normally stay within a one-hour maximum TTL. Pairing storage should prefer durable `aos_frame_pairing_codes.pairing_code_hash`; plaintext pairing codes belong only in the device-facing registration/status contract while active.
 
+Device-route authentication validation:
+
+- Optional adapter endpoint: GET /api/admin/frames/device-auth-contract-bundle
+- Required route coverage by default: pairing status, settings read, settings write, heartbeat, stream, command polling, command acknowledgement, and release manifest.
+- For every covered route, staging evidence should include a successful attempt with the correct per-device credential, a rejected attempt with no credential, a rejected attempt with an invalid credential, and a rejected cross-device attempt where another device credential is used against the route device id.
+- Accepted attempts should return 2xx and, when a response names a device id, it must match the route device id. Missing and wrong credentials should return 401 or 403. Cross-device attempts should return 401, 403, or 404.
+- The bundle must not expose stored device API keys, API-key field names, pairing-code hashes, private/admin tokens, secrets, passwords, raw bearer tokens, or local appliance paths.
+
+`scripts/device-auth-contract-check.sh` validates this read-only bundle. It is intentionally separate from the pairing lifecycle gate: pairing proves a credential is issued and bound to an owner/device; device auth proves every device-only endpoint actually enforces that credential and cannot be used across devices.
+
 Profile/Admin bundle validation:
 
 - GET /api/frames/user/devices
@@ -337,9 +347,9 @@ Durable migration gate:
 
 Hosted integration suite:
 
-- `scripts/hosted-contract-suite-check.sh` runs the hosted migration, schema, pairing, heartbeat, stream, online-admin, and release gates in dependency order.
+- `scripts/hosted-contract-suite-check.sh` runs the hosted migration, schema, pairing, device-auth, heartbeat, stream, online-admin, and release gates in dependency order.
 - Use `--strict` for staging or CI jobs that must provide every source before physical Pi acceptance.
-- Use `AUTOPOIESIS_HOSTED_CONTRACT_REQUIRE=migrations,schema,pairing,heartbeat,stream,online-admin,release` when a partial job should require only selected gates while still running any other provided sources.
+- Use `AUTOPOIESIS_HOSTED_CONTRACT_REQUIRE=migrations,schema,pairing,device-auth,heartbeat,stream,online-admin,release` when a partial job should require only selected gates while still running any other provided sources.
 - The suite does not invent or fetch endpoints by itself; CI/staging should pass saved fixtures or live URLs through the existing `AUTOPOIESIS_*_SOURCE` variables.
 
 Release manifest validation:
