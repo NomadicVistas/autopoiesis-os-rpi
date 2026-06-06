@@ -1,5 +1,14 @@
 # Pulse Agent Notes
 
+## 2026-06-06 - Broadcast command display contract
+
+Date/time: 2026-06-06 18:25 UTC / 2026-06-06 20:25 Europe/Berlin
+Agent: Pulse
+Context: BROADCAST / FEED cron pass. Mixed-stream targeting had a gate, but command-delivered broadcasts still needed their own acceptance path because they arrive through heartbeat command polling and `current-broadcast.json`.
+What changed: Hardened `show_broadcast` command handling so command broadcasts use defensive targeting and expiry checks, scheduled broadcasts wait until `startsAt`, `/launch` routes to any active stored broadcast, dismissed broadcasts stay inactive, and `broadcast_shown` is recorded only when `/broadcast` renders. Added `scripts/broadcast-command-check.sh` and wired it into Milestone 2.
+What needs review: Physical Pi validation should confirm Chromium reaches `/broadcast` during a real admin broadcast and that heartbeat event ingestion projects `broadcast_shown` and `broadcast_dismissed` into durable `aos_broadcast_deliveries`.
+Next recommended action: Add the same command-delivered broadcast cases to hosted backend/admin tests once the durable broadcast command rows are isolated in staging.
+
 ## 2026-06-06 - Release manifest safety gate
 
 Date/time: 2026-06-06 18:00 UTC / 2026-06-06 20:00 Europe/Berlin

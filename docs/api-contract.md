@@ -297,9 +297,10 @@ Local delivery log behavior:
 
 - Feed syncs append a bounded metadata-only `feed_synced` event to `delivery-log.json`.
 - Local frame playback appends bounded metadata-only `feed_item_shown` events for artwork, blog, news, curatorial, and other mixed-stream items.
-- Broadcast display lifecycle appends `broadcast_shown`, `broadcast_dismissed`, and one-time `broadcast_expired` events.
+- Broadcast display lifecycle appends `broadcast_shown` when `/broadcast` renders, `broadcast_dismissed` after display completion, one-time `broadcast_expired` events, and `broadcast_skipped` when a stored command-delivered broadcast is no longer target-eligible.
 - GET /local/delivery-log returns recent events without raw payloads, local file paths, or stored device API keys.
 - Heartbeat diagnostics and `/local/support-bundle` include a compact delivery summary so the backend/admin layer can mirror these events into durable `aos_` delivery rows.
+- `scripts/broadcast-command-check.sh` validates command-delivered broadcast targeting, scheduling, launch routing, display-time delivery logging, dismissal, expiry rejection, and command acknowledgements against a mock Frames API.
 
 Unified device event export:
 

@@ -518,6 +518,10 @@ function deliverySubject(item = {}) {
   };
 }
 
+function broadcastIdOf(broadcast = {}) {
+  return broadcast.broadcastId || broadcast.id || broadcast.feedItemId || null;
+}
+
 function appendDeliveryEvent(entry) {
   const entries = deliveryEntries();
   const observedAt = new Date().toISOString();
@@ -1685,6 +1689,21 @@ async function syncFeedFromRemote() {
 function activeBroadcast(now = Date.now()) {
   const broadcast = readJson(paths.broadcast, null);
   if (!broadcast) return null;
+  if (broadcast.dismissedAt) return null;
+  if (!feedItemTargetAllowed(broadcast, readJson(paths.device, {}))) {
+    updateState({ currentMode: "frame", currentBroadcastId: null, lastBroadcastSkippedAt: new Date().toISOString() });
+    if (!broadcast.skippedEventAt) {
+      const skippedAt = new Date().toISOString();
+      appendDeliveryEvent({
+        eventType: "broadcast_skipped",
+        ...deliverySubject(broadcast),
+        itemId: broadcastIdOf(broadcast),
+        reason: "ineligible_target"
+      });
+      writeJson(paths.broadcast, { ...broadcast, skippedEventAt: skippedAt, skipReason: "ineligible_target" });
+    }
+    return null;
+  }
   if (isExpired(broadcast.expiresAt, now)) {
     updateState({ currentMode: "frame", currentBroadcastId: null, lastBroadcastExpiredAt: new Date().toISOString() });
     if (!broadcast.expiredEventAt) {
@@ -1700,6 +1719,31 @@ function activeBroadcast(now = Date.now()) {
   const startsAt = parseTimestamp(broadcast.startsAt);
   if (startsAt !== null && startsAt > now) return null;
   return broadcast;
+}
+
+function recordBroadcastShown(broadcast = {}) {
+  if (!broadcast || broadcast.shownEventAt) return broadcast;
+  const shownAt = new Date().toISOString();
+  const broadcastId = broadcastIdOf(broadcast);
+  const updated = {
+    ...broadcast,
+    broadcastId,
+    shownAt: broadcast.shownAt || shownAt,
+    shownEventAt: shownAt
+  };
+  writeJson(paths.broadcast, updated);
+  appendDeliveryEvent({
+    eventType: "broadcast_shown",
+    ...deliverySubject(updated),
+    itemId: broadcastId,
+    commandId: updated.commandId || null
+  });
+  updateState({
+    currentMode: "broadcast",
+    currentBroadcastId: broadcastId,
+    lastBroadcastShownAt: shownAt
+  });
+  return updated;
 }
 
 function dismissBroadcast(reason = "duration_elapsed") {
@@ -3653,7 +3697,7 @@ function renderDisabled() {
 }
 
 function renderBroadcast() {
-  const broadcast = activeBroadcast();
+  const broadcast = recordBroadcastShown(activeBroadcast());
   if (!broadcast) {
     return page(
       "Autopoiesis Broadcast",
@@ -3736,7 +3780,7 @@ async function renderLaunch(res, url = new URL("http://localhost/launch")) {
     redirect(res, "/disabled");
     return;
   }
-  if (data.state.currentMode === "broadcast" && activeBroadcast()) {
+  if (activeBroadcast()) {
     redirect(res, "/broadcast");
     return;
   }
@@ -4220,26 +4264,28 @@ async function executeCommand(command) {
       cacheAllowed: payload.cacheAllowed !== false && payload.cache_allowed !== false,
       raw: payload
     };
-    if (isExpired(broadcast.expiresAt)) {
-      return { ok: false, error: "Broadcast is expired", broadcastId: broadcast.id };
+    const broadcastId = payload.broadcastId || payload.id || broadcast.id;
+    if (!feedItemTargetAllowed(broadcast, readJson(paths.device, {}))) {
+      return { ok: false, error: "Broadcast target does not include this device", broadcastId };
     }
+    if (isExpired(broadcast.expiresAt)) {
+      return { ok: false, error: "Broadcast is expired", broadcastId };
+    }
+    const startsAt = parseTimestamp(broadcast.startsAt);
+    const scheduled = startsAt !== null && startsAt > Date.now();
     writeJson(paths.broadcast, {
       ...broadcast,
-      broadcastId: payload.broadcastId || payload.id || broadcast.id,
-      shownAt: new Date().toISOString()
-    });
-    appendDeliveryEvent({
-      eventType: "broadcast_shown",
-      ...deliverySubject(broadcast),
-      itemId: payload.broadcastId || payload.id || broadcast.id,
-      commandId: command.id || null
+      broadcastId,
+      commandId: command.id || null,
+      acceptedAt: new Date().toISOString()
     });
     writeJson(paths.state, {
       ...stateValue,
-      currentMode: "broadcast",
-      currentBroadcastId: payload.broadcastId || payload.id || broadcast.id
+      currentMode: scheduled ? stateValue.currentMode || "frame" : "broadcast",
+      currentBroadcastId: scheduled ? null : broadcastId,
+      scheduledBroadcastId: scheduled ? broadcastId : null
     });
-    return { ok: true, broadcastId: payload.broadcastId || payload.id || broadcast.id };
+    return { ok: true, broadcastId, scheduled };
   }
   if (commandType === "factory_reset_request") {
     return { ok: false, error: "Factory reset requires local confirmation on the device" };

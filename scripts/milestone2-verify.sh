@@ -36,6 +36,7 @@ echo "   local frame route responds at $LOCAL_BASE_URL/frame"
 AUTOPOIESIS_REQUIRE_RUNTIME_STORAGE=1 "$(dirname "$0")/runtime-storage-check.sh"
 "$(dirname "$0")/stream-playback-check.sh"
 "$(dirname "$0")/feed-targeting-check.sh"
+"$(dirname "$0")/broadcast-command-check.sh"
 
 echo
 echo "3. Network status"

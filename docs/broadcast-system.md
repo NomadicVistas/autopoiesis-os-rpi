@@ -48,13 +48,15 @@ Device-side MVP behavior:
 - Expired broadcasts are rejected before display.
 - Scheduled broadcasts are ignored locally until their start time.
 - Backend targeting remains authoritative, but the device defensively filters recognized targeting hints for specific devices, owners/users, subscriber status, subscription tier, region/country, test devices, and explicit exclusions before a feed item or broadcast enters local playback.
-- Active `show_broadcast` commands set `currentMode: broadcast` and route `/launch` to the local `/broadcast` page before returning to the normal Frames URL.
-- The local broadcast page marks the broadcast display complete through `POST /local/broadcast/dismiss` after its duration elapses, then returns to `/launch`.
-- The device keeps a bounded local `delivery-log.json` with metadata-only `broadcast_shown`, `broadcast_dismissed`, `broadcast_expired`, and `feed_synced` events. `GET /local/delivery-log`, diagnostics, and the support bundle expose this safely for backend/admin delivery-log persistence.
+- `show_broadcast` commands are normalized through the same defensive targeting, expiry, priority, and schedule checks used by mixed-stream broadcasts.
+- Immediate active broadcasts route `/launch` to the local `/broadcast` page. Scheduled broadcasts are stored but do not interrupt normal playback until their `startsAt` window opens.
+- The local broadcast page records `broadcast_shown` only when `/broadcast` actually renders, then marks display complete through `POST /local/broadcast/dismiss` after its duration elapses and returns to `/launch`.
+- The device keeps a bounded local `delivery-log.json` with metadata-only `broadcast_shown`, `broadcast_dismissed`, `broadcast_expired`, `broadcast_skipped`, and `feed_synced` events. `GET /local/delivery-log`, diagnostics, and the support bundle expose this safely for backend/admin delivery-log persistence.
 - Broadcast priority is preserved for feed ordering and diagnostics.
 - The local feed exposes a derived `displayQueue` for frame playback. It preserves priority bands, then round-robins broadcast, curatorial, artwork, blog, news, and general content categories inside each band so a personalized stream stays mixed without letting lower-priority items jump ahead.
 - Public local feed output redacts targeting metadata after eligibility is evaluated.
 - Cache eligibility is recorded as a manifest when `cacheAllowed` is not false and a media/thumbnail URL exists; actual media download/eviction belongs to the cache service.
+- `scripts/broadcast-command-check.sh` validates command-delivered broadcasts end to end with a mock Frames API, including command acknowledgement status, wrong-target rejection, scheduled display delay, display-time `broadcast_shown`, dismissal, and expired-command rejection.
 
 Suggested endpoint:
 

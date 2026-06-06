@@ -1,5 +1,44 @@
 # Progress
 
+## 2026-06-06 - Broadcast command display gate
+
+Date: 2026-06-06
+
+Milestone: BROADCAST / FEED - command-delivered broadcast behavior
+
+Changed files:
+
+- `local-ui/server.js`
+- `scripts/broadcast-command-check.sh`
+- `scripts/milestone2-verify.sh`
+- `README.md`
+- `docs/api-contract.md`
+- `docs/broadcast-system.md`
+- `docs/agent-notes/pulse.md`
+- `docs/progress.md`
+- `/data/.openclaw/workspace/autopoiesis-os-program/ROLLING-LOG.md`
+
+Implemented:
+
+- Hardened `show_broadcast` command handling so command-delivered broadcasts use defensive targeting and expiry checks before writing `current-broadcast.json`.
+- Scheduled command broadcasts are accepted without interrupting playback before `startsAt`; `/launch` now routes to any active stored broadcast once it is eligible.
+- `broadcast_shown` is recorded when `/broadcast` actually renders, not when the command is merely accepted.
+- Dismissed broadcasts stay inactive; stored broadcasts that are no longer target-eligible emit one `broadcast_skipped` delivery event.
+- Added `scripts/broadcast-command-check.sh`, an isolated local UI + mock Frames API gate for wrong-target rejection, scheduled delay, active launch routing, display-time delivery logging, dismissal, expired-command rejection, and command acknowledgements.
+- Wired the new gate into Milestone 2 after stream playback and feed targeting.
+
+Verification:
+
+- `node --check local-ui/server.js` passed.
+- `bash -n install.sh update.sh uninstall-dev-tools.sh factory-reset.sh scripts/*.sh` passed.
+- `git diff --check` passed.
+- `scripts/broadcast-command-check.sh` passed.
+- `scripts/security-smoke.sh` passed.
+
+Next step:
+
+Run the broadcast command gate on physical Pi hardware after Admin > Frames can enqueue a real targeted broadcast command, then confirm durable `aos_broadcast_deliveries` receives the displayed/dismissed event projection.
+
 ## 2026-06-06 - Release manifest safety gate
 
 Date: 2026-06-06

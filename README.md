@@ -45,6 +45,7 @@ Milestone 2 is scaffolded for physical Pi validation. The local UI can:
 - generate and verify a redacted Admin/Profile device snapshot from the support bundle for hosted fleet adapters
 - expose `/local/events/export` so backend/admin adapters can ingest command, delivery, and release lifecycle evidence through one redacted contract
 - expose a metadata-only `/local/release/history` trail for local release check/apply outcomes
+- verify command-delivered broadcasts for targeting, scheduling, display-time delivery logs, dismissal, expiry, and acknowledgements
 - validate release manifests for channel/tag/artifact/checksum/rollback metadata before an update mutates app code
 - verify the unified local event export contract for backend/admin ingestion readiness
 - verify heartbeat event ingestion cursor acknowledgements, replay overlap, stale ack rejection, and diagnostics/support visibility
@@ -257,6 +258,14 @@ Check defensive feed targeting and cache eligibility:
 ```
 
 This isolated check validates local stream targeting for device, owner, subscriber status, tier, and region shapes; expiry/start-time filtering; priority order; public targeting redaction; delivery evidence; and feed cache manifest eligibility.
+
+Check command-delivered broadcast behavior:
+
+```bash
+./scripts/broadcast-command-check.sh
+```
+
+This isolated check runs the local command processor against a mock Frames API and validates wrong-target rejection, scheduled broadcasts waiting until `startsAt`, `/launch` routing for active broadcasts, `broadcast_shown` only when `/broadcast` renders, dismissal, expired-command rejection, and command acknowledgements.
 
 Collect a redacted local support bundle:
 
