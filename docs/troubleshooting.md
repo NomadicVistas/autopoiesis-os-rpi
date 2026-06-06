@@ -108,9 +108,9 @@ curl -fsSI 'http://127.0.0.1:3030/launch?local=1'
 curl -fsS http://127.0.0.1:3030/local/diagnostics
 ```
 
-The diagnostics endpoint is the quickest support snapshot for hardware testing. It reports software version, uptime, memory, temperature, network and pairing state, cache footprint, release state, pending command count, current broadcast, and local Autopoiesis service states when systemd is available.
+The diagnostics endpoint is the quickest support snapshot for hardware testing. It reports software version, uptime, memory, temperature, touchscreen/input visibility, network and pairing state, cache footprint, release state, pending command count, current broadcast, and local Autopoiesis service states when systemd is available.
 
-Read `.diagnostics.health.status` first. It is `ok`, `warning`, or `error`, with `.diagnostics.health.issues[]` carrying stable issue codes such as `network_offline`, `offline_fallback`, `device_key_missing`, `storage_low`, `temperature_high`, `release_error`, `commands_pending`, and `service_failed`.
+Read `.diagnostics.health.status` first. It is `ok`, `warning`, or `error`, with `.diagnostics.health.issues[]` carrying stable issue codes such as `network_offline`, `offline_fallback`, `device_key_missing`, `storage_low`, `temperature_high`, `touchscreen_missing`, `release_error`, `commands_pending`, and `service_failed`.
 
 For quick acceptance checks, use the compact health probe:
 
@@ -122,6 +122,15 @@ curl -fsS 'http://127.0.0.1:3030/local/health?services=1'
 
 `/local/health` returns the derived status, issue codes, device identity, mode, network/pairing state, release summary, pending command count, current broadcast, and timestamp without exposing stored API keys.
 
+For touchscreen hardware checks:
+
+```bash
+/opt/autopoiesis-os/app/scripts/touchscreen-check.sh
+AUTOPOIESIS_REQUIRE_TOUCHSCREEN=1 /opt/autopoiesis-os/app/scripts/touchscreen-check.sh
+```
+
+The first form reports Linux input metadata without failing pointer-only development hosts. The required form is used by Milestone 2 physical Pi verification and fails when no touchscreen-class device is visible in `/proc/bus/input/devices`.
+
 For one-step support handoff, collect the redacted support bundle:
 
 ```bash
@@ -129,7 +138,7 @@ For one-step support handoff, collect the redacted support bundle:
 curl -fsS http://127.0.0.1:3030/local/support-bundle
 ```
 
-The bundle combines diagnostics, compact health, rollout readiness, active feed state, offline-cache inventory, recent command audit entries, recent delivery events, recent release history, and the unified device event export. It is intended for hardware validation notes and admin support adapters, and it should stay free of stored device API keys, raw command payloads, release artifact URLs, checksums, and absolute cache asset paths.
+The bundle combines diagnostics, compact health, rollout readiness, touchscreen/input summary, active feed state, offline-cache inventory, recent command audit entries, recent delivery events, recent release history, and the unified device event export. It is intended for hardware validation notes and admin support adapters, and it should stay free of stored device API keys, raw command payloads, release artifact URLs, checksums, and absolute cache asset paths.
 
 For backend/admin ingestion checks, fetch the same redacted event stream directly:
 
@@ -177,4 +186,4 @@ for a support handoff.
 /opt/autopoiesis-os/app/scripts/security-smoke.sh
 ```
 
-Run this before production imaging and after changing local JSON endpoints. It verifies that local status, pairing status, diagnostics, health, readiness, support-bundle, offline-cache, command audit, delivery log, release history, and event export responses redact the stored device API key while still reporting safe key-presence flags for support.
+Run this before production imaging and after changing local JSON endpoints. It verifies that local status, pairing status, diagnostics, health, readiness, support-bundle, offline-cache, command audit, delivery log, release history, and event export responses redact the stored device API key while still reporting safe key-presence and input-diagnostics flags for support.

@@ -110,6 +110,7 @@ Diagnostics fields are intentionally compact and safe for admin/profile/support 
 - loadAverage
 - memory
 - temperatureC
+- input
 - mode
 - network
 - pairing
@@ -124,9 +125,9 @@ Diagnostics fields are intentionally compact and safe for admin/profile/support 
 
 `GET /local/health` returns a compact, redacted summary derived from diagnostics. It is intended for admin fleet scans, support scripts, and hardware acceptance checks that do not need the full telemetry payload. Add `?services=1` to include local systemd checks before deriving the health summary.
 
-`GET /local/readiness` returns a redacted, phase-level rollout snapshot derived from diagnostics. It includes setup/local UI, network, pairing, settings sync, content/feed, cache, command executor, and release phases. Add `?services=0` to skip local systemd service checks when running outside an installed Pi environment.
+`GET /local/readiness` returns a redacted, phase-level rollout snapshot derived from diagnostics. It includes setup/local UI, touchscreen/input, network, pairing, settings sync, content/feed, cache, command executor, and release phases. Add `?services=0` to skip local systemd service checks when running outside an installed Pi environment.
 
-`GET /local/support-bundle` returns a redacted one-shot support object for hardware validation, admin adapters, and handoff reports. It aggregates diagnostics, compact health, readiness, active feed counts/items, offline-cache inventory, recent command audit entries, local admin capability policy, recent display delivery events, recent release history events, and the unified device event export. Add `?services=0` to skip systemd service checks, `?auditLimit=50` to tune recent command audit entries, `?deliveryLimit=50` to tune recent delivery events, `?releaseLimit=50` to tune recent release history entries, and `?eventLimit=50` to tune the unified event export. The bundle intentionally reuses existing redacted endpoint shapes instead of exposing raw command payloads, local cache paths, release artifact URLs, checksums, or stored device API keys.
+`GET /local/support-bundle` returns a redacted one-shot support object for hardware validation, admin adapters, and handoff reports. It aggregates diagnostics, compact health, readiness, touchscreen/input summary, active feed counts/items, offline-cache inventory, recent command audit entries, local admin capability policy, recent display delivery events, recent release history events, and the unified device event export. Add `?services=0` to skip systemd service checks, `?auditLimit=50` to tune recent command audit entries, `?deliveryLimit=50` to tune recent delivery events, `?releaseLimit=50` to tune recent release history entries, and `?eventLimit=50` to tune the unified event export. The bundle intentionally reuses existing redacted endpoint shapes instead of exposing raw command payloads, local cache paths, release artifact URLs, checksums, or stored device API keys.
 
 Example:
 
@@ -171,7 +172,9 @@ Diagnostics health summary:
 }
 ```
 
-Current issue codes include `device_unpaired`, `device_key_missing`, `network_offline`, `offline_fallback`, `storage_critical`, `storage_high`, `storage_low`, `storage_unknown`, `memory_low`, `temperature_critical`, `temperature_high`, `release_error`, `release_in_progress`, `settings_conflict`, `commands_pending`, `cache_failures`, `cache_empty`, and `service_failed`.
+Current issue codes include `device_unpaired`, `device_key_missing`, `network_offline`, `offline_fallback`, `storage_critical`, `storage_high`, `storage_low`, `storage_unknown`, `memory_low`, `temperature_critical`, `temperature_high`, `input_unknown`, `input_missing`, `touchscreen_missing`, `release_error`, `release_in_progress`, `settings_conflict`, `commands_pending`, `cache_failures`, `cache_empty`, and `service_failed`.
+
+Input diagnostics read Linux input metadata from `/proc/bus/input/devices` by default and report `status`, `touchscreenPresent`, `pointerPresent`, `keyboardPresent`, `totalDevices`, and a bounded device list. Set `AUTOPOIESIS_INPUT_DEVICES_PATH` for tests. The physical Pi milestone uses `AUTOPOIESIS_REQUIRE_TOUCHSCREEN=1 scripts/touchscreen-check.sh` so staged hardware fails verification when no touchscreen-class input is visible.
 
 Cache-aware diagnostics add feed cache index fields: `cacheIndexGeneratedAt`, `cacheIndexedItems`, `cacheCachedItems`, `cacheFailedItems`, and `offlinePlayableItems`.
 

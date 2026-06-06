@@ -42,6 +42,10 @@ else
 fi
 
 echo
+echo "3b. Touchscreen/input"
+AUTOPOIESIS_REQUIRE_TOUCHSCREEN=1 "$(dirname "$0")/touchscreen-check.sh"
+
+echo
 echo "4. Kiosk process"
 if pgrep -af 'chromium|chromium-browser' >/dev/null; then
   pgrep -af 'chromium|chromium-browser'

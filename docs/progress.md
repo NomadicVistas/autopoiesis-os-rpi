@@ -1,5 +1,47 @@
 # Progress
 
+## 2026-06-06 - Touchscreen input diagnostics
+
+Date: 2026-06-06
+
+Milestone: RPI APPLIANCE - physical input acceptance
+
+Changed files:
+
+- `local-ui/server.js`
+- `scripts/touchscreen-check.sh`
+- `scripts/milestone2-verify.sh`
+- `scripts/security-smoke.sh`
+- `scripts/support-bundle.sh`
+- `README.md`
+- `docs/api-contract.md`
+- `docs/installation.md`
+- `docs/troubleshooting.md`
+- `docs/progress.md`
+- `docs/agent-notes/pulse.md`
+- `/data/.openclaw/workspace/autopoiesis-os-program/ROLLING-LOG.md`
+
+Implemented:
+
+- Added Linux input-device diagnostics derived from `/proc/bus/input/devices`, reporting touchscreen, pointer, keyboard, and bounded device metadata without reading live input events.
+- Health now warns with stable `input_unknown`, `input_missing`, and `touchscreen_missing` issue codes; readiness includes a dedicated input phase.
+- Support bundles and the support-bundle CLI summary now include compact input status.
+- Added `scripts/touchscreen-check.sh` with an optional `AUTOPOIESIS_REQUIRE_TOUCHSCREEN=1` hard gate, and wired that hard gate into physical Pi Milestone 2 verification.
+- Extended the local security smoke test to confirm input diagnostics are present on diagnostics, health, and readiness endpoints.
+
+Verification:
+
+- `node --check local-ui/server.js` passed.
+- `bash -n install.sh update.sh uninstall-dev-tools.sh factory-reset.sh scripts/*.sh` passed.
+- `git diff --check` passed.
+- `scripts/security-smoke.sh` passed.
+- `scripts/touchscreen-check.sh` passed in this container as pointer-only input.
+- Targeted temporary-state touchscreen smoke passed for `scripts/touchscreen-check.sh`, `AUTOPOIESIS_REQUIRE_TOUCHSCREEN=1`, `/local/diagnostics`, `/local/health`, `/local/readiness?services=0`, and `/local/support-bundle?services=0` using a fake Goodix input device file.
+
+Next step:
+
+Run `sudo /opt/autopoiesis-os/app/scripts/milestone2-verify.sh` on the physical Pi and confirm the touchscreen check reports `touchscreen_ready`; if it reports `pointer_only` or fails, capture `/proc/bus/input/devices` plus the touchscreen HAT/driver model for the hardware issue note.
+
 ## 2026-06-06 - Local frame playback surface
 
 Date: 2026-06-06

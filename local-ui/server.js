@@ -24,6 +24,7 @@ const RELEASE_LOG_LIMIT = Number(process.env.AUTOPOIESIS_RELEASE_LOG_LIMIT || 10
 const HEARTBEAT_EVENT_LIMIT = Number(process.env.AUTOPOIESIS_HEARTBEAT_EVENT_LIMIT || 10);
 const FEED_QUEUE_LIMIT = Number(process.env.AUTOPOIESIS_FEED_QUEUE_LIMIT || 100);
 const EVENT_CURSOR_OVERLAP_MS = Number(process.env.AUTOPOIESIS_EVENT_CURSOR_OVERLAP_MS || 1000);
+const INPUT_DEVICES_PATH = process.env.AUTOPOIESIS_INPUT_DEVICES_PATH || "/proc/bus/input/devices";
 
 const COMMAND_POLICIES = {
   sync_settings: { risk: "low", requiresAuthorization: false },
@@ -1387,6 +1388,58 @@ function readTemperatureC() {
   }
 }
 
+function parseInputDevices(raw) {
+  return String(raw || "")
+    .split(/\n\s*\n/)
+    .map(block => {
+      const name = ((block.match(/^N:\s+Name="([^"]+)"/m) || [])[1] || "").trim();
+      const handlers = ((block.match(/^H:\s+Handlers=(.*)$/m) || [])[1] || "").trim();
+      const bus = ((block.match(/^I:\s+Bus=([^\s]+)/m) || [])[1] || "").trim();
+      if (!name && !handlers) return null;
+      const fingerprint = (name + " " + handlers).toLowerCase();
+      const touchscreen = /touchscreen|\btouch\b|goodix|ads7846|edt[-_ ]?ft|ft5x|waveshare|raspberrypi[-_ ]?ts|ilitek/.test(fingerprint);
+      const pointer = touchscreen || /\bmouse\d*\b|pointer|touchpad|trackpad/.test(fingerprint);
+      const keyboard = /\bkbd\b|keyboard/.test(fingerprint);
+      return {
+        name: name || "unknown",
+        handlers,
+        bus: bus || null,
+        eventHandlers: (handlers.match(/\bevent\d+\b/g) || []),
+        touchscreen,
+        pointer,
+        keyboard
+      };
+    })
+    .filter(Boolean);
+}
+
+function inputDiagnostics() {
+  try {
+    const raw = fs.readFileSync(INPUT_DEVICES_PATH, "utf8");
+    const devices = parseInputDevices(raw);
+    const touchscreenPresent = devices.some(device => device.touchscreen);
+    const pointerPresent = devices.some(device => device.pointer);
+    const keyboardPresent = devices.some(device => device.keyboard);
+    return {
+      ok: true,
+      status: touchscreenPresent ? "touchscreen_ready" : pointerPresent ? "pointer_only" : "input_missing",
+      source: INPUT_DEVICES_PATH,
+      totalDevices: devices.length,
+      touchscreenPresent,
+      pointerPresent,
+      keyboardPresent,
+      devices: devices.slice(0, 20)
+    };
+  } catch (error) {
+    return {
+      ok: false,
+      status: "unavailable",
+      source: INPUT_DEVICES_PATH,
+      error: error.message
+    };
+  }
+}
+
 function directoryStats(dirPath) {
   const stats = { exists: false, files: 0, bytes: 0 };
   function walk(currentPath) {
@@ -1518,6 +1571,16 @@ function diagnosticsHealth(diagnostics, data) {
     }
   }
 
+  if (diagnostics.input) {
+    if (diagnostics.input.ok === false) {
+      add("warning", "input_unknown", "Touchscreen/input device metadata could not be collected.");
+    } else if (!diagnostics.input.pointerPresent) {
+      add("warning", "input_missing", "No touchscreen or pointer input device is visible to the OS.");
+    } else if (!diagnostics.input.touchscreenPresent) {
+      add("warning", "touchscreen_missing", "Pointer input is available, but no touchscreen-class device is visible.");
+    }
+  }
+
   if (diagnostics.release && diagnostics.release.status === "error") {
     add("error", "release_error", "Last release/update attempt failed.");
   } else if (diagnostics.release && diagnostics.release.status === "in_progress") {
@@ -1593,6 +1656,7 @@ async function collectDiagnostics(options = {}) {
       freeMb: Math.round(os.freemem() / 1024 / 1024)
     },
     temperatureC: readTemperatureC(),
+    input: inputDiagnostics(),
     mode: data.state.currentMode || "setup",
     network: data.network || null,
     pairing: {
@@ -1683,12 +1747,36 @@ function readinessSummary(diagnostics) {
   const release = diagnostics.release || null;
   const services = diagnostics.services || null;
   const commandAudit = diagnostics.commandAudit || {};
+  const input = diagnostics.input || {};
   const commandExecutorActive = serviceActive(services, "autopoiesis-command-executor.service");
   const cacheServiceActive = serviceActive(services, "autopoiesis-cache.service");
   const heartbeatServiceActive = serviceActive(services, "autopoiesis-heartbeat.service");
 
   const phases = {
     localUi: phase(true, "ready", "Local UI responded and produced diagnostics."),
+    input: phase(
+      Boolean(input.ok && input.pointerPresent),
+      input.ok
+        ? input.touchscreenPresent
+          ? "touchscreen_ready"
+          : input.pointerPresent
+            ? "pointer_only"
+            : "input_missing"
+        : "unknown",
+      input.ok
+        ? input.touchscreenPresent
+          ? "A touchscreen-class input device is visible to the OS."
+          : input.pointerPresent
+            ? "Pointer input is visible, but no touchscreen-class device was detected."
+            : "No touchscreen or pointer input device is visible to the OS."
+        : "Touchscreen/input device metadata could not be collected.",
+      {
+        touchscreenPresent: Boolean(input.touchscreenPresent),
+        pointerPresent: Boolean(input.pointerPresent),
+        keyboardPresent: Boolean(input.keyboardPresent),
+        totalDevices: input.totalDevices || 0
+      }
+    ),
     network: phase(
       networkOnline,
       networkOnline ? "ready" : "needs_network",
@@ -1799,6 +1887,7 @@ function healthSummary(diagnostics) {
     pairing: {
       paired: Boolean(health.paired)
     },
+    input: diagnostics.input || null,
     release: diagnostics.release
       ? {
           status: diagnostics.release.status || null,
@@ -1850,6 +1939,13 @@ async function supportBundle(options = {}) {
         status: item.status,
         summary: item.summary
       })),
+      input: {
+        status: diagnostics.input ? diagnostics.input.status || null : null,
+        touchscreenPresent: diagnostics.input ? Boolean(diagnostics.input.touchscreenPresent) : false,
+        pointerPresent: diagnostics.input ? Boolean(diagnostics.input.pointerPresent) : false,
+        keyboardPresent: diagnostics.input ? Boolean(diagnostics.input.keyboardPresent) : false,
+        totalDevices: diagnostics.input ? diagnostics.input.totalDevices || 0 : 0
+      },
       pendingCommands: health.pendingCommands || 0,
       offlinePlayableItems: offlineCache.playableItems || 0,
       commandAudit: {

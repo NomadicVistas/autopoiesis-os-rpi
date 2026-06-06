@@ -1,5 +1,14 @@
 # Pulse Agent Notes
 
+## 2026-06-06 - Touchscreen input diagnostics
+
+Date/time: 2026-06-06 08:35 UTC / 2026-06-06 10:35 Europe/Berlin
+Agent: Pulse
+Context: RPI APPLIANCE cron pass. The appliance had kiosk, network, health, readiness, and support-bundle checks, but the physical touchscreen assumption was invisible until a human touched the setup UI.
+What changed: Added Linux input metadata diagnostics from `/proc/bus/input/devices`, with touchscreen/pointer/keyboard detection surfaced through diagnostics, health, readiness, and support bundles. Added `scripts/touchscreen-check.sh` and wired `AUTOPOIESIS_REQUIRE_TOUCHSCREEN=1` into Milestone 2 verification so staged Pi hardware fails if no touchscreen-class device is visible.
+What needs review: Physical Pi validation should run the updated milestone script and confirm the target touchscreen HAT appears as `touchscreen_ready`. If the display works but the script reports `pointer_only`, add the device name/handler pattern to the detector rather than weakening the hard gate.
+Next recommended action: Run the milestone check on the target Pi after update and collect `/proc/bus/input/devices` in the hardware report if input detection is ambiguous.
+
 ## 2026-06-06 - Local frame playback surface
 
 Date/time: 2026-06-06 08:15 UTC / 2026-06-06 10:15 Europe/Berlin
