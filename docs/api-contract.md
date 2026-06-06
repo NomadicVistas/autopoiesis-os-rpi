@@ -244,6 +244,7 @@ Profile/Admin bundle validation:
 - GET /api/admin/frames/devices
 - GET /api/admin/frames/remote-actions
 - Optional adapter endpoint: GET /api/admin/frames/online-admin-bundle
+- Optional adapter endpoint: GET /api/admin/frames/broadcast-contract-bundle
 
 `scripts/online-admin-contract-check.sh` validates a saved or live bundle assembled from the online Profile > Frames and Admin > Frames surfaces. The bundle is intentionally a contract fixture, not a required production endpoint; the optional adapter endpoint can assemble the same shape for staging and CI.
 
@@ -256,6 +257,17 @@ The bundle root should include `ok`, `kind: "autopoiesis_frames_online_admin_bun
 `remoteActions` must also include `roleActionMatrix` (or `roleMatrix`/`permissions`) with one row per accepted actor role and one explicit allow/deny decision per command type. Allowed medium/high/critical decisions must expose the matching `requiresAuthorization`, `requiresAuditId`, and `requiresLocalConfirmation` flags needed by Admin > Frames controls. Denied decisions must include a short reason/disabledReason so the UI can render disabled remote-action controls without guessing backend policy. The matrix must include at least one denied action and at least one denied critical action before destructive fleet controls are considered staging-ready.
 
 The contract check rejects sensitive or local-only fields including stored device API keys, pairing-code hashes, private access/refresh tokens, secrets, passwords, and absolute appliance paths.
+
+Hosted broadcast lifecycle contract:
+
+`scripts/broadcast-contract-check.sh` validates read-only staging/CI evidence for Admin > Frames broadcast readiness. The bundle root may use `kind: "autopoiesis_frames_broadcast_contract"` and `schemaVersion: 1`, and should include:
+
+- `broadcasts` or `adminBroadcasts`: durable broadcast rows with stable ids, type, status, priority, scheduling/expiry fields, and explicit `targeting`, `audience`, or visibility data.
+- `commands`, `commandQueue`, or `queuedCommands`: queued remote command rows. At least one `show_broadcast` command must reference a broadcast id, target a device id, and include approved authorization metadata with `action: "show_broadcast"`, accepted actor role, timestamp, and audit id.
+- `deliveries`, `deliveryLogs`, or `broadcastDeliveries`: durable delivery rows keyed by broadcast/device, including `broadcast_shown`, `shown`, `delivered`, or equivalent display evidence before a broadcast rollout is considered complete.
+- Optional `summary` counts for active/scheduled broadcasts, queued commands, delivery rows, shown rows, and failures.
+
+The checker rejects unknown targeting keys, duplicate broadcast or command ids, command references to unknown broadcasts, delivery rows without device ids or event names, and sensitive/local-only data such as device API keys, pairing hashes, private/admin tokens, secrets, passwords, and absolute appliance paths. Use `AUTOPOIESIS_REQUIRE_BROADCAST_COMMANDS=0`, `AUTOPOIESIS_REQUIRE_BROADCAST_DELIVERY=0`, or `AUTOPOIESIS_REQUIRE_BROADCAST_TARGETING=0` only for narrow component tests; strict hosted readiness should keep the defaults.
 
 Device settings conflict behavior:
 
@@ -348,8 +360,9 @@ Durable migration gate:
 Hosted integration suite:
 
 - `scripts/hosted-contract-suite-check.sh` runs the hosted migration, schema, pairing, device-auth, heartbeat, stream, online-admin, and release gates in dependency order.
+- `scripts/hosted-contract-suite-check.sh` also runs the hosted broadcast lifecycle gate before release validation when `AUTOPOIESIS_BROADCAST_CONTRACT_SOURCE` is provided.
 - Use `--strict` for staging or CI jobs that must provide every source before physical Pi acceptance.
-- Use `AUTOPOIESIS_HOSTED_CONTRACT_REQUIRE=migrations,schema,pairing,device-auth,heartbeat,stream,online-admin,release` when a partial job should require only selected gates while still running any other provided sources.
+- Use `AUTOPOIESIS_HOSTED_CONTRACT_REQUIRE=migrations,schema,pairing,device-auth,heartbeat,stream,online-admin,broadcast,release` when a partial job should require only selected gates while still running any other provided sources.
 - The suite does not invent or fetch endpoints by itself; CI/staging should pass saved fixtures or live URLs through the existing `AUTOPOIESIS_*_SOURCE` variables.
 
 Release manifest validation:

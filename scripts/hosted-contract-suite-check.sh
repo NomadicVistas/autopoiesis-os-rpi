@@ -23,6 +23,7 @@ Environment:
   AUTOPOIESIS_HEARTBEAT_CONTRACT_SOURCE     heartbeat bundle/response file or URL
   AUTOPOIESIS_STREAM_CONTRACT_SOURCE        stream response file or URL
   AUTOPOIESIS_ONLINE_ADMIN_CONTRACT_SOURCE  Profile/Admin bundle file or URL
+  AUTOPOIESIS_BROADCAST_CONTRACT_SOURCE     broadcast lifecycle bundle file or URL
   AUTOPOIESIS_RELEASE_MANIFEST_SOURCE       release manifest file or URL
 
 --strict requires every hosted gate source. Otherwise the suite runs all
@@ -44,6 +45,7 @@ normalize_gate_name() {
     heartbeat|heartbeat-contract|heartbeat_contract|event-ingestion|event_ingestion) echo "heartbeat" ;;
     stream|stream-contract|stream_contract) echo "stream" ;;
     admin|online-admin|online_admin|online-admin-contract|online_admin_contract) echo "online-admin" ;;
+    broadcast|broadcasts|broadcast-contract|broadcast_contract) echo "broadcast" ;;
     release|release-manifest|release_manifest) echo "release" ;;
     *) echo "$1" ;;
   esac
@@ -51,7 +53,7 @@ normalize_gate_name() {
 
 required_gate_csv() {
   if [[ "$REQUIRE_ALL" == "1" ]]; then
-    echo "migrations,schema,pairing,device-auth,heartbeat,stream,online-admin,release"
+    echo "migrations,schema,pairing,device-auth,heartbeat,stream,online-admin,broadcast,release"
   else
     echo "$REQUIRED_LIST"
   fi
@@ -129,6 +131,7 @@ run_gate "device-auth" "AUTOPOIESIS_DEVICE_AUTH_CONTRACT_SOURCE" "device-auth-co
 run_gate "heartbeat" "AUTOPOIESIS_HEARTBEAT_CONTRACT_SOURCE" "heartbeat-contract-check.sh" "Hosted heartbeat contract"
 run_gate "stream" "AUTOPOIESIS_STREAM_CONTRACT_SOURCE" "stream-contract-check.sh" "Hosted stream contract"
 run_gate "online-admin" "AUTOPOIESIS_ONLINE_ADMIN_CONTRACT_SOURCE" "online-admin-contract-check.sh" "Hosted Profile/Admin contract"
+run_gate "broadcast" "AUTOPOIESIS_BROADCAST_CONTRACT_SOURCE" "broadcast-contract-check.sh" "Hosted broadcast contract"
 run_gate "release" "AUTOPOIESIS_RELEASE_MANIFEST_SOURCE" "release-manifest-check.sh" "Release manifest contract"
 
 if [[ "$RAN_COUNT" -eq 0 ]]; then

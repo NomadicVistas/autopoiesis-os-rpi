@@ -57,6 +57,7 @@ Device-side MVP behavior:
 - Public local feed output redacts targeting metadata after eligibility is evaluated.
 - Cache eligibility is recorded as a manifest when `cacheAllowed` is not false and a media/thumbnail URL exists; actual media download/eviction belongs to the cache service.
 - `scripts/broadcast-command-check.sh` validates command-delivered broadcasts end to end with a mock Frames API, including command acknowledgement status, wrong-target rejection, scheduled display delay, display-time `broadcast_shown`, dismissal, and expired-command rejection.
+- `scripts/broadcast-contract-check.sh` validates the hosted side of the same lifecycle from a saved or live staging bundle: durable broadcast rows, queued `show_broadcast` commands with authorization/audit metadata, explicit targeting/audience, and durable delivery rows with display evidence.
 
 Suggested endpoint:
 
@@ -88,3 +89,13 @@ Suggested response shape:
 - View delivery logs.
 - Cancel future broadcast.
 - Expire active broadcast.
+
+## Hosted Contract Gate
+
+Before broadcast controls are treated as staging-ready, generate a read-only `autopoiesis_frames_broadcast_contract` bundle from durable `aos_` rows or a controlled staging adapter and run:
+
+```bash
+./scripts/broadcast-contract-check.sh /path/to/broadcast-contract-bundle.json
+```
+
+The gate requires at least one broadcast with explicit targeting or audience, one queued `show_broadcast` command referencing that broadcast and carrying approved authorization metadata, and one delivery/display evidence row such as `broadcast_shown`. It rejects unknown targeting keys, unknown broadcast references, duplicate ids, and sensitive or local-only data. Component tests may relax command, delivery, or targeting requirements with `AUTOPOIESIS_REQUIRE_BROADCAST_COMMANDS=0`, `AUTOPOIESIS_REQUIRE_BROADCAST_DELIVERY=0`, or `AUTOPOIESIS_REQUIRE_BROADCAST_TARGETING=0`; strict hosted readiness should not.

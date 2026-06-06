@@ -1,5 +1,48 @@
 # Progress
 
+## 2026-06-07 - Hosted broadcast lifecycle contract
+
+Date: 2026-06-07
+
+Milestone: LEAD / INTEGRATION - broadcast staging readiness
+
+Changed files:
+
+- `scripts/broadcast-contract-check.sh`
+- `scripts/hosted-contract-suite-check.sh`
+- `README.md`
+- `docs/api-contract.md`
+- `docs/broadcast-system.md`
+- `docs/agent-notes/backend-broadcast-contract-issue.md`
+- `docs/agent-notes/hosted-contract-suite-issue.md`
+- `docs/agent-notes/pulse.md`
+- `docs/progress.md`
+- `/data/.openclaw/workspace/autopoiesis-os-program/ROLLING-LOG.md`
+
+Implemented:
+
+- Added `scripts/broadcast-contract-check.sh`, a read-only saved-bundle or live-URL verifier for hosted Admin > Frames broadcast lifecycle evidence.
+- The checker validates durable broadcast rows, explicit targeting/audience, scheduling and priority metadata, queued `show_broadcast` commands, approved authorization/audit metadata, durable delivery/display evidence, duplicate ids, unknown broadcast references, and sensitive/local-only field redaction.
+- Wired the broadcast gate into `scripts/hosted-contract-suite-check.sh`; strict hosted readiness now requires migration, schema, pairing, device-auth, heartbeat, stream, online-admin, broadcast, and release sources.
+- Added a backend handoff issue note for generating the bundle from `aos_` broadcast, command, audit, and delivery rows.
+
+Verification:
+
+- `scripts/broadcast-contract-check.sh` passed against a representative targeted broadcast lifecycle bundle.
+- `scripts/broadcast-contract-check.sh` rejected a bundle missing explicit targeting/audience.
+- `scripts/broadcast-contract-check.sh` rejected a `show_broadcast` command missing authorization metadata.
+- `scripts/broadcast-contract-check.sh` rejected a delivery row referencing an unknown broadcast id.
+- `scripts/hosted-contract-suite-check.sh` passed with broadcast listed in `AUTOPOIESIS_HOSTED_CONTRACT_REQUIRE`.
+- `scripts/hosted-contract-suite-check.sh` rejected a missing required broadcast source.
+- `node --check local-ui/server.js` passed.
+- `bash -n install.sh update.sh uninstall-dev-tools.sh factory-reset.sh scripts/*.sh` passed.
+- `git diff --check` passed.
+- `scripts/security-smoke.sh` passed.
+
+Next step:
+
+Generate the broadcast lifecycle bundle from hosted staging or CI using durable `aos_` broadcast, command/audit, and delivery rows, then run the expanded strict hosted suite before enabling real broadcast rollout controls.
+
 ## 2026-06-07 - Online admin profile cache contract
 
 Date: 2026-06-07

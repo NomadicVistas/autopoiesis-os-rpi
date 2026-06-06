@@ -1,5 +1,14 @@
 # Pulse Agent Notes
 
+## 2026-06-07 - Hosted broadcast lifecycle contract
+
+Date/time: 2026-06-06 22:15 UTC / 2026-06-07 00:15 Europe/Berlin
+Agent: Pulse
+Context: LEAD / INTEGRATION cron pass. The strict hosted suite covered pairing, auth, heartbeat, stream, Profile/Admin, and release readiness, but broadcast rollout still relied on local Pi checks without a hosted lifecycle contract.
+What changed: Added `scripts/broadcast-contract-check.sh` and wired it into `scripts/hosted-contract-suite-check.sh`. The gate validates durable broadcast rows, explicit targeting/audience, queued `show_broadcast` commands with approved authorization/audit metadata, delivery/display evidence, and redaction boundaries.
+What needs review: Hosted staging should generate the bundle from durable `aos_` broadcast, admin command/audit, and delivery rows. Decide whether global broadcasts normalize as `audience: "all"` or a structured targeting object before CI fixtures settle.
+Next recommended action: Run the expanded strict hosted suite with a real broadcast lifecycle fixture before enabling Admin > Frames broadcast rollout controls in staging.
+
 ## 2026-06-07 - Online admin profile cache contract
 
 Date/time: 2026-06-06 22:05 UTC / 2026-06-07 00:05 Europe/Berlin
