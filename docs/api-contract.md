@@ -256,6 +256,14 @@ Local command audit:
 - Audit entries include command id/type, risk, status, actor id/role when supplied, admin audit id, authorization timestamp, processing timestamps, and error text. They intentionally omit command payloads and stored device API keys.
 - Heartbeat diagnostics and `GET /local/readiness` include a compact `commandAudit` summary with total entries, last command id/type/status, last observed timestamp, and recent error count.
 
+Local command acknowledgement retry:
+
+- The Pi only removes a command from local `commands.json` after the relevant remote acknowledgement has succeeded.
+- If the initial `acknowledged` POST fails, the command is retained with local retry metadata and is not executed yet.
+- If command execution finishes but the final `completed` or `error` acknowledgement fails, the command is retained with a final-ack retry state and is not executed again on the next processing pass.
+- Final-ack retry state is local-only metadata. It is not part of the online command payload contract and should not be interpreted by the backend.
+- Command audit may include `ack_failed` or `ack_retry_failed` statuses when API acknowledgement delivery fails.
+
 ## Admin API
 
 Users and subscribers:

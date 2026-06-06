@@ -894,3 +894,34 @@ Verification:
 Next step:
 
 Run the updated `scripts/milestone2-verify.sh` on physical Pi hardware after install/update to confirm the watchdog timer can restart real systemd services without disrupting a healthy kiosk session.
+
+## 2026-06-06 - Command acknowledgement retry safety
+
+Date: 2026-06-06
+
+Milestone: MVP 0.1 - Pairable Frames Device command sync
+
+Changed files:
+
+- `local-ui/server.js`
+- `docs/api-contract.md`
+- `docs/agent-notes/pulse.md`
+- `docs/progress.md`
+- `/data/.openclaw/workspace/autopoiesis-os-program/ROLLING-LOG.md`
+
+Implemented:
+
+- Local command queues now retain commands when the initial `acknowledged` POST fails, without executing the command.
+- Commands that execute successfully but fail to deliver the final `completed` or `error` acknowledgement are retained with local final-ack retry metadata.
+- Final-ack retries do not execute the command again, preventing duplicate side effects for commands like broadcast display, disable, update, restart, or cache clear.
+- Command audit summaries now count acknowledgement delivery failures as recent errors.
+
+Verification:
+
+- `node --check local-ui/server.js` passed.
+- `bash -n install.sh update.sh uninstall-dev-tools.sh factory-reset.sh scripts/*.sh` passed.
+- Targeted mock Frames API smoke passed for initial ack failure retention, final ack failure retention without re-execution, and final ack retry removal.
+
+Next step:
+
+Mirror this expectation in backend `aos_` command rows: command status transitions should be idempotent, preserve last ack error, and tolerate devices retrying the same final acknowledgement after local execution.

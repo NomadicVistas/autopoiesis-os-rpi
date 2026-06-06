@@ -170,3 +170,12 @@ Context: RPI APPLIANCE cron pass. The repo had an `autopoiesis-watchdog.service`
 What changed: Added `scripts/watchdog.sh`, converted the watchdog service to run it, added `autopoiesis-watchdog.timer`, and folded the watchdog into Milestone 2 verification. Added `scripts/install-systemd-units.sh` so fresh installs and update paths copy changed units into `/etc/systemd/system`, enable newly added timers, and start timers immediately. The watchdog script restarts setup only when local HTTP routes are unreachable and restarts kiosk only when `kiosk-check.sh` says the process or launch flags are unhealthy.
 What needs review: Physical Pi validation should confirm the timer runs as root, can restart both services, and does not interrupt a healthy display session.
 Next recommended action: Run full `scripts/milestone2-verify.sh` on the target Pi after update, then inspect `journalctl -u autopoiesis-watchdog.service -n 120 --no-pager` for clean pass entries.
+
+## 2026-06-06 - Command acknowledgement retry safety
+
+Date/time: 2026-06-06 02:45 UTC / 2026-06-06 04:45 Europe/Berlin
+Agent: Pulse
+Context: API / DATABASE / SYNC cron pass. The command executor had durable local command storage, but a failed acknowledgement back to the Frames API could still cause the local queue to be cleared too early.
+What changed: Added local-only ack retry metadata. Initial acknowledgement failures retain the command without executing it; final acknowledgement failures retain only the final ack state and do not re-run the command on the next executor pass.
+What needs review: The online backend should make command ack transitions idempotent and store last ack failure/last ack timestamp in durable `aos_` command rows.
+Next recommended action: Add backend/admin command audit persistence and ensure duplicate final `completed`/`error` acknowledgements are harmless.

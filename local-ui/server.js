@@ -233,6 +233,10 @@ function commandTypeOf(command = {}) {
   return command.commandType || command.command_type || null;
 }
 
+function commandIdOf(command = {}) {
+  return command.id || command.commandId || command.command_id || null;
+}
+
 function commandPolicy(commandType) {
   return COMMAND_POLICIES[commandType] || { risk: "unknown", requiresAuthorization: true };
 }
@@ -351,14 +355,61 @@ function commandAuditSummary() {
   const entries = commandAuditEntries();
   const last = entries[entries.length - 1] || null;
   const recent = entries.slice(-10);
+  const errorStatuses = new Set(["error", "ack_failed", "ack_retry_failed"]);
   return {
     totalEntries: entries.length,
     lastCommandId: last ? last.commandId || null : null,
     lastCommandType: last ? last.commandType || null : null,
     lastStatus: last ? last.status || null : null,
     lastObservedAt: last ? last.observedAt || null : null,
-    recentErrors: recent.filter(entry => entry.status === "error").length
+    recentErrors: recent.filter(entry => errorStatuses.has(entry.status)).length
   };
+}
+
+function localCommandAck(command = {}) {
+  const ack = command.localAck || command.localAckRetry || null;
+  return ack && typeof ack === "object" ? ack : null;
+}
+
+function commandForStorage(command = {}, ack = null) {
+  const stored = { ...command };
+  delete stored.localAckRetry;
+  if (ack) stored.localAck = ack;
+  else delete stored.localAck;
+  if (!stored.id && commandIdOf(stored)) stored.id = commandIdOf(stored);
+  return stored;
+}
+
+function ackRetry(command, phase, statusValue, extra = {}, error = null) {
+  const previous = localCommandAck(command);
+  return {
+    phase,
+    status: statusValue,
+    extra,
+    attempts: previous && Number(previous.attempts) ? Number(previous.attempts) + 1 : 1,
+    firstFailedAt: (previous && previous.firstFailedAt) || new Date().toISOString(),
+    lastFailedAt: new Date().toISOString(),
+    lastError: error || null
+  };
+}
+
+function mergeCommandQueues(remoteCommands = [], localCommands = []) {
+  const byId = new Map();
+  for (const command of Array.isArray(localCommands) ? localCommands : []) {
+    const commandId = commandIdOf(command);
+    if (!commandId) continue;
+    byId.set(String(commandId), commandForStorage({ ...command, id: commandId }, localCommandAck(command)));
+  }
+  for (const command of Array.isArray(remoteCommands) ? remoteCommands : []) {
+    const commandId = commandIdOf(command);
+    if (!commandId) continue;
+    const existing = byId.get(String(commandId));
+    byId.set(
+      String(commandId),
+      commandForStorage({ ...(existing || {}), ...command, id: commandId }, existing ? localCommandAck(existing) : null)
+    );
+  }
+  return Array.from(byId.values());
 }
 
 function deliveryEntries() {
@@ -2226,23 +2277,74 @@ async function executeCommand(command) {
 async function processCommands() {
   const device = readJson(paths.device, {});
   if (!device.deviceId || !device.paired) return { ok: false, skipped: true, reason: "Device is not paired" };
+  const localCommands = readJson(paths.commands, []);
   const heartbeat = await sendHeartbeat();
-  const commands = heartbeat.commands || readJson(paths.commands, []);
+  const commands = mergeCommandQueues(heartbeat.commands || [], localCommands);
   const results = [];
+  const retained = [];
   for (const command of commands) {
-    if (!command.id) continue;
+    const commandId = commandIdOf(command);
+    if (!commandId) continue;
+    const normalizedCommand = { ...command, id: commandId };
     const commandType = commandTypeOf(command);
     const policy = commandPolicy(commandType);
-    const auditBase = commandAuditSubject(command, commandType, policy);
+    const auditBase = commandAuditSubject(normalizedCommand, commandType, policy);
     const startedAt = new Date().toISOString();
+    const pendingAck = localCommandAck(normalizedCommand);
     try {
-      await ackCommand(device.deviceId, command.id, "acknowledged");
-      const result = await executeCommand(command);
+      if (pendingAck && pendingAck.phase === "final") {
+        try {
+          await ackCommand(device.deviceId, commandId, pendingAck.status, pendingAck.extra || {});
+          results.push({
+            commandId,
+            commandType,
+            result: { ok: true, ackRetried: true, status: pendingAck.status }
+          });
+        } catch (error) {
+          const message = error.stderr || error.message;
+          appendLog("commands-error.log", commandId + " final ack retry failed " + message);
+          retained.push(commandForStorage(normalizedCommand, ackRetry(normalizedCommand, "final", pendingAck.status, pendingAck.extra || {}, message)));
+          appendCommandAudit({
+            ...auditBase,
+            status: "ack_retry_failed",
+            startedAt,
+            completedAt: new Date().toISOString(),
+            error: message
+          });
+          results.push({ commandId, commandType, error: message, retained: true });
+        }
+        continue;
+      }
+      try {
+        await ackCommand(device.deviceId, commandId, "acknowledged");
+      } catch (error) {
+        const message = error.stderr || error.message;
+        appendLog("commands-error.log", commandId + " acknowledge failed " + message);
+        retained.push(commandForStorage(normalizedCommand, ackRetry(normalizedCommand, "acknowledge", "acknowledged", {}, message)));
+        appendCommandAudit({
+          ...auditBase,
+          status: "ack_failed",
+          startedAt,
+          completedAt: new Date().toISOString(),
+          error: message
+        });
+        results.push({ commandId, commandType, error: message, retained: true });
+        continue;
+      }
+
+      const result = await executeCommand(normalizedCommand);
       if (result && result.ok === false) {
-        await ackCommand(device.deviceId, command.id, "error", {
+        const finalAck = {
           error: result.error || "Command failed",
           policy: result.policy || null
-        });
+        };
+        try {
+          await ackCommand(device.deviceId, commandId, "error", finalAck);
+        } catch (error) {
+          const message = error.stderr || error.message;
+          appendLog("commands-error.log", commandId + " final error ack failed " + message);
+          retained.push(commandForStorage(normalizedCommand, ackRetry(normalizedCommand, "final", "error", finalAck, message)));
+        }
         appendCommandAudit({
           ...auditBase,
           status: "error",
@@ -2251,7 +2353,13 @@ async function processCommands() {
           error: result.error || "Command failed"
         });
       } else {
-        await ackCommand(device.deviceId, command.id, "completed");
+        try {
+          await ackCommand(device.deviceId, commandId, "completed");
+        } catch (error) {
+          const message = error.stderr || error.message;
+          appendLog("commands-error.log", commandId + " final completed ack failed " + message);
+          retained.push(commandForStorage(normalizedCommand, ackRetry(normalizedCommand, "final", "completed", {}, message)));
+        }
         appendCommandAudit({
           ...auditBase,
           status: "completed",
@@ -2259,14 +2367,15 @@ async function processCommands() {
           completedAt: new Date().toISOString()
         });
       }
-      results.push({ commandId: command.id, commandType, result });
+      results.push({ commandId, commandType, result });
     } catch (error) {
       const message = error.stderr || error.message;
-      appendLog("commands-error.log", command.id + " " + message);
+      appendLog("commands-error.log", commandId + " " + message);
       try {
-        await ackCommand(device.deviceId, command.id, "error", { error: message });
+        await ackCommand(device.deviceId, commandId, "error", { error: message });
       } catch (ackError) {
-        appendLog("commands-error.log", command.id + " ack failed " + ackError.message);
+        appendLog("commands-error.log", commandId + " ack failed " + ackError.message);
+        retained.push(commandForStorage(normalizedCommand, ackRetry(normalizedCommand, "final", "error", { error: message }, ackError.message)));
       }
       appendCommandAudit({
         ...auditBase,
@@ -2275,11 +2384,11 @@ async function processCommands() {
         completedAt: new Date().toISOString(),
         error: message
       });
-      results.push({ commandId: command.id, commandType, error: message });
+      results.push({ commandId, commandType, error: message, retained: retained.some(item => commandIdOf(item) === commandId) });
     }
   }
-  writeJson(paths.commands, []);
-  return { ok: true, processed: results.length, results };
+  writeJson(paths.commands, retained);
+  return { ok: true, processed: results.length, retained: retained.length, results };
 }
 
 async function handle(req, res) {
