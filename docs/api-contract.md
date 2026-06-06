@@ -67,6 +67,7 @@ POST /local/pairing/check
 POST /local/settings/sync
 POST /local/heartbeat
 POST /local/feed/sync
+POST /local/frame/display
 POST /local/broadcast/dismiss
 POST /local/commands/process
 POST /local/release/check
@@ -218,6 +219,7 @@ Local feed behavior:
 - GET /local/feed also returns `displayQueue`, a priority-preserving mixed-content queue. The device keeps emergency/critical/high/normal/low priority bands intact, then round-robins categories inside each band across broadcast, curatorial, artwork, blog, news, and general content items so personalized streams do not collapse into a single content class.
 - GET /local/frame-state returns the browser-safe local playback contract derived from `displayQueue`, including media role, cached-vs-remote source, playable counts, cached playable counts, display category, display position, and a compact `playback` readiness summary. It never exposes absolute cache paths or stored device API keys.
 - `/frame` renders that local playback queue for the kiosk and prefers cached media URLs when `cache-index.json` has a usable asset. `/launch?local=1` or `preferences.displayMode=local-feed` routes to `/frame` while the default `/launch` path can remain hosted-display first.
+- `/frame` posts `POST /local/frame/display` when it renders a queue item. The endpoint only records ids that are still present in the current `/local/frame-state` playable queue, appends a metadata-only `feed_item_shown` delivery event, and updates local state with `currentFeedItemId`, `currentArtworkId` for artwork-category items, and `lastFrameItemShownAt`.
 - Feed diagnostics include `displayQueueItems` and category counts, while diagnostics/readiness/health/support bundles include `framePlayback` so Admin > Frames and support tooling can distinguish synced feed data from a queue the kiosk can actually render.
 - The local UI also writes a feed cache manifest for items with cacheAllowed !== false and a media or thumbnail URL. `scripts/cache-artworks.sh` downloads those eligible assets into the local runtime cache and writes `cache-index.json` with cached/failed asset status.
 - GET /local/offline-cache returns the redacted playable cache inventory. It reports counts and browser-safe local asset URLs without exposing absolute filesystem paths.
@@ -228,6 +230,7 @@ Local feed behavior:
 Local delivery log behavior:
 
 - Feed syncs append a bounded metadata-only `feed_synced` event to `delivery-log.json`.
+- Local frame playback appends bounded metadata-only `feed_item_shown` events for artwork, blog, news, curatorial, and other mixed-stream items.
 - Broadcast display lifecycle appends `broadcast_shown`, `broadcast_dismissed`, and one-time `broadcast_expired` events.
 - GET /local/delivery-log returns recent events without raw payloads, local file paths, or stored device API keys.
 - Heartbeat diagnostics and `/local/support-bundle` include a compact delivery summary so the backend/admin layer can mirror these events into durable `aos_` delivery rows.

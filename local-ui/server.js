@@ -1285,6 +1285,41 @@ function publicFrameState() {
   return frame;
 }
 
+function recordFrameItemDisplay(body = {}) {
+  const itemId = body.itemId || body.id;
+  if (!itemId) return { ok: false, error: "Missing frame item id" };
+  const item = publicFrameState().items.find(candidate => String(candidate.id) === String(itemId));
+  if (!item) return { ok: false, error: "Frame item is not currently display eligible", itemId: String(itemId) };
+  const observedAt = new Date().toISOString();
+  appendDeliveryEvent({
+    eventType: "feed_item_shown",
+    itemId: item.id,
+    source: item.source || "feed",
+    type: item.type || null,
+    title: item.title || null,
+    priority: item.priority || "normal",
+    displayCategory: item.displayCategory || feedItemCategory(item),
+    displayPosition: item.displayPosition || null,
+    mediaRole: item.media ? item.media.role || null : null,
+    mediaCached: item.media ? Boolean(item.media.cached) : false,
+    status: "shown",
+    observedAt
+  });
+  updateState({
+    currentMode: "frame",
+    currentFeedItemId: item.id,
+    currentArtworkId: item.displayCategory === "artwork" ? item.id : null,
+    lastFrameItemShownAt: observedAt
+  });
+  return {
+    ok: true,
+    itemId: item.id,
+    displayCategory: item.displayCategory || null,
+    displayPosition: item.displayPosition || null,
+    observedAt
+  };
+}
+
 function framePlaybackSummary(frame = {}, state = readJson(paths.state, {})) {
   const totalItems = Number(frame.totalItems || 0);
   const displayQueueItems = Number(frame.displayQueueItems || 0);
@@ -2766,6 +2801,11 @@ function renderFrame() {
       stage.innerHTML = (media ? "<figure class=\\"frame-media\\">" + media + "</figure>" : "") +
         "<div class=\\"frame-caption\\"><div><strong>" + escapeText(item.title || item.id) + "</strong>" + body + "</div>" +
         (meta ? "<span>" + meta + "</span>" : "") + "</div>";
+      fetch("/local/frame/display", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ itemId: item.id })
+      }).catch(() => {});
       frameIndex += 1;
     }
     renderFrameItem();
@@ -3624,6 +3664,11 @@ async function handle(req, res) {
     }
     if (req.method === "POST" && url.pathname === "/local/feed/sync") {
       return sendJson(res, await syncFeedFromRemote());
+    }
+    if (req.method === "POST" && url.pathname === "/local/frame/display") {
+      const body = JSON.parse(await readBody(req) || "{}");
+      const result = recordFrameItemDisplay(body);
+      return sendJson(res, result, result.ok ? 200 : 400);
     }
     if (req.method === "POST" && url.pathname === "/local/broadcast/dismiss") {
       return sendJson(res, dismissBroadcast("duration_elapsed"));

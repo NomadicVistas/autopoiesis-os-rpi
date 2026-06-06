@@ -1,5 +1,39 @@
 # Progress
 
+## 2026-06-06 - Frame item delivery acknowledgement
+
+Date: 2026-06-06
+
+Milestone: BROADCAST / FEED - mixed stream display evidence
+
+Changed files:
+
+- `local-ui/server.js`
+- `docs/api-contract.md`
+- `docs/progress.md`
+- `docs/agent-notes/pulse.md`
+- `/data/.openclaw/workspace/autopoiesis-os-program/ROLLING-LOG.md`
+
+Implemented:
+
+- Added `POST /local/frame/display`, a defensive local acknowledgement endpoint for regular mixed-stream frame items.
+- The endpoint only records ids that are currently playable in `GET /local/frame-state`, preventing arbitrary browser/client payloads from inventing delivery rows.
+- The local kiosk `/frame` surface now posts an acknowledgement each time it renders an item.
+- Display acknowledgement appends metadata-only `feed_item_shown` events into the existing bounded delivery log and updates local state with current feed/artwork item pointers.
+- Documented the endpoint and `feed_item_shown` event as part of the delivery-log contract for future backend `aos_` delivery ingestion.
+
+Verification:
+
+- `node --check local-ui/server.js` passed.
+- `bash -n install.sh update.sh uninstall-dev-tools.sh factory-reset.sh scripts/*.sh` passed.
+- `git diff --check` passed.
+- `scripts/security-smoke.sh` passed.
+- Targeted temporary local UI smoke passed for valid frame display acknowledgement, invalid id rejection, delivery-log/event-export inclusion, state update, and device-key redaction.
+
+Next step:
+
+Ingest `feed_item_shown` events into durable backend `aos_` delivery rows alongside broadcast delivery events, then let Admin > Frames show whether personalized feed items are actually reaching device playback.
+
 ## 2026-06-06 - Rollout acceptance contract
 
 Date: 2026-06-06

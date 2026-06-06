@@ -324,6 +324,15 @@ What changed: Updated the main gallery backend Frames API to create `aos_admin_c
 What needs review: The main `autopoiesis` checkout is still too dirty for a clean scoped commit from this run, so the backend change is verified but uncommitted there. Review/stage only `app/backend/production.py` once that repo's unrelated backlog is under control.
 Next recommended action: Add backend heartbeat `events` ingestion into durable delivery/release/device-event rows using `deviceId + eventKey` idempotency, then wire Admin > Frames to render those rows.
 
+## 2026-06-06 - Frame item delivery acknowledgement
+
+Date/time: 2026-06-06 10:27 UTC / 2026-06-06 12:27 Europe/Berlin
+Agent: Pulse
+Context: BROADCAST / FEED cron pass. The local delivery log had feed sync and broadcast lifecycle evidence, but regular personalized stream items could rotate through `/frame` without a device-side display event.
+What changed: Added `POST /local/frame/display` and wired `/frame` to call it whenever an item renders. The endpoint validates the id against the current playable `/local/frame-state` queue, appends a metadata-only `feed_item_shown` delivery event, and updates local state with current feed/artwork pointers.
+What needs review: Physical Pi validation should confirm Chromium posts the acknowledgement during real playback and that repeated rotation produces a useful but bounded delivery trail.
+Next recommended action: Teach backend `aos_` delivery ingestion/Admin > Frames to treat `feed_item_shown` as the non-broadcast equivalent of `broadcast_shown`.
+
 ## 2026-06-06 - Backend heartbeat event ingestion
 
 Date/time: 2026-06-06 07:15 UTC / 2026-06-06 09:15 Europe/Berlin
