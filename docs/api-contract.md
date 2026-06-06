@@ -332,6 +332,13 @@ Durable migration gate:
 - DROP, TRUNCATE, unconditional DELETE, and broad UPDATE statements fail by default. Reviewed repair/rollback migrations may opt in with `AUTOPOIESIS_ALLOW_DESTRUCTIVE_MIGRATIONS=1`, but should still be paired with backup/rollback notes in the backend release plan.
 - Run the migration gate before `scripts/aos-schema-contract-check.sh`, then run the schema gate against the migrated staging database or exported final schema.
 
+Hosted integration suite:
+
+- `scripts/hosted-contract-suite-check.sh` runs the hosted migration, schema, pairing, stream, online-admin, and release gates in dependency order.
+- Use `--strict` for staging or CI jobs that must provide every source before physical Pi acceptance.
+- Use `AUTOPOIESIS_HOSTED_CONTRACT_REQUIRE=migrations,schema,pairing,stream,online-admin,release` when a partial job should require only selected gates while still running any other provided sources.
+- The suite does not invent or fetch endpoints by itself; CI/staging should pass saved fixtures or live URLs through the existing `AUTOPOIESIS_*_SOURCE` variables.
+
 Release manifest validation:
 
 - `GET /api/frames/device/{deviceId}/release` should return either `{ release: null }` when current or a `release` object that passes `scripts/release-manifest-check.sh`.

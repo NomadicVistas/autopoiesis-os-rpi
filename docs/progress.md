@@ -1,5 +1,41 @@
 # Progress
 
+## 2026-06-06 - Hosted contract suite gate
+
+Date: 2026-06-06
+
+Milestone: LEAD / INTEGRATION - backend staging readiness
+
+Changed files:
+
+- `scripts/hosted-contract-suite-check.sh`
+- `README.md`
+- `docs/api-contract.md`
+- `docs/agent-notes/hosted-contract-suite-issue.md`
+- `docs/agent-notes/pulse.md`
+- `docs/progress.md`
+- `/data/.openclaw/workspace/autopoiesis-os-program/ROLLING-LOG.md`
+
+Implemented:
+
+- Added `scripts/hosted-contract-suite-check.sh`, an umbrella staging/CI runner for the hosted Frames contract gates.
+- The suite runs migration, final schema, pairing lifecycle, stream response, online Profile/Admin, and release manifest checks in dependency order.
+- `--strict` requires all six sources before physical Pi acceptance; `AUTOPOIESIS_HOSTED_CONTRACT_REQUIRE` allows partial CI jobs to require only their owned gates while still running every provided source.
+- Added a backend handoff issue note describing how to wire the suite into hosted staging readiness.
+
+Verification:
+
+- `node --check local-ui/server.js` passed.
+- `bash -n install.sh update.sh uninstall-dev-tools.sh factory-reset.sh scripts/*.sh` passed.
+- `git diff --check` passed.
+- `scripts/hosted-contract-suite-check.sh` passed against a temporary release-manifest fixture.
+- `scripts/hosted-contract-suite-check.sh` rejected a missing required stream source.
+- `scripts/security-smoke.sh` passed.
+
+Next step:
+
+Wire the suite into the hosted backend CI/staging path with real migration/schema/pairing/stream/admin/release fixtures, then run it before physical Pi Milestone 2 validation.
+
 ## 2026-06-06 - Online admin role matrix contract
 
 Date: 2026-06-06

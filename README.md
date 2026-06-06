@@ -47,6 +47,7 @@ Milestone 2 is scaffolded for physical Pi validation. The local UI can:
 - expose a metadata-only `/local/release/history` trail for local release check/apply outcomes
 - verify command-delivered broadcasts for targeting, scheduling, display-time delivery logs, dismissal, expiry, and acknowledgements
 - validate release manifests for channel/tag/artifact/checksum/rollback metadata before an update mutates app code
+- run the hosted contract suite for migration, schema, pairing, stream, online-admin, and release readiness before physical Pi testing
 - verify the unified local event export contract for backend/admin ingestion readiness
 - verify heartbeat event ingestion cursor acknowledgements, replay overlap, stale ack rejection, and diagnostics/support visibility
 - run a local security smoke test that checks device API key redaction and tracked secret hygiene
@@ -257,6 +258,20 @@ Validate the hosted `aos_` migration plan before applying it to staging or produ
 ```
 
 The migration contract check validates deterministic migration ids, `aos_` table/index namespacing, transaction boundaries, MVP table coverage, hashed pairing-code storage, and absence of accidental destructive SQL. Destructive repair or rollback migrations must be explicitly reviewed and run with `AUTOPOIESIS_ALLOW_DESTRUCTIVE_MIGRATIONS=1`.
+
+Run the hosted staging contract suite before handing backend work to physical Pi validation:
+
+```bash
+AUTOPOIESIS_AOS_MIGRATION_CONTRACT_SOURCE=/path/to/migrations \
+AUTOPOIESIS_AOS_SCHEMA_CONTRACT_SOURCE=/path/to/schema-introspection.json \
+AUTOPOIESIS_PAIRING_CONTRACT_SOURCE=/path/to/pairing-contract-bundle.json \
+AUTOPOIESIS_STREAM_CONTRACT_SOURCE=/path/to/stream-response.json \
+AUTOPOIESIS_ONLINE_ADMIN_CONTRACT_SOURCE=/path/to/online-admin-bundle.json \
+AUTOPOIESIS_RELEASE_MANIFEST_SOURCE=/path/to/release.json \
+./scripts/hosted-contract-suite-check.sh --strict
+```
+
+The suite runs the existing hosted gates in dependency order: migrations, final schema, pairing, stream, online admin, then release manifest. In non-strict mode it runs every provided source and fails only if a gate named in `AUTOPOIESIS_HOSTED_CONTRACT_REQUIRE` is missing. Individual token and strictness variables are passed through to the underlying checkers unchanged.
 
 Validate a release manifest before a device applies it:
 

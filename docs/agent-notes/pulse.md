@@ -1,5 +1,14 @@
 # Pulse Agent Notes
 
+## 2026-06-06 - Hosted contract suite gate
+
+Date/time: 2026-06-06 19:15 UTC / 2026-06-06 21:15 Europe/Berlin
+Agent: Pulse
+Context: LEAD / INTEGRATION cron pass. The backend contract work had good individual gates, but no single staging command that proved migration/schema/pairing/stream/admin/release readiness before handing the build to physical Pi validation.
+What changed: Added `scripts/hosted-contract-suite-check.sh`, an ordered runner for hosted migration, schema, pairing, stream, online-admin, and release manifest checks. It supports `--strict` for full staging acceptance and `AUTOPOIESIS_HOSTED_CONTRACT_REQUIRE` for partial CI jobs.
+What needs review: Hosted CI still needs to generate or expose the saved contract fixtures/URLs; the suite deliberately does not invent live endpoints or credentials.
+Next recommended action: Wire the suite into the hosted backend staging job and require it before Milestone 2 physical Pi acceptance.
+
 ## 2026-06-06 - Online admin role matrix contract
 
 Date/time: 2026-06-06 19:05 UTC / 2026-06-06 21:05 Europe/Berlin
