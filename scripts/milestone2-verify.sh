@@ -91,4 +91,8 @@ echo "10. Local event export contract"
 "$(dirname "$0")/events-export-check.sh"
 
 echo
+echo "11. Heartbeat event ingestion cursor contract"
+"$(dirname "$0")/events-ingestion-check.sh"
+
+echo
 echo "Milestone 2 verification passed."

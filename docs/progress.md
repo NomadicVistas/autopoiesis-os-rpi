@@ -1,5 +1,41 @@
 # Progress
 
+## 2026-06-06 - Event ingestion cursor acceptance gate
+
+Date: 2026-06-06
+
+Milestone: LEAD / integration - heartbeat event ingestion cursor
+
+Changed files:
+
+- `scripts/events-ingestion-check.sh`
+- `scripts/milestone2-verify.sh`
+- `README.md`
+- `docs/api-contract.md`
+- `docs/progress.md`
+- `docs/agent-notes/pulse.md`
+- `/data/.openclaw/workspace/autopoiesis-os-program/ROLLING-LOG.md`
+
+Implemented:
+
+- Added `scripts/events-ingestion-check.sh`, an isolated heartbeat ingestion acceptance gate for the RPi event cursor contract.
+- The check starts a temporary local UI plus mock Frames API, seeds command-audit, display-delivery, and release-history events, and confirms the first heartbeat exports all three sources.
+- It verifies accepted backend acks persist a redacted `event-cursor.json`, diagnostics/support surfaces expose the accepted cursor, and the next heartbeat sends `eventIngestionCursor` plus a bounded replay window.
+- It also verifies stale backend event acknowledgements are rejected without moving the retained cursor backward, while recording `stale_event_ingestion_ack` for support visibility.
+- Wired the gate into `scripts/milestone2-verify.sh` so physical Pi acceptance validates backend/device event-ingestion drift alongside export shape.
+
+Verification:
+
+- `node --check local-ui/server.js` passed.
+- `bash -n install.sh update.sh uninstall-dev-tools.sh factory-reset.sh scripts/*.sh` passed.
+- `git diff --check` passed.
+- `scripts/security-smoke.sh` passed.
+- `scripts/events-ingestion-check.sh` passed.
+
+Next step:
+
+Run the full Milestone 2 verification on the physical Pi after the backend `aos_device_events` ingestion path is deployed; if event replay loops or missing Admin evidence appear, start with this check plus `/local/support-bundle` before inspecting raw logs.
+
 ## 2026-06-06 - Rollout issue report handoff
 
 Date: 2026-06-06

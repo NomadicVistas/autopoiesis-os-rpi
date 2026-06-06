@@ -42,6 +42,7 @@ Milestone 2 is scaffolded for physical Pi validation. The local UI can:
 - expose `/local/events/export` so backend/admin adapters can ingest command, delivery, and release lifecycle evidence through one redacted contract
 - expose a metadata-only `/local/release/history` trail for local release check/apply outcomes
 - verify the unified local event export contract for backend/admin ingestion readiness
+- verify heartbeat event ingestion cursor acknowledgements, replay overlap, stale ack rejection, and diagnostics/support visibility
 - run a local security smoke test that checks device API key redaction and tracked secret hygiene
 - run an appliance preflight that checks root install mode, Node.js, rsync, curl, systemd, Chromium, NetworkManager, and whether the appliance user exists
 - create the appliance user during install/bootstrap before runtime directories are chowned
@@ -140,6 +141,12 @@ Check the unified command/delivery/release event export contract:
 
 ```bash
 ./scripts/events-export-check.sh
+```
+
+Check heartbeat event ingestion cursor acknowledgement behavior:
+
+```bash
+./scripts/events-ingestion-check.sh
 ```
 
 Inspect the local frame playback queue:

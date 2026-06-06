@@ -1,5 +1,14 @@
 # Pulse Agent Notes
 
+## 2026-06-06 - Event ingestion cursor acceptance gate
+
+Date/time: 2026-06-06 12:15 UTC / 2026-06-06 14:15 Europe/Berlin
+Agent: Pulse
+Context: LEAD / INTEGRATION cron pass. The backend event ingestion path now exists, and the Pi can persist acknowledgements, but physical acceptance still needed a dedicated guard for cursor replay and stale ack safety.
+What changed: Added `scripts/events-ingestion-check.sh` and wired it into Milestone 2 verification. The check runs a temporary local UI against a mock Frames API, seeds command-audit, display-delivery, and release-history events, proves the first heartbeat exports all sources, persists a redacted accepted cursor, uses replay overlap on the next heartbeat, exposes the cursor in diagnostics/support, and rejects stale backend acks without moving the cursor backward.
+What needs review: Run this on the physical Pi after backend deployment if Admin > Frames shows missing or repeated event evidence. A stale ack should leave `acceptedThroughObservedAt` unchanged and set `lastEventIngestionAckStatus=stale_event_ingestion_ack` for support visibility.
+Next recommended action: Add Admin > Frames rendering for ingested `deviceEvents` and projected delivery/release state; use this check as the device-side regression gate before changing backend ack semantics.
+
 ## 2026-06-06 - Settings sync acceptance gate
 
 Date/time: 2026-06-06 10:45 UTC / 2026-06-06 12:45 Europe/Berlin
