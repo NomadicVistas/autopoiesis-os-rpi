@@ -1,5 +1,39 @@
 # Progress
 
+## 2026-06-07 - Install preflight disk-space gate
+
+Date: 2026-06-07
+
+Milestone: RPI APPLIANCE - one-command install hardening
+
+Changed files:
+
+- `scripts/preflight.sh`
+- `README.md`
+- `docs/installation.md`
+- `docs/agent-notes/pulse.md`
+- `docs/progress.md`
+- `/data/.openclaw/workspace/autopoiesis-os-program/ROLLING-LOG.md`
+
+Implemented:
+
+- Added a free-space gate to `scripts/preflight.sh --install` for the selected install, data, and log paths.
+- The gate follows `AUTOPOIESIS_INSTALL_DIR`, `AUTOPOIESIS_DATA_DIR`, and `AUTOPOIESIS_LOG_DIR`, then probes the nearest existing parent path with `df -Pm` so fresh images work before target directories exist.
+- Default minimum free space is 1024 MB per target volume; `AUTOPOIESIS_PREFLIGHT_MIN_FREE_MB` can raise/lower the threshold or disable it with `0` for deliberate constrained fixtures.
+
+Verification:
+
+- `node --check local-ui/server.js` passed.
+- `bash -n install.sh update.sh uninstall-dev-tools.sh factory-reset.sh scripts/*.sh` passed.
+- Targeted `scripts/preflight.sh --install` smoke passed with stubbed install prerequisites and `AUTOPOIESIS_PREFLIGHT_MIN_FREE_MB=1`.
+- Targeted high-threshold preflight smoke rejected an impossible `AUTOPOIESIS_PREFLIGHT_MIN_FREE_MB=999999999` value.
+- `git diff --check` passed.
+- `scripts/security-smoke.sh` passed.
+
+Next step:
+
+Run the updated `sudo ./scripts/preflight.sh --install` on the clean physical Pi image before install, and document any intentional low-space override in the rollout note.
+
 ## 2026-06-07 - Mixed-stream broadcast display evidence
 
 Date: 2026-06-07

@@ -1,5 +1,14 @@
 # Pulse Agent Notes
 
+## 2026-06-07 - Install preflight disk-space gate
+
+Date/time: 2026-06-06 22:35 UTC / 2026-06-07 00:35 Europe/Berlin
+Agent: Pulse
+Context: RPI APPLIANCE cron pass. The one-command install preflight checked commands and runtime shape, but it could still proceed on a nearly full SD card and fail later during copy/cache/bootstrap work.
+What changed: Added a configurable free-space gate to `scripts/preflight.sh --install` for the selected install, data, and log volumes. It follows `AUTOPOIESIS_INSTALL_DIR`, `AUTOPOIESIS_DATA_DIR`, and `AUTOPOIESIS_LOG_DIR`, defaults to 1024 MB minimum free space, and can be tuned with `AUTOPOIESIS_PREFLIGHT_MIN_FREE_MB`.
+What needs review: Run the updated preflight on the clean Raspberry Pi OS image before install. If a production image intentionally has less than 1 GB free, document the override in the rollout note instead of silently bypassing it.
+Next recommended action: Pair this with strict production cleanup before imaging so storage exhaustion and leftover development state are caught before cloning devices.
+
 ## 2026-06-07 - Hosted broadcast lifecycle contract
 
 Date/time: 2026-06-06 22:15 UTC / 2026-06-07 00:15 Europe/Berlin

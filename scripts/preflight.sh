@@ -4,6 +4,7 @@ set -euo pipefail
 MODE="${1:-}"
 FAILURES=0
 WARNINGS=0
+MIN_FREE_MB="${AUTOPOIESIS_PREFLIGHT_MIN_FREE_MB:-1024}"
 
 fail() {
   echo "FAIL: $*" >&2
@@ -26,6 +27,50 @@ require_command() {
     pass "$command_name found"
   else
     fail "$command_name is required. $hint"
+  fi
+}
+
+is_positive_integer() {
+  [[ "${1:-}" =~ ^[0-9]+$ ]]
+}
+
+existing_path_for_df() {
+  local path="$1"
+  while [[ ! -e "$path" && "$path" != "/" ]]; do
+    path="$(dirname "$path")"
+  done
+  printf '%s\n' "$path"
+}
+
+check_free_space() {
+  local label="$1"
+  local target_path="$2"
+  local min_mb="$3"
+
+  if [[ "$min_mb" == "0" ]]; then
+    warn "free-space check disabled for $label at $target_path"
+    return
+  fi
+
+  if ! is_positive_integer "$min_mb"; then
+    fail "AUTOPOIESIS_PREFLIGHT_MIN_FREE_MB must be a positive integer or 0 to disable."
+    return
+  fi
+
+  local probe_path
+  probe_path="$(existing_path_for_df "$target_path")"
+
+  local available_mb
+  available_mb="$(df -Pm "$probe_path" 2>/dev/null | awk 'NR == 2 { print $4 }')"
+  if ! is_positive_integer "$available_mb"; then
+    fail "could not determine free disk space for $label at $target_path."
+    return
+  fi
+
+  if [[ "$available_mb" -lt "$min_mb" ]]; then
+    fail "$label volume has ${available_mb} MB free for $target_path; at least ${min_mb} MB is required."
+  else
+    pass "$label volume has ${available_mb} MB free for $target_path (min ${min_mb} MB)"
   fi
 }
 
@@ -101,6 +146,14 @@ fi
 
 if [[ "$MODE" == "--install" ]]; then
   USER_NAME="${AUTOPOIESIS_USER:-frame}"
+  INSTALL_DIR="${AUTOPOIESIS_INSTALL_DIR:-/opt/autopoiesis-os}"
+  DATA_DIR="${AUTOPOIESIS_DATA_DIR:-/var/lib/autopoiesis-os}"
+  LOG_DIR="${AUTOPOIESIS_LOG_DIR:-/var/log/autopoiesis-os}"
+
+  check_free_space "install" "$INSTALL_DIR" "$MIN_FREE_MB"
+  check_free_space "data" "$DATA_DIR" "$MIN_FREE_MB"
+  check_free_space "log" "$LOG_DIR" "$MIN_FREE_MB"
+
   if id -u "$USER_NAME" >/dev/null 2>&1; then
     pass "appliance user '$USER_NAME' exists"
   else
