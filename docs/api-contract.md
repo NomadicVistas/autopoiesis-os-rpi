@@ -47,6 +47,7 @@ GET  /local/health
 GET  /local/readiness
 GET  /local/diagnostics
 GET  /local/feed
+GET  /local/offline-cache
 GET  /local/network/status
 POST /local/lan/connect
 GET  /local/wifi/scan
@@ -161,7 +162,7 @@ Diagnostics health summary:
 
 Current issue codes include `device_unpaired`, `device_key_missing`, `network_offline`, `offline_fallback`, `storage_critical`, `storage_high`, `storage_low`, `storage_unknown`, `memory_low`, `temperature_critical`, `temperature_high`, `release_error`, `release_in_progress`, `settings_conflict`, `commands_pending`, `cache_failures`, `cache_empty`, and `service_failed`.
 
-Cache-aware diagnostics add feed cache index fields: `cacheIndexGeneratedAt`, `cacheIndexedItems`, `cacheCachedItems`, and `cacheFailedItems`.
+Cache-aware diagnostics add feed cache index fields: `cacheIndexGeneratedAt`, `cacheIndexedItems`, `cacheCachedItems`, `cacheFailedItems`, and `offlinePlayableItems`.
 
 Settings sync:
 
@@ -193,8 +194,10 @@ Local feed behavior:
 - POST /local/feed/sync fetches GET /api/frames/device/{deviceId}/feed and stores a normalized local feed.
 - Heartbeat responses may also carry feed, items, artworks, or broadcasts; the local UI normalizes those into the same feed state.
 - GET /local/feed returns active, display-eligible items only. Expired items, future scheduled items, and preference-disabled media types are filtered out.
-- The local UI also writes a feed cache manifest for items with cacheAllowed !== false and a media or thumbnail URL. `scripts/cache-artworks.sh` downloads those eligible assets into the local runtime cache and writes `cache-index.json` with cached/failed asset status for offline display work.
-- Cache eviction and the final offline playback route are still separate follow-up tasks.
+- The local UI also writes a feed cache manifest for items with cacheAllowed !== false and a media or thumbnail URL. `scripts/cache-artworks.sh` downloads those eligible assets into the local runtime cache and writes `cache-index.json` with cached/failed asset status.
+- GET /local/offline-cache returns the redacted playable cache inventory. It reports counts and browser-safe local asset URLs without exposing absolute filesystem paths.
+- GET /local/cache/assets/{itemId}/media and GET /local/cache/assets/{itemId}/thumbnail serve cached files only when the indexed path resolves under the configured cache directory.
+- The `/offline` fallback reads `cache-index.json` and rotates playable cached feed media when the live Frames display is unreachable. Cache eviction remains a separate follow-up task.
 - Feed items are sorted by priority, then created time, then explicit order.
 
 Commands:

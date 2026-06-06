@@ -420,6 +420,91 @@ function publicFeed() {
   };
 }
 
+function cacheAssetUsable(asset) {
+  return Boolean(
+    asset &&
+      ["cached", "downloaded"].includes(asset.status) &&
+      asset.path &&
+      fs.existsSync(asset.path)
+  );
+}
+
+function cachedOfflineItems() {
+  const feed = readJson(paths.feed, { syncedAt: null, items: [] });
+  const feedById = new Map(eligibleFeedItems(feed).map(item => [String(item.id), item]));
+  const cacheIndex = readJson(paths.cacheIndex, { generatedAt: null, cachedCount: 0, failedCount: 0, items: [] });
+  const now = Date.now();
+  return (cacheIndex.items || [])
+    .filter(item => item && item.id && !isExpired(item.expiresAt, now))
+    .filter(item => cacheAssetUsable(item.media) || cacheAssetUsable(item.thumbnail))
+    .map((item, index) => {
+      const feedItem = feedById.get(String(item.id)) || {};
+      const mediaAvailable = cacheAssetUsable(item.media);
+      const thumbnailAvailable = cacheAssetUsable(item.thumbnail);
+      const cacheBase = "/local/cache/assets/" + encodeURIComponent(String(item.id));
+      return {
+        id: String(item.id),
+        source: item.source || feedItem.source || null,
+        type: item.type || feedItem.type || "cached_media",
+        title: feedItem.title || null,
+        artist: feedItem.artist || null,
+        body: feedItem.body || null,
+        priority: item.priority || feedItem.priority || "normal",
+        expiresAt: item.expiresAt || feedItem.expiresAt || null,
+        order: Number(feedItem.order || index) || index,
+        media: mediaAvailable
+          ? { available: true, url: cacheBase + "/media", status: item.media.status, bytes: item.media.bytes || 0 }
+          : { available: false },
+        thumbnail: thumbnailAvailable
+          ? { available: true, url: cacheBase + "/thumbnail", status: item.thumbnail.status, bytes: item.thumbnail.bytes || 0 }
+          : { available: false }
+      };
+    });
+}
+
+function publicOfflineCache() {
+  const cacheIndex = readJson(paths.cacheIndex, { generatedAt: null, cachedCount: 0, failedCount: 0, items: [] });
+  const items = cachedOfflineItems();
+  return {
+    ok: true,
+    generatedAt: cacheIndex.generatedAt || null,
+    indexedItems: Array.isArray(cacheIndex.items) ? cacheIndex.items.length : 0,
+    cachedItems: cacheIndex.cachedCount || 0,
+    failedItems: cacheIndex.failedCount || 0,
+    playableItems: items.length,
+    items
+  };
+}
+
+function cachedAssetPath(id, role) {
+  const cacheIndex = readJson(paths.cacheIndex, { items: [] });
+  const item = (cacheIndex.items || []).find(candidate => String(candidate.id) === String(id));
+  const asset = item && (role === "thumbnail" ? item.thumbnail : item.media);
+  if (!cacheAssetUsable(asset)) return null;
+  const root = path.resolve(CACHE_DIR);
+  const assetPath = path.resolve(asset.path);
+  if (assetPath !== root && !assetPath.startsWith(root + path.sep)) return null;
+  return assetPath;
+}
+
+function contentTypeForPath(filePath) {
+  const ext = path.extname(filePath).toLowerCase();
+  return {
+    ".jpg": "image/jpeg",
+    ".jpeg": "image/jpeg",
+    ".png": "image/png",
+    ".gif": "image/gif",
+    ".webp": "image/webp",
+    ".svg": "image/svg+xml",
+    ".mp4": "video/mp4",
+    ".webm": "video/webm",
+    ".mov": "video/quicktime",
+    ".mp3": "audio/mpeg",
+    ".wav": "audio/wav",
+    ".ogg": "audio/ogg"
+  }[ext] || "application/octet-stream";
+}
+
 async function syncFeedFromRemote() {
   const device = readJson(paths.device, {});
   if (!device.deviceId || !device.paired) return { ok: false, skipped: true, reason: "Device is not paired" };
@@ -732,7 +817,8 @@ async function collectDiagnostics(options = {}) {
       cacheIndexGeneratedAt: cacheIndex.generatedAt || null,
       cacheIndexedItems: Array.isArray(cacheIndex.items) ? cacheIndex.items.length : 0,
       cacheCachedItems: cacheIndex.cachedCount || 0,
-      cacheFailedItems: cacheIndex.failedCount || 0
+      cacheFailedItems: cacheIndex.failedCount || 0,
+      offlinePlayableItems: cachedOfflineItems().length
     },
     broadcast: broadcast
       ? {
@@ -911,6 +997,10 @@ function page(title, body, script = "") {
   ${script ? `<script>${script}</script>` : ""}
 </body>
 </html>`;
+}
+
+function scriptJson(value) {
+  return JSON.stringify(value).replace(/</g, "\\u003c");
 }
 
 function escapeHtml(value) {
@@ -1271,24 +1361,59 @@ scanWifi();`
 
 function renderOffline() {
   const data = status();
+  const cache = publicOfflineCache();
   const retrySeconds = Number.isFinite(OFFLINE_RETRY_SECONDS) && OFFLINE_RETRY_SECONDS > 0
     ? OFFLINE_RETRY_SECONDS
     : 30;
+  const durationSeconds = Number(data.preferences.imageDuration || 30);
+  const rotationSeconds = Number.isFinite(durationSeconds) && durationSeconds > 0
+    ? Math.min(Math.max(durationSeconds, 8), 300)
+    : 30;
+  const hasCachedMedia = cache.playableItems > 0;
   return page(
     "Autopoiesis Offline",
-    `<main class="screen fallback">
-      <section>
+    `<main class="screen fallback offline-screen">
+      <section class="${hasCachedMedia ? "offline-gallery" : "offline-empty"}">
         <p class="kicker">Autopoiesis Frame</p>
-        <h1>Offline mode</h1>
-        <p>The frame is keeping a calm local fallback ready while the network is unavailable.</p>
+        <h1>${hasCachedMedia ? "Offline cache" : "Offline mode"}</h1>
+        <p>${hasCachedMedia ? "The frame is showing cached Autopoiesis work while the network is unavailable." : "The frame is keeping a calm local fallback ready while the network is unavailable."}</p>
+        ${hasCachedMedia ? `<div id="offline-stage" class="offline-stage" aria-live="polite"></div>` : ""}
         <dl class="status">
           <div><dt>Device</dt><dd>${escapeHtml(data.device.deviceId || "unknown")}</dd></div>
           <div><dt>Last check</dt><dd>${escapeHtml(data.state.lastOfflineFallbackAt || "pending")}</dd></div>
+          <div><dt>Cached</dt><dd>${escapeHtml(cache.playableItems)} playable / ${escapeHtml(cache.indexedItems)} indexed</dd></div>
           <div><dt>Retry</dt><dd>${escapeHtml(retrySeconds)} seconds</dd></div>
         </dl>
       </section>
     </main>`,
-    `setTimeout(() => { location.href = "/launch"; }, ${Math.round(retrySeconds * 1000)});`
+    `const offlineItems = ${scriptJson(cache.items)};
+    let offlineIndex = 0;
+    const stage = document.getElementById("offline-stage");
+    function escapeText(value) {
+      return String(value || "").replace(/[&<>"]/g, char => {
+        if (char === "&") return "&amp;";
+        if (char === "<") return "&lt;";
+        if (char === ">") return "&gt;";
+        return "&quot;";
+      });
+    }
+    function isVideo(item, url) {
+      return /video/i.test(item.type || "") || /\\.(mp4|webm|mov)(\\?|$)/i.test(url || "");
+    }
+    function renderCachedItem() {
+      if (!stage || !offlineItems.length) return;
+      const item = offlineItems[offlineIndex % offlineItems.length];
+      const asset = item.media && item.media.available ? item.media : item.thumbnail;
+      const media = isVideo(item, asset.url)
+        ? "<video src=\"" + asset.url + "\" autoplay muted loop playsinline></video>"
+        : "<img src=\"" + asset.url + "\" alt=\"\">";
+      const meta = [item.artist, item.type].filter(Boolean).map(escapeText).join(" / ");
+      stage.innerHTML = media + "<div class=\"offline-caption\"><strong>" + escapeText(item.title || item.id) + "</strong>" + (meta ? "<span>" + meta + "</span>" : "") + "</div>";
+      offlineIndex += 1;
+    }
+    renderCachedItem();
+    if (offlineItems.length > 1) setInterval(renderCachedItem, ${Math.round(rotationSeconds * 1000)});
+    setTimeout(() => { location.href = "/launch"; }, ${Math.round(retrySeconds * 1000)});`
   );
 }
 
@@ -1430,6 +1555,22 @@ function redirect(res, location) {
 function sendJson(res, value, statusCode = 200) {
   res.writeHead(statusCode, { "content-type": "application/json" });
   res.end(`${JSON.stringify(value, null, 2)}\n`);
+}
+
+function sendCachedAsset(req, res, id, role) {
+  const filePath = cachedAssetPath(decodeURIComponent(id), role);
+  if (!filePath) return sendJson(res, { ok: false, error: "Cached asset not found" }, 404);
+  const stats = fs.statSync(filePath);
+  res.writeHead(200, {
+    "content-type": contentTypeForPath(filePath),
+    "content-length": stats.size,
+    "cache-control": "private, max-age=3600"
+  });
+  if (req.method === "HEAD") {
+    res.end();
+    return;
+  }
+  fs.createReadStream(filePath).pipe(res);
 }
 
 function readBody(req) {
@@ -1843,6 +1984,13 @@ async function handle(req, res) {
     if (req.method === "GET" && url.pathname === "/local/feed") {
       return sendJson(res, publicFeed());
     }
+    if (req.method === "GET" && url.pathname === "/local/offline-cache") {
+      return sendJson(res, publicOfflineCache());
+    }
+    const cacheAssetMatch = url.pathname.match(/^\/local\/cache\/assets\/([^/]+)\/(media|thumbnail)$/);
+    if ((req.method === "GET" || req.method === "HEAD") && cacheAssetMatch) {
+      return sendCachedAsset(req, res, cacheAssetMatch[1], cacheAssetMatch[2]);
+    }
     if (req.method === "GET" && (url.pathname === "/local/network/status" || url.pathname === "/local/network/status.json")) {
       return networkStatus((_, value) => sendJson(res, value, value.ok ? 200 : 503));
     }
@@ -1982,6 +2130,14 @@ label { display: grid; gap: 8px; color: #c8c6bb; font-size: 18px; }
 .broadcast-panel h1 { font-size: clamp(42px, 7vw, 110px); }
 .broadcast-media { margin: 26px 0; }
 .broadcast-media img { display: block; width: 100%; max-height: 55vh; object-fit: contain; border-radius: 8px; }
+.offline-screen { align-items: stretch; justify-items: stretch; padding: 4vw; }
+.offline-gallery, .offline-empty { width: min(1180px, 100%); margin: auto; }
+.offline-gallery h1, .offline-empty h1 { font-size: clamp(42px, 7vw, 96px); }
+.offline-stage { display: grid; gap: 18px; margin: 24px 0; }
+.offline-stage img, .offline-stage video { width: 100%; max-height: 58vh; object-fit: contain; border-radius: 8px; background: #0d1110; border: 1px solid #343d39; }
+.offline-caption { display: flex; justify-content: space-between; gap: 16px; align-items: baseline; color: #c8c6bb; font-size: 20px; }
+.offline-caption strong { color: #f4f1e8; font-size: 24px; overflow-wrap: anywhere; }
+.offline-caption span { text-align: right; overflow-wrap: anywhere; }
 .compact { width: min(620px, 100%); }
 `);
 }

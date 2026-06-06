@@ -25,6 +25,7 @@ Milestone 2 is scaffolded for physical Pi validation. The local UI can:
 - start a mock pairing flow
 - redirect `/launch` to setup, disabled, offline fallback, or the live display route depending on local state and remote reachability
 - build a local cache index from eligible feed media through the hourly cache timer
+- show cached feed media on `/offline` when the live display is unreachable
 - expose a compact `/local/health` probe for support, admin adapters, and hardware acceptance checks
 - expose a phase-level `/local/readiness` probe for setup, pairing, sync, content, cache, commands, and release rollout checks
 - run a local security smoke test that checks device API key redaction and tracked secret hygiene

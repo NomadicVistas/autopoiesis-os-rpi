@@ -57,6 +57,15 @@ cat /var/lib/autopoiesis-os/cache-index.json
 
 The cache worker reads `/var/lib/autopoiesis-os/feed-cache.json`, downloads eligible media and thumbnails into the runtime cache, and writes `/var/lib/autopoiesis-os/cache-index.json`. Failed downloads are recorded in the index and log instead of aborting the whole timer pass.
 
+Inspect the playable offline inventory and a cached asset through the local UI rather than reading absolute paths from a browser:
+
+```bash
+curl -fsS http://127.0.0.1:3030/local/offline-cache
+curl -fsSI http://127.0.0.1:3030/local/cache/assets/<item-id>/media
+```
+
+When `/launch` cannot reach the remote Frames display, `/offline` uses this cache inventory to rotate local media. If the inventory is empty, it falls back to the static offline status screen and keeps retrying `/launch`.
+
 ## Diagnostics
 
 ```bash
@@ -83,4 +92,4 @@ curl -fsS 'http://127.0.0.1:3030/local/health?services=1'
 /opt/autopoiesis-os/app/scripts/security-smoke.sh
 ```
 
-Run this before production imaging and after changing local JSON endpoints. It verifies that local status, pairing status, and diagnostics responses redact the stored device API key while still reporting safe key-presence flags for support.
+Run this before production imaging and after changing local JSON endpoints. It verifies that local status, pairing status, diagnostics, health, readiness, and offline-cache responses redact the stored device API key while still reporting safe key-presence flags for support.

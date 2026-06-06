@@ -107,3 +107,12 @@ Context: LEAD / INTEGRATION cron pass. Health and diagnostics were available, bu
 What changed: Added `GET /local/readiness`, derived from diagnostics, with phase summaries for local UI, network, pairing/device key, settings sync, content/feed, cache, commands, and release state. Diagnostics now also includes cache index counts and cache-related health issue codes.
 What needs review: Run the readiness check on physical Raspberry Pi hardware after live pairing and after a real feed/cache cycle to confirm the blocker thresholds match deployment reality.
 Next recommended action: Use readiness blockers as the acceptance checklist for the first managed rollout, then mirror the same phase summaries into Admin > Frames fleet cards.
+
+## 2026-06-06 - Offline cache playback
+
+Date/time: 2026-06-06 00:15 UTC / 2026-06-06 02:15 Europe/Berlin
+Agent: Pulse
+Context: LEAD / INTEGRATION cron pass. The feed cache worker could download local media, but the kiosk offline fallback still showed only a static status page.
+What changed: Added a redacted `/local/offline-cache` inventory, safe `/local/cache/assets/{itemId}/{media|thumbnail}` serving from within the cache directory, and a `/offline` cached-media rotation view when playable cached assets exist.
+What needs review: Validate on physical Raspberry Pi hardware after a real feed/cache cycle, including Chromium playback for cached video and touchscreen timing during network recovery.
+Next recommended action: Add cache eviction and storage-pressure policy once the real content feed size is known.

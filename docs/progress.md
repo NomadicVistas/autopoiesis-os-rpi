@@ -620,3 +620,37 @@ Verification:
 Next step:
 
 Run `scripts/readiness-check.sh` on physical Raspberry Pi hardware after live pairing, then use the blocker list as the acceptance checklist for rollout.
+
+## 2026-06-06 - Offline cache playback
+
+Date: 2026-06-06
+
+Milestone: MVP 0.3 - Offline Living Frame
+
+Changed files:
+
+- `local-ui/server.js`
+- `README.md`
+- `docs/api-contract.md`
+- `docs/troubleshooting.md`
+- `docs/progress.md`
+- `docs/agent-notes/pulse.md`
+- `/data/.openclaw/workspace/autopoiesis-os-program/ROLLING-LOG.md`
+
+Implemented:
+
+- Added `GET /local/offline-cache`, a redacted playable cache inventory built from `cache-index.json` and the active feed metadata.
+- Added safe cached asset serving at `/local/cache/assets/{itemId}/media` and `/local/cache/assets/{itemId}/thumbnail`, constrained to files under the configured cache directory.
+- Updated `/offline` so disconnected frames rotate cached playable feed media when available, while keeping the static offline fallback for empty caches.
+- Diagnostics feed summary now includes `offlinePlayableItems` for support/readiness consumers.
+
+Verification:
+
+- `node --check local-ui/server.js` passed.
+- `bash -n install.sh update.sh factory-reset.sh uninstall-dev-tools.sh scripts/*.sh` passed.
+- `scripts/security-smoke.sh` passed with `/local/offline-cache` included in redaction coverage.
+- Local offline-cache smoke passed for cache inventory, cached asset serving, `/offline` cached view rendering, and unreachable `/launch -> /offline` fallback.
+
+Next step:
+
+Run the offline cache path on physical Raspberry Pi hardware after a real feed/cache cycle, then add cache eviction and storage pressure policy.
