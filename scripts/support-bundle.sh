@@ -28,6 +28,8 @@ const release = summary.releaseHistory || {};
 const events = payload.deviceEvents || {};
 const input = summary.input || {};
 const clock = summary.clock || {};
+const storage = summary.storage || {};
+const runtimeStorage = storage.runtime || {};
 
 console.error([
   "Autopoiesis Frame support bundle",
@@ -37,6 +39,7 @@ console.error([
   "readiness=" + (summary.readinessStatus || "unknown"),
   "issues=" + issues,
   "blockers=" + blockers,
+  "storage=" + (runtimeStorage.status || "unknown"),
   "clock=" + (clock.status || "unknown"),
   "input=" + (input.status || "unknown"),
   "release=" + (release.lastStatus || "none") + ":" + (release.lastVersion || "unknown"),

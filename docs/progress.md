@@ -1,5 +1,49 @@
 # Progress
 
+## 2026-06-06 - Runtime storage diagnostics gate
+
+Date: 2026-06-06
+
+Milestone: RPI APPLIANCE - runtime filesystem acceptance
+
+Changed files:
+
+- `local-ui/server.js`
+- `scripts/runtime-storage-check.sh`
+- `scripts/milestone2-verify.sh`
+- `scripts/security-smoke.sh`
+- `scripts/support-bundle.sh`
+- `README.md`
+- `docs/api-contract.md`
+- `docs/installation.md`
+- `docs/troubleshooting.md`
+- `docs/agent-notes/pulse.md`
+- `docs/progress.md`
+- `/data/.openclaw/workspace/autopoiesis-os-program/ROLLING-LOG.md`
+
+Implemented:
+
+- Added runtime storage diagnostics for `DATA_DIR`, `CACHE_DIR`, and `LOG_DIR`.
+- Diagnostics now verify each runtime path exists or can be created, is a directory, is readable/writable, and accepts a short write probe from the local UI process.
+- Health emits `runtime_storage_unavailable` when any required runtime path is blocked.
+- Readiness and support bundles now include a storage phase/summary so physical Pi handoffs can distinguish ownership/mount failures from pairing, heartbeat, cache, or support-bundle bugs.
+- `scripts/support-bundle.sh` now prints the runtime storage status in its one-line support summary.
+- Added `scripts/runtime-storage-check.sh` and wired it into Milestone 2 physical verification.
+
+Verification:
+
+- `node --check local-ui/server.js` passed.
+- `bash -n install.sh update.sh uninstall-dev-tools.sh factory-reset.sh scripts/*.sh` passed.
+- `git diff --check` passed.
+- `scripts/runtime-storage-check.sh` passed against an isolated local UI with writable data/cache/log directories.
+- `scripts/support-bundle.sh` summary output reported `storage=ready` against the same isolated writable local UI.
+- `scripts/runtime-storage-check.sh` passed with `AUTOPOIESIS_ALLOW_RUNTIME_STORAGE_UNREADY=1` against an isolated blocked-cache-path fixture, proving `runtime_storage_unavailable` health/readiness/support reporting.
+- `scripts/security-smoke.sh` passed.
+
+Next step:
+
+Run the strict runtime storage gate on the physical Pi after install/update; if it fails, fix ownership or mounts for `/var/lib/autopoiesis-os`, the cache directory, and `/var/log/autopoiesis-os` before testing higher-level appliance flows.
+
 ## 2026-06-06 - Durable AOS schema contract gate
 
 Date: 2026-06-06

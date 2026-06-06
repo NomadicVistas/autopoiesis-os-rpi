@@ -1934,6 +1934,95 @@ async function diskStatus(targetPath) {
   }
 }
 
+function runtimePathStatus(name, dirPath, options = {}) {
+  const result = {
+    name,
+    path: dirPath,
+    exists: false,
+    directory: false,
+    readable: false,
+    writable: false,
+    writeProbe: false,
+    ok: false,
+    error: null
+  };
+  let probePath = null;
+
+  try {
+    if (options.ensureDirectory) {
+      fs.mkdirSync(dirPath, { recursive: true });
+    }
+    const stat = fs.statSync(dirPath);
+    result.exists = true;
+    result.directory = stat.isDirectory();
+    if (!result.directory) {
+      result.error = "not_directory";
+      return result;
+    }
+
+    try {
+      fs.accessSync(dirPath, fs.constants.R_OK);
+      result.readable = true;
+    } catch {
+      result.readable = false;
+    }
+    try {
+      fs.accessSync(dirPath, fs.constants.W_OK);
+      result.writable = true;
+    } catch {
+      result.writable = false;
+    }
+
+    probePath = path.join(
+      dirPath,
+      ".aos-write-check-" + process.pid + "-" + Date.now() + "-" + Math.random().toString(16).slice(2)
+    );
+    fs.writeFileSync(probePath, "ok\n", { flag: "wx", mode: 0o600 });
+    fs.unlinkSync(probePath);
+    probePath = null;
+    result.writeProbe = true;
+  } catch (error) {
+    result.error = error.code || error.message;
+  } finally {
+    if (probePath) {
+      try {
+        fs.unlinkSync(probePath);
+      } catch {
+        // A failed write probe should not leave diagnostics unable to respond.
+      }
+    }
+  }
+
+  result.ok = Boolean(result.exists && result.directory && result.readable && result.writable && result.writeProbe);
+  return result;
+}
+
+function runtimeStorageDiagnostics() {
+  const entries = {
+    dataDir: runtimePathStatus("dataDir", DATA_DIR, { ensureDirectory: true }),
+    cacheDir: runtimePathStatus("cacheDir", CACHE_DIR, { ensureDirectory: true }),
+    logDir: runtimePathStatus("logDir", LOG_DIR, { ensureDirectory: true })
+  };
+  const blocked = Object.values(entries)
+    .filter(entry => !entry.ok)
+    .map(entry => ({
+      name: entry.name,
+      path: entry.path,
+      exists: entry.exists,
+      directory: entry.directory,
+      readable: entry.readable,
+      writable: entry.writable,
+      writeProbe: entry.writeProbe,
+      error: entry.error
+    }));
+  return {
+    ok: blocked.length === 0,
+    status: blocked.length === 0 ? "ready" : "blocked",
+    paths: entries,
+    blocked
+  };
+}
+
 async function systemdUnitStatus(unitName) {
   const status = {};
   try {
@@ -2040,6 +2129,13 @@ function diagnosticsHealth(diagnostics, data) {
     }
   } else if (disk && disk.ok === false) {
     add("warning", "storage_unknown", "Data filesystem status could not be collected.");
+  }
+  const runtimeStorage = diagnostics.storage && diagnostics.storage.runtime;
+  if (runtimeStorage && runtimeStorage.ok === false) {
+    const names = Array.isArray(runtimeStorage.blocked)
+      ? runtimeStorage.blocked.map(item => item.name).filter(Boolean).join(", ")
+      : "runtime paths";
+    add("error", "runtime_storage_unavailable", "One or more runtime storage paths are not writable: " + names + ".");
   }
 
   if (diagnostics.memory && Number.isFinite(diagnostics.memory.freeMb) && diagnostics.memory.freeMb < 128) {
@@ -2150,6 +2246,7 @@ async function collectDiagnostics(options = {}) {
   const releaseHistory = releaseHistorySummary();
   const frameState = publicFrameState();
   const disk = await diskStatus(DATA_DIR);
+  const runtimeStorage = runtimeStorageDiagnostics();
   const clock = await clockDiagnostics();
   const diagnostics = {
     collectedAt: new Date().toISOString(),
@@ -2181,7 +2278,9 @@ async function collectDiagnostics(options = {}) {
     storage: {
       dataDir: DATA_DIR,
       cacheDir: CACHE_DIR,
+      logDir: LOG_DIR,
       dataDisk: disk,
+      runtime: runtimeStorage,
       cache: directoryStats(CACHE_DIR)
     },
     release: release
@@ -2241,7 +2340,12 @@ async function collectDiagnostics(options = {}) {
     diagnostics.timers = await timerDiagnostics();
   }
   diagnostics.health = diagnosticsHealth(diagnostics, data);
-  writeJson(paths.diagnostics, diagnostics);
+  try {
+    writeJson(paths.diagnostics, diagnostics);
+  } catch (error) {
+    diagnostics.diagnosticsPersisted = false;
+    diagnostics.diagnosticsPersistError = error.code || error.message;
+  }
   return diagnostics;
 }
 
@@ -2273,12 +2377,23 @@ function readinessSummary(diagnostics) {
   const commandAudit = diagnostics.commandAudit || {};
   const input = diagnostics.input || {};
   const clock = diagnostics.clock || {};
+  const runtimeStorage = diagnostics.storage && diagnostics.storage.runtime ? diagnostics.storage.runtime : null;
   const commandExecutorActive = serviceActive(services, "autopoiesis-command-executor.service");
   const cacheServiceActive = serviceActive(services, "autopoiesis-cache.service");
   const heartbeatServiceActive = serviceActive(services, "autopoiesis-heartbeat.service");
 
   const phases = {
     localUi: phase(true, "ready", "Local UI responded and produced diagnostics."),
+    storage: phase(
+      !runtimeStorage || runtimeStorage.ok !== false,
+      runtimeStorage ? runtimeStorage.status || "unknown" : "not_checked",
+      !runtimeStorage
+        ? "Runtime storage path checks were not collected."
+        : runtimeStorage.ok
+          ? "Data, cache, and log directories are writable by the local UI process."
+          : "One or more data, cache, or log directories are not writable by the local UI process.",
+      { runtime: runtimeStorage }
+    ),
     clock: phase(
       clock.ok !== false && clock.status !== "unsynchronized",
       clock.status || "unknown",
@@ -2429,7 +2544,7 @@ function readinessSummary(diagnostics) {
   for (const [name, value] of Object.entries(phases)) {
     if (!value.ready && value.status !== "no_cache_needed") blockers.push({ phase: name, status: value.status, summary: value.summary });
   }
-  const hasError = health.status === "error" || blockers.some(item => ["missing_device_key", "conflict", "empty_or_failed", "pending_commands", "error"].includes(item.status));
+  const hasError = health.status === "error" || blockers.some(item => ["blocked", "missing_device_key", "conflict", "empty_or_failed", "pending_commands", "error"].includes(item.status));
   const statusValue = hasError ? "blocked" : blockers.length ? "not_ready" : "ready";
   return {
     ok: statusValue === "ready",
@@ -2685,6 +2800,12 @@ function healthSummary(diagnostics) {
       paired: Boolean(health.paired)
     },
     input: diagnostics.input || null,
+    storage: diagnostics.storage
+      ? {
+          runtime: diagnostics.storage.runtime || null,
+          dataDisk: diagnostics.storage.dataDisk || null
+        }
+      : null,
     timers: diagnostics.timers || null,
     release: diagnostics.release
       ? {
@@ -2754,6 +2875,12 @@ async function supportBundle(options = {}) {
             ntpEnabled: diagnostics.clock.ntpEnabled,
             ntpSynchronized: diagnostics.clock.ntpSynchronized,
             systemClockSynchronized: diagnostics.clock.systemClockSynchronized
+          }
+        : null,
+      storage: diagnostics.storage
+        ? {
+            runtime: diagnostics.storage.runtime || null,
+            dataDisk: diagnostics.storage.dataDisk || null
           }
         : null,
       timers: diagnostics.timers || null,

@@ -41,7 +41,7 @@ Milestone 2 physical Pi verification:
 sudo /opt/autopoiesis-os/app/scripts/milestone2-verify.sh
 ```
 
-This checks that the setup service is active, the kiosk service is active, the local launcher responds, Chromium is running with the expected kiosk flags, Linux sees a touchscreen-class input device, NetworkManager reports device state, and both services restart cleanly.
+This checks that the setup service is active, the kiosk service is active, the local launcher responds, runtime data/cache/log paths are writable, Chromium is running with the expected kiosk flags, Linux sees a touchscreen-class input device, NetworkManager reports device state, and both services restart cleanly.
 
 LAN setup:
 

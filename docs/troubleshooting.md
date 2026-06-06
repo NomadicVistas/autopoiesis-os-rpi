@@ -112,9 +112,9 @@ Use `preferences.displayMode=local-feed` or `/launch?local=1` when the kiosk sho
 curl -fsS http://127.0.0.1:3030/local/diagnostics
 ```
 
-The diagnostics endpoint is the quickest support snapshot for hardware testing. It reports software version, uptime, memory, temperature, system clock/NTP synchronization, touchscreen/input visibility, network and pairing state, cache footprint, release state, pending command count, current broadcast, and local Autopoiesis service/timer states when systemd is available.
+The diagnostics endpoint is the quickest support snapshot for hardware testing. It reports software version, uptime, memory, temperature, runtime storage writability, system clock/NTP synchronization, touchscreen/input visibility, network and pairing state, cache footprint, release state, pending command count, current broadcast, and local Autopoiesis service/timer states when systemd is available.
 
-Read `.diagnostics.health.status` first. It is `ok`, `warning`, or `error`, with `.diagnostics.health.issues[]` carrying stable issue codes such as `network_offline`, `offline_fallback`, `device_key_missing`, `storage_low`, `temperature_high`, `clock_unsynchronized`, `clock_unknown`, `touchscreen_missing`, `release_error`, `commands_pending`, `service_failed`, `timer_failed`, and `timer_disabled`.
+Read `.diagnostics.health.status` first. It is `ok`, `warning`, or `error`, with `.diagnostics.health.issues[]` carrying stable issue codes such as `network_offline`, `offline_fallback`, `device_key_missing`, `storage_low`, `runtime_storage_unavailable`, `temperature_high`, `clock_unsynchronized`, `clock_unknown`, `touchscreen_missing`, `release_error`, `commands_pending`, `service_failed`, `timer_failed`, and `timer_disabled`.
 
 For quick acceptance checks, use the compact health probe:
 
@@ -125,6 +125,15 @@ curl -fsS 'http://127.0.0.1:3030/local/health?services=1'
 ```
 
 `/local/health` returns the derived status, issue codes, device identity, mode, network/pairing state, release summary, pending command count, current broadcast, and timestamp without exposing stored API keys.
+
+For runtime storage checks:
+
+```bash
+/opt/autopoiesis-os/app/scripts/runtime-storage-check.sh
+AUTOPOIESIS_REQUIRE_RUNTIME_STORAGE=1 /opt/autopoiesis-os/app/scripts/runtime-storage-check.sh
+```
+
+The check verifies that the local UI process can read and write the data, cache, and log directories. If it fails after install or update, check ownership of `/var/lib/autopoiesis-os`, `/var/lib/autopoiesis-os/cache`, and `/var/log/autopoiesis-os` before debugging pairing, heartbeat, cache, or support-bundle behavior.
 
 For touchscreen hardware checks:
 
@@ -161,7 +170,7 @@ For one-step support handoff, collect the redacted support bundle:
 curl -fsS http://127.0.0.1:3030/local/support-bundle
 ```
 
-The bundle combines diagnostics, compact health, rollout readiness, clock/NTP summary, touchscreen/input summary, systemd timer summary, active feed state, local frame playback state, offline-cache inventory, recent command audit entries, recent delivery events, recent release history, and the unified device event export. It is intended for hardware validation notes and admin support adapters, and it should stay free of stored device API keys, raw command payloads, release artifact URLs, checksums, and absolute cache asset paths.
+The bundle combines diagnostics, compact health, rollout readiness, runtime storage writability, clock/NTP summary, touchscreen/input summary, systemd timer summary, active feed state, local frame playback state, offline-cache inventory, recent command audit entries, recent delivery events, recent release history, and the unified device event export. It is intended for hardware validation notes and admin support adapters, and it should stay free of stored device API keys, raw command payloads, release artifact URLs, checksums, and absolute cache asset paths.
 
 For Admin > Frames remote-action policy checks:
 

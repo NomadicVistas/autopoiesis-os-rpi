@@ -33,6 +33,7 @@ echo "   local frame-state responds at $LOCAL_BASE_URL/local/frame-state"
 "$(dirname "$0")/frame-state-check.sh"
 curl -fsS "$LOCAL_BASE_URL/frame" >/dev/null
 echo "   local frame route responds at $LOCAL_BASE_URL/frame"
+AUTOPOIESIS_REQUIRE_RUNTIME_STORAGE=1 "$(dirname "$0")/runtime-storage-check.sh"
 "$(dirname "$0")/stream-playback-check.sh"
 "$(dirname "$0")/feed-targeting-check.sh"
 

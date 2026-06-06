@@ -1,5 +1,14 @@
 # Pulse Agent Notes
 
+## 2026-06-06 - Runtime storage diagnostics gate
+
+Date/time: 2026-06-06 16:35 UTC / 2026-06-06 18:35 Europe/Berlin
+Agent: Pulse
+Context: RPI APPLIANCE cron pass. Installer/bootstrap creates the appliance data and log paths, and cache/support/heartbeat flows depend on those paths being writable by the runtime process, but diagnostics did not directly prove writable ownership before higher-level checks ran.
+What changed: Added runtime storage diagnostics for `DATA_DIR`, `CACHE_DIR`, and `LOG_DIR`, including directory creation, read/write access, and short write probes. Health now emits `runtime_storage_unavailable`; readiness and support bundles include storage summaries; `scripts/runtime-storage-check.sh` is wired into Milestone 2 physical verification.
+What needs review: Run the strict check on a physical Pi after fresh install and after update. If it fails, inspect ownership and mount state before investigating cache, heartbeat, or support-bundle symptoms.
+Next recommended action: Add Admin > Frames display of the storage phase once support-bundle ingestion is rendered in the hosted UI.
+
 ## 2026-06-06 - Durable AOS schema contract gate
 
 Date/time: 2026-06-06 16:15 UTC / 2026-06-06 18:15 Europe/Berlin

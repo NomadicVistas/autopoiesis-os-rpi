@@ -29,6 +29,7 @@ Milestone 2 is scaffolded for physical Pi validation. The local UI can:
 - play the local mixed feed queue at `/frame`, preferring cached assets when available
 - show cached feed media on `/offline` when the live display is unreachable
 - expose a compact `/local/health` probe for support, admin adapters, and hardware acceptance checks
+- expose runtime storage writability diagnostics for data, cache, and log directories
 - expose system clock/NTP synchronization diagnostics through health/readiness/support surfaces
 - expose touchscreen/input diagnostics through health/readiness/support surfaces
 - expose systemd timer diagnostics for heartbeat, command executor, cache, updater, and watchdog loops
@@ -118,6 +119,13 @@ Check system clock/NTP synchronization:
 ```bash
 ./scripts/clock-check.sh
 AUTOPOIESIS_REQUIRE_CLOCK_SYNC=1 ./scripts/clock-check.sh
+```
+
+Check that the local UI can write its runtime data, cache, and log paths:
+
+```bash
+./scripts/runtime-storage-check.sh
+AUTOPOIESIS_REQUIRE_RUNTIME_STORAGE=1 ./scripts/runtime-storage-check.sh
 ```
 
 Run the same liveness checks used by the systemd watchdog:
