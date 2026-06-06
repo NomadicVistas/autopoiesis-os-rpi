@@ -1,5 +1,14 @@
 # Pulse Agent Notes
 
+## 2026-06-06 - Production cleanup audit gate
+
+Date/time: 2026-06-06 21:56 UTC / 2026-06-06 23:56 Europe/Berlin
+Agent: Pulse
+Context: QA / SECURITY cron pass. The production cleanup doc still called `scripts/cleanup-production.sh` a loose checklist, leaving final image hygiene dependent on manual interpretation.
+What changed: Reworked `scripts/cleanup-production.sh` into a read-only audit with strict mode. It checks the installed app tree for secret-like files and Git metadata, verifies tracked secret paths when the app is still a checkout, inspects production home dirs for Codex/OpenClaw/OpenAI credential homes, scans shell histories for obvious secret hints without printing matching lines, reports development caches, and flags SSH exposure unless explicitly allowed.
+What needs review: Run the strict audit on the physical Pi after appliance validation and before cloning a production image. If SSH is intentionally kept for support, set the allow flag and document that policy in the rollout note.
+Next recommended action: Pair this gate with `scripts/security-smoke.sh` and strict rollout acceptance as the final production-image QA bundle.
+
 ## 2026-06-06 - Hosted device auth contract gate
 
 Date/time: 2026-06-06 21:15 UTC / 2026-06-06 23:15 Europe/Berlin

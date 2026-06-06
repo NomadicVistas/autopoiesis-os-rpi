@@ -51,6 +51,7 @@ Milestone 2 is scaffolded for physical Pi validation. The local UI can:
 - verify the unified local event export contract for backend/admin ingestion readiness
 - verify heartbeat event ingestion cursor acknowledgements, replay overlap, stale ack rejection, and diagnostics/support visibility
 - run a local security smoke test that checks device API key redaction and tracked secret hygiene
+- run a production cleanup audit that fails on app-tree secrets, Git metadata, Codex/OpenClaw/OpenAI homes, shell-history secret hints, development caches, and SSH exposure
 - validate a hosted pairing/register/claim/status contract before live account pairing is treated as rollout-ready
 - run an appliance preflight that checks root install mode, Node.js, rsync, curl, systemd, Chromium, NetworkManager, and whether the appliance user exists
 - create the appliance user during install/bootstrap before runtime directories are chowned
@@ -85,6 +86,12 @@ Run the local security smoke test before shipping an image or exposing the local
 
 ```bash
 ./scripts/security-smoke.sh
+```
+
+Run the production hygiene audit before imaging a final device:
+
+```bash
+AUTOPOIESIS_PRODUCTION_CLEANUP_STRICT=1 sudo /opt/autopoiesis-os/app/scripts/cleanup-production.sh
 ```
 
 Check the compact local health summary:

@@ -232,3 +232,11 @@ for a support handoff.
 ```
 
 Run this before production imaging and after changing local JSON endpoints. It verifies that local status, pairing status, diagnostics, health, readiness, support-bundle, frame-state, offline-cache, command audit, admin capabilities, delivery log, release history, and event export responses redact the stored device API key while still reporting safe key-presence, input-diagnostics, timer-diagnostics, and playback-readiness flags for support.
+
+## Production Cleanup Audit
+
+```bash
+AUTOPOIESIS_PRODUCTION_CLEANUP_STRICT=1 /opt/autopoiesis-os/app/scripts/cleanup-production.sh
+```
+
+Run this before cloning or exposing a production image. It is read-only and checks for installed app secrets, leftover Git metadata, Codex/OpenClaw/OpenAI credential homes, shell-history secret hints, development package caches, and SSH exposure. Set `AUTOPOIESIS_PRODUCTION_ALLOW_SSH=1` only when remote support is part of the production policy.

@@ -1,5 +1,44 @@
 # Progress
 
+## 2026-06-06 - Production cleanup audit gate
+
+Date: 2026-06-06
+
+Milestone: QA / SECURITY - final image hygiene
+
+Changed files:
+
+- `scripts/cleanup-production.sh`
+- `README.md`
+- `docs/production-cleanup.md`
+- `docs/troubleshooting.md`
+- `docs/agent-notes/pulse.md`
+- `docs/progress.md`
+- `/data/.openclaw/workspace/autopoiesis-os-program/ROLLING-LOG.md`
+
+Implemented:
+
+- Reworked `scripts/cleanup-production.sh` from a checklist into a read-only production hygiene audit.
+- Added strict-mode support for final imaging through `--strict` or `AUTOPOIESIS_PRODUCTION_CLEANUP_STRICT=1`.
+- The audit now checks installed app-tree secret-like paths, leftover Git metadata, tracked secret-like paths when the app is still a checkout, Codex/OpenClaw/OpenAI credential homes, shell-history secret hints without printing matching lines, common development caches, and SSH/sshd exposure.
+- Added `--allow-ssh`, `--app-dir=...`, `--home-dir=...`, `AUTOPOIESIS_PRODUCTION_HOME_DIRS`, and `AUTOPOIESIS_SYSTEMCTL_BIN` so the same gate works on physical Pi images and isolated CI fixtures.
+
+Verification:
+
+- `bash -n scripts/cleanup-production.sh` passed.
+- Strict cleanup audit passed against an isolated temporary app/home tree.
+- Strict cleanup audit rejected a temporary app tree containing `.env`.
+- Strict cleanup audit rejected a temporary production home containing `.codex`.
+- Strict cleanup audit rejected a temporary shell history with an `OPENAI_API_KEY` hint without printing the secret line.
+- `node --check local-ui/server.js` passed.
+- `bash -n install.sh update.sh uninstall-dev-tools.sh factory-reset.sh scripts/*.sh` passed.
+- `git diff --check` passed.
+- `scripts/security-smoke.sh` passed.
+
+Next step:
+
+Run `AUTOPOIESIS_PRODUCTION_CLEANUP_STRICT=1 sudo /opt/autopoiesis-os/app/scripts/cleanup-production.sh` on the physical Pi after final appliance validation and before cloning a production image; document any intentional SSH exception.
+
 ## 2026-06-06 - Hosted device auth contract gate
 
 Date: 2026-06-06
