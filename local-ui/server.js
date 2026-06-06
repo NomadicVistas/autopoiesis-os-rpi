@@ -3087,7 +3087,9 @@ function renderSetup() {
   const networkLabel = network.online
     ? `${network.primary || "network"} online`
     : "Offline";
-  const pairingDetail = pairing.pairingCode
+  const pairingDetail = pairing.mock
+    ? "Web pairing required"
+    : pairing.pairingCode
     ? `${pairing.pairingCode}${pairing.mock ? " (local fallback)" : ""}`
     : (paired ? "Paired" : "Waiting");
   const launchDisabled = !networkOnline || !paired ? " disabled aria-disabled=\"true\"" : "";
@@ -3121,7 +3123,8 @@ function renderSetup() {
             <div>
               <h2>Pair with your account</h2>
               <p>${paired ? "This frame is paired." : "Start pairing, then enter this code on autopoiesis.art/profile/frames."}</p>
-              <div class="pairing-code">${escapeHtml(pairingDetail)}</div>
+              <div class="pairing-code ${pairing.error || pairing.mock ? "error" : ""}">${escapeHtml(pairing.error || pairingDetail)}</div>
+              ${pairing.error || pairing.mock ? `<p class="setup-error">${escapeHtml(pairing.error || "This local fallback code cannot pair with the web app. Request a real web pairing code.")}</p>` : ""}
               <div class="actions">
                 <button data-start-pairing ${networkOnline ? "" : "disabled"}>${pairing.pairingCode && !paired ? "Refresh pairing code" : "Start pairing"}</button>
                 <button data-check-pairing ${networkOnline ? "" : "disabled"}>I paired it</button>
@@ -3157,7 +3160,36 @@ function renderSetup() {
         <p class="note">Device: ${escapeHtml(data.device.deviceId || "unknown")} · Mode: ${escapeHtml(data.state.currentMode || "setup")}</p>
       </section>
     </main>`,
-    `async function refreshNetwork() {
+    `const steps = Array.from(document.querySelectorAll(".step"));
+    const stepsList = document.querySelector(".steps");
+    const setupPanel = document.querySelector(".onboarding");
+    let currentStep = steps.findIndex(step => step.classList.contains("active") && !step.classList.contains("done"));
+    if (currentStep < 0) currentStep = steps.findIndex(step => !step.classList.contains("done"));
+    if (currentStep < 0) currentStep = steps.length - 1;
+    const controls = document.createElement("div");
+    controls.className = "setup-controls";
+    controls.innerHTML = "<button type=\"button\" data-setup-prev>Back</button><div class=\"setup-dots\">" +
+      steps.map((_, index) => "<button type=\"button\" data-setup-dot=\"" + index + "\">" + (index + 1) + "</button>").join("") +
+      "</div><button class=\"primary\" type=\"button\" data-setup-next>Next</button>";
+    setupPanel.appendChild(controls);
+    function showSetupStep(index) {
+      currentStep = Math.max(0, Math.min(steps.length - 1, Number(index) || 0));
+      steps.forEach((step, stepIndex) => step.classList.toggle("current", stepIndex === currentStep));
+      document.querySelectorAll("[data-setup-dot]").forEach(dot => {
+        dot.classList.toggle("current", Number(dot.dataset.setupDot) === currentStep);
+      });
+      if (stepsList) stepsList.style.setProperty("--setup-step", String(currentStep));
+    }
+    document.querySelector("[data-setup-prev]").addEventListener("click", () => showSetupStep(currentStep - 1));
+    document.querySelector("[data-setup-next]").addEventListener("click", () => showSetupStep(currentStep + 1));
+    document.querySelectorAll("[data-setup-dot]").forEach(dot => {
+      dot.addEventListener("click", () => showSetupStep(dot.dataset.setupDot));
+    });
+    steps.forEach((step, index) => {
+      step.querySelector(".step-index").addEventListener("click", () => showSetupStep(index));
+    });
+    showSetupStep(currentStep);
+    async function refreshNetwork() {
       const response = await fetch("/local/network/status");
       const data = await response.json();
       const network = data.network || {};
@@ -3170,7 +3202,23 @@ function renderSetup() {
       await refreshNetwork();
     });
     document.querySelector("[data-start-pairing]").addEventListener("click", async () => {
-      await fetch("/local/pairing/start", { method: "POST" });
+      const codeEl = document.querySelector(".pairing-code");
+      const button = document.querySelector("[data-start-pairing]");
+      button.disabled = true;
+      if (codeEl) {
+        codeEl.textContent = "Contacting autopoiesis.art...";
+        codeEl.classList.remove("error");
+      }
+      const response = await fetch("/local/pairing/start", { method: "POST" });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok || !data.ok) {
+        if (codeEl) {
+          codeEl.textContent = data.error || "Could not get a web pairing code.";
+          codeEl.classList.add("error");
+        }
+        button.disabled = false;
+        return;
+      }
       location.reload();
     });
     document.querySelector("[data-check-pairing]").addEventListener("click", async () => {
@@ -3985,7 +4033,16 @@ async function startPairing() {
     });
     return pairing;
   } catch (error) {
-    return localPairingFallback(error);
+    const pairing = {
+      pairingCode: null,
+      expiresAt: null,
+      mock: false,
+      status: "error",
+      error: error ? error.message : "Unable to register with the web app"
+    };
+    writeJson(paths.pairing, pairing);
+    writeJson(paths.device, { ...device, pairingCode: null, paired: false });
+    return pairing;
   }
 }
 
@@ -4536,7 +4593,9 @@ async function handle(req, res) {
       return sendJson(res, { ok: true, remote });
     }
     if (req.method === "POST" && url.pathname === "/local/pairing/start") {
-      return sendJson(res, { ok: true, ...(await startPairing()) });
+      const result = await startPairing();
+      const ok = result.status !== "error";
+      return sendJson(res, { ok, ...result }, ok ? 200 : 502);
     }
     if (req.method === "POST" && url.pathname === "/local/pairing/check") {
       return sendJson(res, { ok: true, ...(await checkPairing()) });
@@ -4632,13 +4691,24 @@ label { display: grid; gap: 8px; color: #c8c6bb; font-size: 18px; }
 .onboarding h1 { font-size: clamp(38px, 7vw, 78px); }
 .onboarding h2 { margin: 0 0 8px; font-size: clamp(24px, 4vw, 38px); letter-spacing: 0; }
 .onboarding p { margin: 0 0 14px; }
-.steps { list-style: none; display: grid; gap: 18px; margin: 30px 0; padding: 0; }
-.step { display: grid; grid-template-columns: 64px 1fr; gap: 18px; padding: 22px; border: 1px solid #343d39; border-radius: 8px; background: #141b18; }
+.onboarding { width: min(1180px, 100%); min-height: min(760px, calc(100vh - 10vw)); display: grid; grid-template-rows: auto minmax(0, 1fr) auto; overflow: hidden; }
+.onboarding > .muted { max-width: 760px; }
+.steps { --setup-step: 0; list-style: none; display: flex; gap: 0; width: 400%; min-height: 0; margin: 24px 0; padding: 0; transform: translateX(calc(var(--setup-step) * -25%)); transition: transform 420ms cubic-bezier(.2,.8,.2,1); }
+.step { width: 25%; display: grid; grid-template-columns: 92px minmax(0, 1fr); align-content: center; gap: 28px; padding: clamp(22px, 5vw, 58px); border: 1px solid #343d39; border-radius: 8px; background: #141b18; opacity: 0.34; transform: scale(0.96); transition: opacity 260ms ease, transform 260ms ease, border-color 260ms ease; }
+.step.current { opacity: 1; transform: scale(1); border-color: #9ad0bb; background: #18231f; }
 .step.active { border-color: #9ad0bb; background: #18231f; }
 .step.done { border-color: #6fae82; }
-.step-index { width: 48px; height: 48px; display: grid; place-items: center; border-radius: 999px; border: 1px solid #607069; color: #9ad0bb; font-size: 22px; }
+.step-index { width: 72px; height: 72px; display: grid; place-items: center; border-radius: 999px; border: 1px solid #607069; color: #9ad0bb; font-size: 28px; cursor: pointer; }
 .step.done .step-index { background: #d8f3dc; border-color: #d8f3dc; color: #122018; }
-.pairing-code { margin: 14px 0; padding: 18px; border: 1px solid #607069; border-radius: 8px; background: #101412; color: #d8f3dc; font-size: clamp(28px, 6vw, 56px); letter-spacing: 0.08em; text-align: center; overflow-wrap: anywhere; }
+.step.current h2 { font-size: clamp(44px, 7vw, 112px); line-height: 0.92; margin-bottom: 18px; }
+.step.current p { max-width: 780px; font-size: clamp(22px, 3vw, 34px); }
+.setup-controls { display: grid; grid-template-columns: 150px 1fr 150px; gap: 16px; align-items: center; }
+.setup-dots { display: flex; justify-content: center; gap: 10px; }
+.setup-dots button { width: 48px; min-height: 48px; padding: 0; border-radius: 999px; }
+.setup-dots button.current { background: #d8f3dc; color: #122018; border-color: #d8f3dc; }
+.pairing-code { margin: 18px 0; padding: 22px; border: 1px solid #607069; border-radius: 8px; background: #101412; color: #d8f3dc; font-size: clamp(30px, 8vw, 88px); letter-spacing: 0.08em; text-align: center; overflow-wrap: anywhere; }
+.pairing-code.error { color: #ffd5c2; border-color: #fb923c; letter-spacing: 0; font-size: clamp(22px, 4vw, 44px); }
+.setup-error { color: #ffd5c2; font-size: 18px !important; }
 .compact-form { grid-template-columns: repeat(auto-fit, minmax(210px, 1fr)); }
 .launch { min-height: 70px; font-size: 22px; }
 .network-list { display: grid; gap: 10px; margin: 24px 0; }
