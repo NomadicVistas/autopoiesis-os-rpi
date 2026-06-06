@@ -188,3 +188,12 @@ Context: LEAD / INTEGRATION cron pass. The Pi had release check/apply endpoints 
 What changed: Added metadata-only release history persistence, `GET /local/release/history`, diagnostics/readiness/health/support-bundle summaries, support-bundle CLI release summary, and security-smoke redaction coverage.
 What needs review: Backend/admin should ingest these event names into durable `aos_` rollout rows and treat repeated device reports as idempotent.
 Next recommended action: Build Admin > Frames rollout progress from heartbeat diagnostics/support-bundle ingestion rather than raw Pi logs.
+
+## 2026-06-06 - Local admin capabilities contract
+
+Date/time: 2026-06-06 04:05 UTC / 2026-06-06 06:05 Europe/Berlin
+Agent: Pulse
+Context: ONLINE ADMIN cron pass. Admin > Frames needs to render remote action controls from the device policy instead of hardcoding which commands are safe, audited, locally gated, or runtime-gated.
+What changed: Added redacted `GET /local/admin/capabilities`, included the same object in support bundles, and extended the security smoke test to cover command policy shape and key redaction.
+What needs review: Physical Pi validation should confirm support operators can collect the capability object from a paired frame and that Admin > Frames maps these policies to disabled/confirm/audit-required UI states.
+Next recommended action: Build backend `aos_` admin action audit rows and have Admin > Frames read the capability contract before enabling non-`sync_settings` remote actions.

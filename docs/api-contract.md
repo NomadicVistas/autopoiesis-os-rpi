@@ -50,6 +50,7 @@ GET  /local/diagnostics
 GET  /local/feed
 GET  /local/offline-cache
 GET  /local/commands/audit
+GET  /local/admin/capabilities
 GET  /local/delivery-log
 GET  /local/release/history
 GET  /local/network/status
@@ -122,7 +123,7 @@ Diagnostics fields are intentionally compact and safe for admin/profile/support 
 
 `GET /local/readiness` returns a redacted, phase-level rollout snapshot derived from diagnostics. It includes setup/local UI, network, pairing, settings sync, content/feed, cache, command executor, and release phases. Add `?services=0` to skip local systemd service checks when running outside an installed Pi environment.
 
-`GET /local/support-bundle` returns a redacted one-shot support object for hardware validation, admin adapters, and handoff reports. It aggregates diagnostics, compact health, readiness, active feed counts/items, offline-cache inventory, recent command audit entries, recent display delivery events, and recent release history events. Add `?services=0` to skip systemd service checks, `?auditLimit=50` to tune recent command audit entries, `?deliveryLimit=50` to tune recent delivery events, and `?releaseLimit=50` to tune recent release history entries. The bundle intentionally reuses existing redacted endpoint shapes instead of exposing raw command payloads, local cache paths, release artifact URLs, checksums, or stored device API keys.
+`GET /local/support-bundle` returns a redacted one-shot support object for hardware validation, admin adapters, and handoff reports. It aggregates diagnostics, compact health, readiness, active feed counts/items, offline-cache inventory, recent command audit entries, local admin capability policy, recent display delivery events, and recent release history events. Add `?services=0` to skip systemd service checks, `?auditLimit=50` to tune recent command audit entries, `?deliveryLimit=50` to tune recent delivery events, and `?releaseLimit=50` to tune recent release history entries. The bundle intentionally reuses existing redacted endpoint shapes instead of exposing raw command payloads, local cache paths, release artifact URLs, checksums, or stored device API keys.
 
 Example:
 
@@ -250,6 +251,8 @@ Device-side command policy:
 - `factory_reset_request`: critical risk, requires approved authorization metadata plus an audit id, and still refuses execution until local device confirmation exists.
 
 Authorization roles accepted by the Pi executor are `admin`, `owner`, `support`, `ops`, `maintainer`, and `super_admin`. Authorization timestamps expire after 24 hours by default. The device cannot prove server-side role truth; the online admin API must authenticate the actor, check role/ownership, create an audit row, and then queue the command with this metadata.
+
+`GET /local/admin/capabilities` returns the device-side remote action capability contract for Admin > Frames, local support tools, and backend adapters. It is redacted and includes device pairing/key presence, accepted actor roles, authorization window seconds, supported command types, each command's risk, whether authorization/audit metadata is required, local confirmation requirements, runtime opt-in requirements such as `AUTOPOIESIS_ALLOW_REBOOT=1`, pending command count, and compact command-audit summary. The endpoint is descriptive only; online admin must still authenticate the actor, enforce role/ownership, persist an `aos_` audit row, and queue authorization metadata before the Pi will execute medium/high/critical commands.
 
 Local command audit:
 

@@ -243,6 +243,73 @@ function commandPolicy(commandType) {
   return COMMAND_POLICIES[commandType] || { risk: "unknown", requiresAuthorization: true };
 }
 
+function commandRequiresAuditId(policy = {}) {
+  return policy.risk === "high" || policy.risk === "critical";
+}
+
+function commandExecutionState(commandType, policy = commandPolicy(commandType)) {
+  if (commandType === "factory_reset_request") {
+    return {
+      status: "blocked_until_local_confirmation",
+      reason: "Factory reset requests require local device confirmation before execution."
+    };
+  }
+  if (commandType === "restart_device" && process.env.AUTOPOIESIS_ALLOW_REBOOT !== "1") {
+    return {
+      status: "requires_runtime_opt_in",
+      runtimeOptIn: "AUTOPOIESIS_ALLOW_REBOOT=1",
+      reason: "Device reboot is refused unless reboot execution is explicitly enabled."
+    };
+  }
+  return {
+    status: "available",
+    requiresLocalConfirmation: Boolean(policy.requiresLocalConfirmation)
+  };
+}
+
+function publicAdminCapabilities() {
+  const data = status();
+  const device = data.device || {};
+  const commands = Object.entries(COMMAND_POLICIES)
+    .map(([commandType, policy]) => ({
+      commandType,
+      risk: policy.risk,
+      requiresAuthorization: Boolean(policy.requiresAuthorization),
+      requiresAuditId: commandRequiresAuditId(policy),
+      requiresLocalConfirmation: Boolean(policy.requiresLocalConfirmation),
+      acceptedActorRoles: policy.requiresAuthorization ? Array.from(COMMAND_AUTH_ROLES).sort() : [],
+      execution: commandExecutionState(commandType, policy)
+    }))
+    .sort((a, b) => a.commandType.localeCompare(b.commandType));
+  const commandQueue = readJson(paths.commands, []);
+  return {
+    ok: true,
+    kind: "autopoiesis_frame_admin_capabilities",
+    schemaVersion: 1,
+    redacted: true,
+    generatedAt: new Date().toISOString(),
+    device: {
+      deviceId: device.deviceId || null,
+      deviceName: device.deviceName || null,
+      softwareVersion: version(),
+      paired: Boolean(device.paired),
+      deviceKeyPresent: Boolean(device.deviceApiKey || device.device_api_key),
+      remoteEnabled: device.remoteEnabled !== false,
+      mode: (data.state || {}).currentMode || "setup"
+    },
+    authorization: {
+      acceptedActorRoles: Array.from(COMMAND_AUTH_ROLES).sort(),
+      authorizationWindowSeconds: Math.round(REMOTE_AUTH_WINDOW_MS / 1000),
+      timestampSkewAllowanceSeconds: 300,
+      highRiskRequiresAuditId: true,
+      criticalRiskRequiresAuditId: true
+    },
+    commands,
+    pendingCommands: Array.isArray(commandQueue) ? commandQueue.length : 0,
+    commandAudit: commandAuditSummary()
+  };
+}
+
 function commandAuthorization(command = {}) {
   const payload = command.payload && typeof command.payload === "object" ? command.payload : {};
   const authorization =
@@ -291,7 +358,7 @@ function validateCommandAuthorization(command, commandType, policy = commandPoli
   }
 
   const auditId = authorization.auditId || authorization.actionId || authorization.requestId || authorization.commandId;
-  if ((policy.risk === "high" || policy.risk === "critical") && !auditId) {
+  if (commandRequiresAuditId(policy) && !auditId) {
     return { ok: false, policy, error: "Remote command denied: missing admin audit id" };
   }
 
@@ -1342,6 +1409,7 @@ async function supportBundle(options = {}) {
   const commandAudit = publicCommandAudit(options.auditLimit);
   const deliveryLog = publicDeliveryLog(options.deliveryLimit);
   const releaseHistory = publicReleaseHistory(options.releaseLimit);
+  const adminCapabilities = publicAdminCapabilities();
   const issueCodes = ((health.health || {}).issues || []).map(issue => issue.code).filter(Boolean);
   const blockers = Array.isArray(readiness.blockers) ? readiness.blockers : [];
 
@@ -1387,7 +1455,8 @@ async function supportBundle(options = {}) {
     offlineCache,
     commandAudit,
     deliveryLog,
-    releaseHistory
+    releaseHistory,
+    adminCapabilities
   };
 }
 
@@ -2543,6 +2612,9 @@ async function handle(req, res) {
     }
     if (req.method === "GET" && url.pathname === "/local/commands/audit") {
       return sendJson(res, publicCommandAudit(url.searchParams.get("limit")));
+    }
+    if (req.method === "GET" && url.pathname === "/local/admin/capabilities") {
+      return sendJson(res, publicAdminCapabilities());
     }
     if (req.method === "GET" && url.pathname === "/local/delivery-log") {
       return sendJson(res, publicDeliveryLog(url.searchParams.get("limit")));

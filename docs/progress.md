@@ -964,3 +964,39 @@ Verification:
 Next step:
 
 Mirror these device-side release events into durable backend `aos_` rollout rows and make Admin > Frames show per-device release progress from heartbeat/support-bundle ingestion.
+
+## 2026-06-06 - Local admin capabilities contract
+
+Date: 2026-06-06
+
+Milestone: MVP 0.5 - Managed Device Fleet role-gated actions
+
+Changed files:
+
+- `local-ui/server.js`
+- `scripts/security-smoke.sh`
+- `README.md`
+- `docs/api-contract.md`
+- `docs/admin-system.md`
+- `docs/agent-notes/pulse.md`
+- `docs/progress.md`
+- `/data/.openclaw/workspace/autopoiesis-os-program/ROLLING-LOG.md`
+
+Implemented:
+
+- Added redacted `GET /local/admin/capabilities` for Admin > Frames, support tools, and backend adapters.
+- The endpoint reports pairing/key presence, remote-enabled state, accepted actor roles, authorization window, supported command types, risk levels, audit-id requirements, local confirmation gates, runtime opt-in requirements, pending command count, and compact command-audit summary.
+- Included the same admin capability object in `/local/support-bundle` so support exports carry the current remote action policy matrix.
+- Extended the security smoke gate so admin capabilities are checked for device API key redaction and high-risk audit requirements.
+
+Verification:
+
+- `node --check local-ui/server.js` passed.
+- `bash -n install.sh update.sh uninstall-dev-tools.sh factory-reset.sh scripts/*.sh` passed.
+- `git diff --check` passed.
+- `scripts/security-smoke.sh` passed with `/local/admin/capabilities` included in device-key redaction coverage.
+- Targeted admin-capabilities smoke passed for command policy shape, support-bundle inclusion, restart-device runtime opt-in, and no device-key leakage.
+
+Next step:
+
+Use `/local/admin/capabilities` or its support-bundle copy when building Admin > Frames action buttons, and persist real backend `aos_` audit rows before queueing non-`sync_settings` commands.
