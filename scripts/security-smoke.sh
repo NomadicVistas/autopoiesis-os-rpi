@@ -50,11 +50,12 @@ curl -fsS "$BASE_URL/local/pairing/status" >"$TMP_DIR/pairing-status.json" || fa
 curl -fsS "$BASE_URL/local/diagnostics" >"$TMP_DIR/diagnostics.json" || fail "GET /local/diagnostics failed"
 curl -fsS "$BASE_URL/local/health" >"$TMP_DIR/health.json" || fail "GET /local/health failed"
 curl -fsS "$BASE_URL/local/readiness" >"$TMP_DIR/readiness.json" || fail "GET /local/readiness failed"
+curl -fsS "$BASE_URL/local/support-bundle" >"$TMP_DIR/support-bundle.json" || fail "GET /local/support-bundle failed"
 curl -fsS "$BASE_URL/local/offline-cache" >"$TMP_DIR/offline-cache.json" || fail "GET /local/offline-cache failed"
 curl -fsS "$BASE_URL/local/commands/audit" >"$TMP_DIR/command-audit.json" || fail "GET /local/commands/audit failed"
 
 COMBINED="$TMP_DIR/combined.json"
-cat "$TMP_DIR/status.json" "$TMP_DIR/pairing-status.json" "$TMP_DIR/diagnostics.json" "$TMP_DIR/health.json" "$TMP_DIR/readiness.json" "$TMP_DIR/offline-cache.json" "$TMP_DIR/command-audit.json" >"$COMBINED"
+cat "$TMP_DIR/status.json" "$TMP_DIR/pairing-status.json" "$TMP_DIR/diagnostics.json" "$TMP_DIR/health.json" "$TMP_DIR/readiness.json" "$TMP_DIR/support-bundle.json" "$TMP_DIR/offline-cache.json" "$TMP_DIR/command-audit.json" >"$COMBINED"
 
 if grep -F "$SECRET" "$COMBINED" >/dev/null; then
   fail "stored device API key leaked through a local JSON endpoint"
@@ -68,6 +69,8 @@ grep -F '"hasDeviceApiKey": true' "$TMP_DIR/status.json" >/dev/null || fail "/lo
 grep -F '"deviceKeyPresent": true' "$TMP_DIR/diagnostics.json" >/dev/null || fail "/local/diagnostics did not expose health key presence"
 grep -F '"deviceKeyPresent": true' "$TMP_DIR/health.json" >/dev/null || fail "/local/health did not expose health key presence"
 grep -F '"deviceKeyPresent": true' "$TMP_DIR/readiness.json" >/dev/null || fail "/local/readiness did not expose redacted key presence"
+grep -F '"redacted": true' "$TMP_DIR/support-bundle.json" >/dev/null || fail "/local/support-bundle did not identify itself as redacted"
+grep -F '"deviceKeyPresent": true' "$TMP_DIR/support-bundle.json" >/dev/null || fail "/local/support-bundle did not expose redacted key presence"
 
 if git -C "$ROOT_DIR" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
   TRACKED_SENSITIVE="$(git -C "$ROOT_DIR" ls-files | grep -E '(^|/)(\.env|.*\.pem|.*\.key|secrets?)(/|$)' || true)"
@@ -77,4 +80,4 @@ if git -C "$ROOT_DIR" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
   fi
 fi
 
-echo "security smoke passed: local status, pairing status, diagnostics, health, readiness, offline cache, and command audit redact device API keys"
+echo "security smoke passed: local status, pairing status, diagnostics, health, readiness, support bundle, offline cache, and command audit redact device API keys"

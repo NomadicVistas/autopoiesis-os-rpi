@@ -100,10 +100,19 @@ curl -fsS 'http://127.0.0.1:3030/local/health?services=1'
 
 `/local/health` returns the derived status, issue codes, device identity, mode, network/pairing state, release summary, pending command count, current broadcast, and timestamp without exposing stored API keys.
 
+For one-step support handoff, collect the redacted support bundle:
+
+```bash
+/opt/autopoiesis-os/app/scripts/support-bundle.sh ./support-bundle.json
+curl -fsS http://127.0.0.1:3030/local/support-bundle
+```
+
+The bundle combines diagnostics, compact health, rollout readiness, active feed state, offline-cache inventory, and recent command audit entries. It is intended for hardware validation notes and admin support adapters, and it should stay free of stored device API keys, raw command payloads, and absolute cache asset paths.
+
 ## Security Smoke
 
 ```bash
 /opt/autopoiesis-os/app/scripts/security-smoke.sh
 ```
 
-Run this before production imaging and after changing local JSON endpoints. It verifies that local status, pairing status, diagnostics, health, readiness, and offline-cache responses redact the stored device API key while still reporting safe key-presence flags for support.
+Run this before production imaging and after changing local JSON endpoints. It verifies that local status, pairing status, diagnostics, health, readiness, support-bundle, and offline-cache responses redact the stored device API key while still reporting safe key-presence flags for support.

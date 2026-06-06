@@ -45,6 +45,7 @@ GET /api/frames/device/{deviceId}/artwork-feed
 GET  /local/status
 GET  /local/health
 GET  /local/readiness
+GET  /local/support-bundle
 GET  /local/diagnostics
 GET  /local/feed
 GET  /local/offline-cache
@@ -118,6 +119,8 @@ Diagnostics fields are intentionally compact and safe for admin/profile/support 
 `GET /local/health` returns a compact, redacted summary derived from diagnostics. It is intended for admin fleet scans, support scripts, and hardware acceptance checks that do not need the full telemetry payload. Add `?services=1` to include local systemd checks before deriving the health summary.
 
 `GET /local/readiness` returns a redacted, phase-level rollout snapshot derived from diagnostics. It includes setup/local UI, network, pairing, settings sync, content/feed, cache, command executor, and release phases. Add `?services=0` to skip local systemd service checks when running outside an installed Pi environment.
+
+`GET /local/support-bundle` returns a redacted one-shot support object for hardware validation, admin adapters, and handoff reports. It aggregates diagnostics, compact health, readiness, active feed counts/items, offline-cache inventory, and recent command audit entries. Add `?services=0` to skip systemd service checks and `?auditLimit=50` to tune recent audit entry count. The bundle intentionally reuses existing redacted endpoint shapes instead of exposing raw command payloads, local cache paths, or stored device API keys.
 
 Example:
 

@@ -1136,6 +1136,49 @@ function healthSummary(diagnostics) {
   };
 }
 
+async function supportBundle(options = {}) {
+  const diagnostics = await collectDiagnostics({ includeServices: options.includeServices });
+  const health = healthSummary(diagnostics);
+  const readiness = readinessSummary(diagnostics);
+  const feed = publicFeed();
+  const offlineCache = publicOfflineCache();
+  const commandAudit = publicCommandAudit(options.auditLimit);
+  const issueCodes = ((health.health || {}).issues || []).map(issue => issue.code).filter(Boolean);
+  const blockers = Array.isArray(readiness.blockers) ? readiness.blockers : [];
+
+  return {
+    ok: true,
+    kind: "autopoiesis_frame_support_bundle",
+    schemaVersion: 1,
+    generatedAt: new Date().toISOString(),
+    redacted: true,
+    device: health.device,
+    summary: {
+      healthStatus: health.status || "unknown",
+      readinessStatus: readiness.status || "unknown",
+      issueCodes,
+      blockers: blockers.map(item => ({
+        phase: item.phase,
+        status: item.status,
+        summary: item.summary
+      })),
+      pendingCommands: health.pendingCommands || 0,
+      offlinePlayableItems: offlineCache.playableItems || 0,
+      commandAudit: {
+        totalEntries: commandAudit.count || 0,
+        lastStatus: diagnostics.commandAudit ? diagnostics.commandAudit.lastStatus || null : null,
+        recentErrors: diagnostics.commandAudit ? diagnostics.commandAudit.recentErrors || 0 : 0
+      }
+    },
+    diagnostics,
+    health,
+    readiness,
+    feed,
+    offlineCache,
+    commandAudit
+  };
+}
+
 function page(title, body, script = "") {
   return `<!doctype html>
 <html lang="en">
@@ -2167,6 +2210,13 @@ async function handle(req, res) {
     if (req.method === "GET" && url.pathname === "/local/readiness") {
       const includeServices = url.searchParams.get("services") !== "0";
       return sendJson(res, readinessSummary(await collectDiagnostics({ includeServices })));
+    }
+    if (req.method === "GET" && url.pathname === "/local/support-bundle") {
+      const includeServices = url.searchParams.get("services") !== "0";
+      return sendJson(res, await supportBundle({
+        includeServices,
+        auditLimit: url.searchParams.get("auditLimit") || url.searchParams.get("limit")
+      }));
     }
     if (req.method === "GET" && url.pathname === "/local/feed") {
       return sendJson(res, publicFeed());

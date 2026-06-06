@@ -143,3 +143,12 @@ Context: LEAD / INTEGRATION cron pass. The Pi now refuses unsafe remote commands
 What changed: Added bounded metadata-only `command-audit.json` persistence, redacted `GET /local/commands/audit`, and compact command audit summaries inside diagnostics, health, and readiness.
 What needs review: Confirm on physical Pi hardware that the command executor timer writes the audit trail under the installed `frame` user and that support workflows can collect it without exposing payload data.
 Next recommended action: Add backend `aos_` admin command audit rows and queue real authorization metadata from authenticated roles before non-`sync_settings` commands.
+
+## 2026-06-06 - Redacted local support bundle
+
+Date/time: 2026-06-06 02:15 UTC / 2026-06-06 04:15 Europe/Berlin
+Agent: Pulse
+Context: LEAD / INTEGRATION cron pass. Health, readiness, offline-cache, and command audit endpoints existed separately, but physical Pi validation and future admin support adapters still needed a one-step evidence bundle.
+What changed: Added `GET /local/support-bundle` and `scripts/support-bundle.sh`. The bundle reuses the existing redacted diagnostics, health, readiness, feed, offline-cache, and command-audit shapes and adds a compact summary of health status, readiness status, issue codes, blockers, pending commands, offline playable items, and recent command audit state.
+What needs review: Run `scripts/support-bundle.sh` on physical Pi hardware after live pairing, real feed sync, cache worker execution, and at least one remote command attempt to confirm the collected evidence is enough for rollout decisions.
+Next recommended action: Let Admin > Frames consume the same support-bundle shape or a backend-stored subset for downloadable fleet support reports.

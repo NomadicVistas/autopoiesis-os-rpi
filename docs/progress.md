@@ -777,3 +777,40 @@ Verification:
 Next step:
 
 Mirror this device-side command audit trail with durable backend `aos_` admin audit rows and include real authorization metadata when queueing non-`sync_settings` commands.
+
+## 2026-06-06 - Redacted local support bundle
+
+Date: 2026-06-06
+
+Milestone: Lead/integration rollout evidence
+
+Changed files:
+
+- `local-ui/server.js`
+- `scripts/support-bundle.sh`
+- `scripts/security-smoke.sh`
+- `README.md`
+- `docs/api-contract.md`
+- `docs/troubleshooting.md`
+- `docs/agent-notes/pulse.md`
+- `docs/progress.md`
+- `/data/.openclaw/workspace/autopoiesis-os-program/ROLLING-LOG.md`
+
+Implemented:
+
+- Added `GET /local/support-bundle`, a redacted one-shot support payload for hardware validation, admin adapters, and handoff reports.
+- The bundle aggregates existing redacted diagnostics, compact health, rollout readiness, active feed, offline-cache inventory, and recent command audit entries.
+- Added `scripts/support-bundle.sh` to collect the bundle from a running local UI, print a concise summary, and optionally write the JSON to a specified path.
+- Extended the local security smoke gate so the support bundle is covered by device API key redaction checks.
+
+Verification:
+
+- `node --check local-ui/server.js` passed.
+- `bash -n install.sh update.sh uninstall-dev-tools.sh factory-reset.sh scripts/*.sh` passed.
+- `scripts/security-smoke.sh` passed with `/local/support-bundle` included in device-key redaction coverage.
+- Targeted support-bundle smoke passed for `?services=0&auditLimit=1`, script file output, summary generation, audit limiting, and device-key redaction.
+- `git diff --check` passed.
+
+Next step:
+
+Run the support bundle collector on physical Raspberry Pi hardware after live pairing, real feed/cache sync, and at least one remote command attempt; then mirror the shape into Admin > Frames fleet support exports.
