@@ -69,6 +69,14 @@ const DIAGNOSTIC_SERVICES = [
   "autopoiesis-watchdog.service"
 ];
 
+const DIAGNOSTIC_TIMERS = [
+  "autopoiesis-heartbeat.timer",
+  "autopoiesis-command-executor.timer",
+  "autopoiesis-cache.timer",
+  "autopoiesis-updater.timer",
+  "autopoiesis-watchdog.timer"
+];
+
 function readJson(filePath, fallback) {
   try {
     return JSON.parse(fs.readFileSync(filePath, "utf8"));
@@ -1588,6 +1596,23 @@ async function diskStatus(targetPath) {
   }
 }
 
+async function systemdUnitStatus(unitName) {
+  const status = {};
+  try {
+    const { stdout } = await execFilePromise("systemctl", ["is-active", unitName], { timeout: 2000 });
+    status.active = stdout.trim() || "unknown";
+  } catch (error) {
+    status.active = (error.stdout || error.stderr || "unavailable").trim();
+  }
+  try {
+    const { stdout } = await execFilePromise("systemctl", ["is-enabled", unitName], { timeout: 2000 });
+    status.enabled = stdout.trim() || "unknown";
+  } catch (error) {
+    status.enabled = (error.stdout || error.stderr || "unavailable").trim();
+  }
+  return status;
+}
+
 async function serviceDiagnostics() {
   const services = {};
   for (const serviceName of DIAGNOSTIC_SERVICES) {
@@ -1599,6 +1624,42 @@ async function serviceDiagnostics() {
     }
   }
   return services;
+}
+
+async function timerDiagnostics() {
+  const timers = {};
+  for (const timerName of DIAGNOSTIC_TIMERS) {
+    timers[timerName] = await systemdUnitStatus(timerName);
+  }
+  return timers;
+}
+
+function timerStatusSummary(timers) {
+  const entries = Object.entries(timers || {});
+  const failed = [];
+  const disabled = [];
+  const unavailable = [];
+  for (const [timerName, timerStatus] of entries) {
+    const active = String((timerStatus || {}).active || "");
+    const enabled = String((timerStatus || {}).enabled || "");
+    if (active === "failed") failed.push(timerName);
+    if (["disabled", "masked"].includes(enabled)) disabled.push(timerName);
+    if (
+      active.includes("System has not been booted") ||
+      enabled.includes("System has not been booted") ||
+      active.includes("unavailable") ||
+      enabled.includes("unavailable")
+    ) {
+      unavailable.push(timerName);
+    }
+  }
+  return {
+    checked: entries.length,
+    ready: entries.length > 0 && failed.length === 0 && disabled.length === 0,
+    failed,
+    disabled,
+    unavailable
+  };
 }
 
 function percentNumber(value) {
@@ -1706,6 +1767,14 @@ function diagnosticsHealth(diagnostics, data) {
         add("error", "service_failed", serviceName + " is failed.");
       }
     }
+  }
+
+  const timers = timerStatusSummary(diagnostics.timers);
+  for (const timerName of timers.failed) {
+    add("error", "timer_failed", timerName + " is failed.");
+  }
+  for (const timerName of timers.disabled) {
+    add("warning", "timer_disabled", timerName + " is disabled.");
   }
 
   const hasError = issues.some(issue => issue.level === "error");
@@ -1817,7 +1886,10 @@ async function collectDiagnostics(options = {}) {
         }
       : null
   };
-  if (options.includeServices) diagnostics.services = await serviceDiagnostics();
+  if (options.includeServices) {
+    diagnostics.services = await serviceDiagnostics();
+    diagnostics.timers = await timerDiagnostics();
+  }
   diagnostics.health = diagnosticsHealth(diagnostics, data);
   writeJson(paths.diagnostics, diagnostics);
   return diagnostics;
@@ -1832,6 +1904,11 @@ function serviceActive(services, serviceName) {
   return services[serviceName] === "active";
 }
 
+function timerActive(timers, timerName) {
+  if (!timers || !Object.prototype.hasOwnProperty.call(timers, timerName)) return null;
+  return (timers[timerName] || {}).active === "active";
+}
+
 function readinessSummary(diagnostics) {
   const health = diagnostics.health || {};
   const networkOnline = Boolean(health.networkOnline);
@@ -1841,6 +1918,8 @@ function readinessSummary(diagnostics) {
   const framePlayback = diagnostics.framePlayback || {};
   const release = diagnostics.release || null;
   const services = diagnostics.services || null;
+  const timers = diagnostics.timers || null;
+  const timerSummary = timerStatusSummary(timers);
   const commandAudit = diagnostics.commandAudit || {};
   const input = diagnostics.input || {};
   const commandExecutorActive = serviceActive(services, "autopoiesis-command-executor.service");
@@ -1895,6 +1974,35 @@ function readinessSummary(diagnostics) {
           ? "Settings sync is available."
           : "Settings sync waits for pairing and device key storage.",
       { settingsSync: diagnostics.settingsSync || null, heartbeatServiceActive }
+    ),
+    timers: phase(
+      !timers || timerSummary.ready || timerSummary.unavailable.length === timerSummary.checked,
+      !timers
+        ? "not_checked"
+        : timerSummary.failed.length
+          ? "failed"
+          : timerSummary.disabled.length
+            ? "disabled"
+            : timerSummary.unavailable.length === timerSummary.checked
+              ? "unavailable"
+              : "ready",
+      !timers
+        ? "Systemd timer state was not requested."
+        : timerSummary.failed.length
+          ? "One or more appliance timer units are failed."
+          : timerSummary.disabled.length
+            ? "One or more appliance timer units are disabled."
+            : timerSummary.unavailable.length === timerSummary.checked
+              ? "Systemd timer state is unavailable in this environment."
+              : "Appliance sync, command, cache, update, and watchdog timers are enabled and active.",
+      {
+        timers,
+        heartbeatTimerActive: timerActive(timers, "autopoiesis-heartbeat.timer"),
+        commandExecutorTimerActive: timerActive(timers, "autopoiesis-command-executor.timer"),
+        cacheTimerActive: timerActive(timers, "autopoiesis-cache.timer"),
+        updaterTimerActive: timerActive(timers, "autopoiesis-updater.timer"),
+        watchdogTimerActive: timerActive(timers, "autopoiesis-watchdog.timer")
+      }
     ),
     content: phase(
       Boolean(feed.syncedAt || feed.totalItems || feed.eligibleItems),
@@ -2198,6 +2306,7 @@ function healthSummary(diagnostics) {
       paired: Boolean(health.paired)
     },
     input: diagnostics.input || null,
+    timers: diagnostics.timers || null,
     release: diagnostics.release
       ? {
           status: diagnostics.release.status || null,
@@ -2258,6 +2367,7 @@ async function supportBundle(options = {}) {
         keyboardPresent: diagnostics.input ? Boolean(diagnostics.input.keyboardPresent) : false,
         totalDevices: diagnostics.input ? diagnostics.input.totalDevices || 0 : 0
       },
+      timers: diagnostics.timers || null,
       pendingCommands: health.pendingCommands || 0,
       framePlayback: diagnostics.framePlayback || null,
       offlinePlayableItems: offlineCache.playableItems || 0,

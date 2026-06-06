@@ -58,6 +58,7 @@ fi
 AUTOPOIESIS_REQUIRE_KIOSK_PROCESS=1 "$(dirname "$0")/kiosk-check.sh"
 echo
 echo "4b. Appliance watchdog"
+"$(dirname "$0")/systemd-timers-check.sh"
 "$(dirname "$0")/watchdog.sh"
 
 echo

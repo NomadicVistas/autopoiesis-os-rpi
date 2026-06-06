@@ -1,5 +1,14 @@
 # Pulse Agent Notes
 
+## 2026-06-06 - Appliance timer diagnostics
+
+Date/time: 2026-06-06 10:35 UTC / 2026-06-06 12:35 Europe/Berlin
+Agent: Pulse
+Context: RPI APPLIANCE cron pass. The device had service diagnostics and a watchdog, but the maintenance loops that actually drive heartbeat, command execution, cache refresh, update checks, and watchdog recovery are timer units. A disabled timer could make local HTTP look healthy while the appliance stopped syncing.
+What changed: Added systemd timer diagnostics to diagnostics/health/readiness/support surfaces, stable `timer_failed` and `timer_disabled` health issue codes, a readiness `timers` phase, and `scripts/systemd-timers-check.sh` wired into Milestone 2 physical Pi verification. Security smoke now asserts timer diagnostics stay redacted.
+What needs review: Physical Pi validation should run the milestone script after update/install and confirm all five timers are active and enabled. If one fails, capture `systemctl list-timers 'autopoiesis-*'` plus the journal for the owned service before adjusting timer cadence or install wiring.
+Next recommended action: Mirror timer health in Admin > Frames support detail from heartbeat diagnostics so remote support can see stalled maintenance loops without shell access.
+
 ## 2026-06-06 - Rollout acceptance contract
 
 Date/time: 2026-06-06 10:15 UTC / 2026-06-06 12:15 Europe/Berlin

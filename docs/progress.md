@@ -1,5 +1,44 @@
 # Progress
 
+## 2026-06-06 - Appliance timer diagnostics
+
+Date: 2026-06-06
+
+Milestone: RPI APPLIANCE - systemd maintenance loop acceptance
+
+Changed files:
+
+- `local-ui/server.js`
+- `scripts/systemd-timers-check.sh`
+- `scripts/milestone2-verify.sh`
+- `scripts/security-smoke.sh`
+- `README.md`
+- `docs/api-contract.md`
+- `docs/troubleshooting.md`
+- `docs/progress.md`
+- `docs/agent-notes/pulse.md`
+- `/data/.openclaw/workspace/autopoiesis-os-program/ROLLING-LOG.md`
+
+Implemented:
+
+- Added systemd timer diagnostics for heartbeat, command executor, cache, updater, and watchdog timers alongside existing service diagnostics.
+- Health now emits stable `timer_failed` and `timer_disabled` issue codes when timer-driven appliance loops are broken.
+- Readiness now includes a `timers` phase so support, rollout checks, and Admin adapters can distinguish unavailable local systemd state from failed or disabled maintenance loops.
+- Added `scripts/systemd-timers-check.sh` and wired it into Milestone 2 physical Pi verification.
+- Extended the security smoke test so diagnostics, health, readiness, and support bundle responses must expose timer state without leaking device keys.
+
+Verification:
+
+- `node --check local-ui/server.js` passed.
+- `bash -n install.sh update.sh uninstall-dev-tools.sh factory-reset.sh scripts/*.sh` passed.
+- `git diff --check` passed.
+- `scripts/security-smoke.sh` passed.
+- Targeted fake-systemctl smoke passed for ready timers, disabled timer health/readiness signaling, and `scripts/systemd-timers-check.sh` failure on a disabled timer.
+
+Next step:
+
+Run `sudo /opt/autopoiesis-os/app/scripts/milestone2-verify.sh` on the physical Pi after updating units; if it fails at the timer step, capture `systemctl list-timers 'autopoiesis-*'` and `journalctl -u <timer-owned service> -n 120 --no-pager`.
+
 ## 2026-06-06 - Frame item delivery acknowledgement
 
 Date: 2026-06-06

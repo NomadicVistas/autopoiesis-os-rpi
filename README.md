@@ -29,6 +29,7 @@ Milestone 2 is scaffolded for physical Pi validation. The local UI can:
 - show cached feed media on `/offline` when the live display is unreachable
 - expose a compact `/local/health` probe for support, admin adapters, and hardware acceptance checks
 - expose touchscreen/input diagnostics through health/readiness/support surfaces
+- expose systemd timer diagnostics for heartbeat, command executor, cache, updater, and watchdog loops
 - expose a phase-level `/local/readiness` probe for setup, input, pairing, sync, content, local playback, cache, commands, and release rollout checks
 - expose `/local/rollout/acceptance` as a redacted setup/staged/production rollout gate for QA, Admin > Frames, and physical device handoffs
 - expose a redacted `/local/support-bundle` for one-step hardware/support handoff collection
@@ -91,6 +92,12 @@ Check whether Linux sees the touchscreen/input devices:
 ```bash
 ./scripts/touchscreen-check.sh
 AUTOPOIESIS_REQUIRE_TOUCHSCREEN=1 ./scripts/touchscreen-check.sh
+```
+
+Check appliance timer wiring for sync, command, cache, update, and watchdog loops:
+
+```bash
+./scripts/systemd-timers-check.sh
 ```
 
 Run the same liveness checks used by the systemd watchdog:

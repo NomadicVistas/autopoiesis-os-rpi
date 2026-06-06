@@ -24,6 +24,7 @@ flags fail validation.
 systemctl status autopoiesis-watchdog.timer
 journalctl -u autopoiesis-watchdog.service -n 120 --no-pager
 sudo /opt/autopoiesis-os/app/scripts/watchdog.sh
+/opt/autopoiesis-os/app/scripts/systemd-timers-check.sh
 ```
 
 If the screen is blank and the journal shows `GLES3 is unsupported`,
@@ -111,9 +112,9 @@ Use `preferences.displayMode=local-feed` or `/launch?local=1` when the kiosk sho
 curl -fsS http://127.0.0.1:3030/local/diagnostics
 ```
 
-The diagnostics endpoint is the quickest support snapshot for hardware testing. It reports software version, uptime, memory, temperature, touchscreen/input visibility, network and pairing state, cache footprint, release state, pending command count, current broadcast, and local Autopoiesis service states when systemd is available.
+The diagnostics endpoint is the quickest support snapshot for hardware testing. It reports software version, uptime, memory, temperature, touchscreen/input visibility, network and pairing state, cache footprint, release state, pending command count, current broadcast, and local Autopoiesis service/timer states when systemd is available.
 
-Read `.diagnostics.health.status` first. It is `ok`, `warning`, or `error`, with `.diagnostics.health.issues[]` carrying stable issue codes such as `network_offline`, `offline_fallback`, `device_key_missing`, `storage_low`, `temperature_high`, `touchscreen_missing`, `release_error`, `commands_pending`, and `service_failed`.
+Read `.diagnostics.health.status` first. It is `ok`, `warning`, or `error`, with `.diagnostics.health.issues[]` carrying stable issue codes such as `network_offline`, `offline_fallback`, `device_key_missing`, `storage_low`, `temperature_high`, `touchscreen_missing`, `release_error`, `commands_pending`, `service_failed`, `timer_failed`, and `timer_disabled`.
 
 For quick acceptance checks, use the compact health probe:
 
@@ -134,6 +135,15 @@ AUTOPOIESIS_REQUIRE_TOUCHSCREEN=1 /opt/autopoiesis-os/app/scripts/touchscreen-ch
 
 The first form reports Linux input metadata without failing pointer-only development hosts. The required form is used by Milestone 2 physical Pi verification and fails when no touchscreen-class device is visible in `/proc/bus/input/devices`.
 
+For timer-driven appliance loops:
+
+```bash
+/opt/autopoiesis-os/app/scripts/systemd-timers-check.sh
+systemctl list-timers 'autopoiesis-*'
+```
+
+The timer check is part of Milestone 2 physical Pi verification. It fails if the heartbeat, command executor, cache, updater, or watchdog timer is not enabled and active; those loops are what keep pairing, sync, remote commands, offline cache, release checks, and watchdog recovery alive after boot.
+
 For one-step support handoff, collect the redacted support bundle:
 
 ```bash
@@ -141,7 +151,7 @@ For one-step support handoff, collect the redacted support bundle:
 curl -fsS http://127.0.0.1:3030/local/support-bundle
 ```
 
-The bundle combines diagnostics, compact health, rollout readiness, touchscreen/input summary, active feed state, local frame playback state, offline-cache inventory, recent command audit entries, recent delivery events, recent release history, and the unified device event export. It is intended for hardware validation notes and admin support adapters, and it should stay free of stored device API keys, raw command payloads, release artifact URLs, checksums, and absolute cache asset paths.
+The bundle combines diagnostics, compact health, rollout readiness, touchscreen/input summary, systemd timer summary, active feed state, local frame playback state, offline-cache inventory, recent command audit entries, recent delivery events, recent release history, and the unified device event export. It is intended for hardware validation notes and admin support adapters, and it should stay free of stored device API keys, raw command payloads, release artifact URLs, checksums, and absolute cache asset paths.
 
 For Admin > Frames remote-action policy checks:
 
@@ -199,4 +209,4 @@ for a support handoff.
 /opt/autopoiesis-os/app/scripts/security-smoke.sh
 ```
 
-Run this before production imaging and after changing local JSON endpoints. It verifies that local status, pairing status, diagnostics, health, readiness, support-bundle, frame-state, offline-cache, command audit, admin capabilities, delivery log, release history, and event export responses redact the stored device API key while still reporting safe key-presence, input-diagnostics, and playback-readiness flags for support.
+Run this before production imaging and after changing local JSON endpoints. It verifies that local status, pairing status, diagnostics, health, readiness, support-bundle, frame-state, offline-cache, command audit, admin capabilities, delivery log, release history, and event export responses redact the stored device API key while still reporting safe key-presence, input-diagnostics, timer-diagnostics, and playback-readiness flags for support.
