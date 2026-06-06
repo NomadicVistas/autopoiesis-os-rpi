@@ -204,6 +204,21 @@ Settings sync:
 - GET /api/frames/user/devices
 - POST /api/frames/user/devices/pair
 
+Pairing lifecycle validation:
+
+- POST /api/frames/device/register
+- POST /api/frames/user/devices/pair
+- GET /api/frames/device/{deviceId}/pairing-status
+- Optional adapter endpoint: GET /api/admin/frames/pairing-contract-bundle
+
+`scripts/pairing-contract-check.sh` validates a saved or live read-only bundle containing `deviceRegistration`, `userPairing`, and `pairingStatus` sections. The bundle is a staging/CI contract fixture; it should report evidence from a controlled pairing flow without causing a new live claim.
+
+The registration section should mirror `POST /api/frames/device/register`: device id/name/version metadata, an unpaired device row, a raw pairing code only for the registering device, `expiresAt`, and the per-device API credential the Pi stores for later authenticated calls. The default checker requires the device credential because the current Pi pairing path only persists it during registration.
+
+The user-pairing section should mirror `POST /api/frames/user/devices/pair`: authenticated owner id, paired device id, claimed timestamp, optional applied settings/preferences, and no stored device API key or pairing-code hash. The pairing status section should mirror `GET /api/frames/device/{deviceId}/pairing-status` after claim: `paired: true`, the same owner/device relationship, optional safe pairing metadata, and optional settings handoff.
+
+Pairing codes should be short uppercase alphanumeric text with optional hyphen separators, should expire after registration, and should normally stay within a one-hour maximum TTL. Pairing storage should prefer durable `aos_frame_pairing_codes.pairing_code_hash`; plaintext pairing codes belong only in the device-facing registration/status contract while active.
+
 Profile/Admin bundle validation:
 
 - GET /api/frames/user/devices

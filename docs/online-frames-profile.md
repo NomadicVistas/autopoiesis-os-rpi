@@ -54,6 +54,8 @@ Actions:
 - Device receives profile settings.
 - Device appears in My Frames.
 
+`scripts/pairing-contract-check.sh` is the staging/CI gate for this lifecycle. It validates device registration evidence, authenticated user claim evidence, and final device pairing-status evidence before physical Pi/account testing depends on the hosted flow. Profile-facing pairing responses must not expose stored device API keys or pairing-code hashes; the raw active pairing code is only for the registering device while the code is still valid.
+
 ## Stream Preferences
 
 - living stream

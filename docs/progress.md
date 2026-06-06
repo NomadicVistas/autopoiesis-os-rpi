@@ -1,5 +1,42 @@
 # Progress
 
+## 2026-06-06 - Hosted pairing contract gate
+
+Date: 2026-06-06
+
+Milestone: LEAD / INTEGRATION - pairing foundation
+
+Changed files:
+
+- `scripts/pairing-contract-check.sh`
+- `README.md`
+- `docs/api-contract.md`
+- `docs/database-schema.md`
+- `docs/online-frames-profile.md`
+- `docs/agent-notes/backend-pairing-contract-issue.md`
+- `docs/agent-notes/pulse.md`
+- `docs/progress.md`
+- `/data/.openclaw/workspace/autopoiesis-os-program/ROLLING-LOG.md`
+
+Implemented:
+
+- Added `scripts/pairing-contract-check.sh`, a saved-response or live-URL verifier for the hosted Frames pairing lifecycle.
+- The checker validates read-only evidence for device registration, authenticated user claim, and final device pairing status.
+- It requires a bounded pairing-code TTL, an unpaired registration response, a durable device credential at registration, consistent claimed owner/device identity, optional settings handoff shape, final paired status, and redaction of pairing-code hashes, user tokens, secrets, and local appliance paths.
+- Added a backend issue note defining the optional staging/CI pairing contract bundle and the durable `aos_` ownership/security expectations.
+
+Verification:
+
+- `node --check local-ui/server.js` passed.
+- `bash -n install.sh update.sh uninstall-dev-tools.sh factory-reset.sh scripts/*.sh` passed.
+- `git diff --check` passed.
+- `scripts/pairing-contract-check.sh` passed against a representative pairing lifecycle fixture.
+- `scripts/security-smoke.sh` passed.
+
+Next step:
+
+Assemble the optional `GET /api/admin/frames/pairing-contract-bundle` staging adapter from durable `aos_frame_devices` and `aos_frame_pairing_codes` evidence, then run `scripts/pairing-contract-check.sh` before live physical Pi pairing acceptance.
+
 ## 2026-06-06 - Runtime storage diagnostics gate
 
 Date: 2026-06-06

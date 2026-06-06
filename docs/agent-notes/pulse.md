@@ -476,3 +476,13 @@ Context: API / DATABASE / SYNC cron pass. Device command retry behavior was docu
 What changed: Added `scripts/command-ack-retry-check.sh`, wired it into Milestone 2, and tightened final-ack audit status so successful local execution with a failed `completed` acknowledgement is immediately visible as `ack_failed`.
 What needs review: Backend command acknowledgement handlers should be idempotent for repeated final `completed`/`error` statuses and should expose last ack failure/timestamp in Admin > Frames.
 Next recommended action: Add the same command ack retry cases to hosted backend tests once durable command rows are isolated from the dirty main gallery checkout.
+
+
+## 2026-06-06 - Hosted pairing contract gate
+
+Date/time: 2026-06-06 17:15 UTC / 2026-06-06 19:15 Europe/Berlin
+Agent: Pulse
+Context: LEAD / INTEGRATION cron pass. Pairing sits early in the profile/database/API chain, but the hosted register/claim/status lifecycle did not yet have an executable contract gate.
+What changed: Added `scripts/pairing-contract-check.sh` plus backend handoff docs for a read-only pairing contract bundle. The gate validates registration, user claim, final pairing status, bounded code TTL, durable device key handoff, owner/device consistency, settings handoff shape, and redaction boundaries.
+What needs review: The online backend should assemble a staging/CI bundle from durable `aos_frame_devices` and `aos_frame_pairing_codes` rows without running a destructive live claim.
+Next recommended action: Run the pairing contract checker against staging before treating physical Pi account pairing as rollout-ready.

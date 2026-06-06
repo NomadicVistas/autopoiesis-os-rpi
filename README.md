@@ -48,6 +48,7 @@ Milestone 2 is scaffolded for physical Pi validation. The local UI can:
 - verify the unified local event export contract for backend/admin ingestion readiness
 - verify heartbeat event ingestion cursor acknowledgements, replay overlap, stale ack rejection, and diagnostics/support visibility
 - run a local security smoke test that checks device API key redaction and tracked secret hygiene
+- validate a hosted pairing/register/claim/status contract before live account pairing is treated as rollout-ready
 - run an appliance preflight that checks root install mode, Node.js, rsync, curl, systemd, Chromium, NetworkManager, and whether the appliance user exists
 - create the appliance user during install/bootstrap before runtime directories are chowned
 - keep rollback metadata and a pre-update app snapshot for release artifact installs
@@ -220,6 +221,15 @@ AUTOPOIESIS_ONLINE_ADMIN_CONTRACT_TOKEN="$TOKEN" ./scripts/online-admin-contract
 ```
 
 The online admin contract check validates a saved or live bundle assembled from Profile > Frames and Admin > Frames endpoints. It checks user devices, pairing metadata, settings, active artists, liked artworks, cache preferences, users, subscribers, subscriptions, fleet devices, role-gated remote actions, and redaction of device keys, pairing hashes, private tokens, secrets, and local appliance paths.
+
+Validate the hosted pairing lifecycle before physical Pi/account testing:
+
+```bash
+./scripts/pairing-contract-check.sh /path/to/pairing-contract-bundle.json
+AUTOPOIESIS_PAIRING_CONTRACT_TOKEN="$TOKEN" ./scripts/pairing-contract-check.sh "https://autopoiesis.art/api/admin/frames/pairing-contract-bundle"
+```
+
+The pairing contract check validates read-only staging evidence for `POST /api/frames/device/register`, `POST /api/frames/user/devices/pair`, and `GET /api/frames/device/{deviceId}/pairing-status`. It requires a bounded pairing-code TTL, a durable device credential in the registration response, a claimed owner/device relationship after user pairing, settings handoff shape, final paired status, and redaction of pairing hashes, user tokens, secrets, and local appliance paths. The optional adapter endpoint is for CI/staging evidence; it should not run a destructive live pairing flow.
 
 Validate the durable `aos_` database schema before backend/admin/device integration work assumes rows exist:
 
