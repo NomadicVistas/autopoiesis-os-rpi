@@ -84,15 +84,19 @@ echo "8. Local admin capabilities contract"
 "$(dirname "$0")/admin-capabilities-check.sh"
 
 echo
-echo "9. Settings sync conflict contract"
+echo "9. Admin device snapshot contract"
+"$(dirname "$0")/admin-device-snapshot-check.sh"
+
+echo
+echo "10. Settings sync conflict contract"
 "$(dirname "$0")/settings-sync-check.sh"
 
 echo
-echo "10. Local event export contract"
+echo "11. Local event export contract"
 "$(dirname "$0")/events-export-check.sh"
 
 echo
-echo "11. Heartbeat event ingestion cursor contract"
+echo "12. Heartbeat event ingestion cursor contract"
 "$(dirname "$0")/events-ingestion-check.sh"
 
 echo

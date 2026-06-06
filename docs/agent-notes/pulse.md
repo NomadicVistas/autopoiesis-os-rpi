@@ -1,5 +1,14 @@
 # Pulse Agent Notes
 
+## 2026-06-06 - Admin device snapshot acceptance gate
+
+Date/time: 2026-06-06 13:05 UTC / 2026-06-06 15:05 Europe/Berlin
+Agent: Pulse
+Context: ONLINE ADMIN cron pass. The Pi exposes support, health, readiness, admin capabilities, frame state, and event export contracts, but the hosted Profile > Frames/Admin > Frames surfaces still need one stable device-row shape instead of reconstructing status from many raw payloads.
+What changed: Added `scripts/admin-device-snapshot-check.sh` and wired it into Milestone 2 verification. The check fetches `/local/support-bundle`, validates redaction, and derives an `autopoiesis_frame_admin_device_snapshot` with identity, health/readiness, pairing/key/remote flags, playback/cache counts, role-gated command policy, command/delivery/release evidence, and device event cursor state. Strict mode requires paired, stored-key, remote-enabled state for staged devices.
+What needs review: When the hosted backend/API layer is ready for the next Admin/Profile pass, mirror this compact snapshot shape into durable `aos_` device detail rows or responses rather than duplicating local parsing logic in the frontend.
+Next recommended action: Use this check during physical Pi validation after pairing; if strict mode fails, capture the generated snapshot plus `/local/admin/capabilities` and `/local/support-bundle`.
+
 ## 2026-06-06 - Network onboarding acceptance gate
 
 Date/time: 2026-06-06 12:35 UTC / 2026-06-06 14:35 Europe/Berlin

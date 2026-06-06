@@ -1,5 +1,39 @@
 # Progress
 
+## 2026-06-06 - Admin device snapshot acceptance gate
+
+Date: 2026-06-06
+
+Milestone: ONLINE ADMIN - hosted device detail contract
+
+Changed files:
+
+- `scripts/admin-device-snapshot-check.sh`
+- `scripts/milestone2-verify.sh`
+- `README.md`
+- `docs/progress.md`
+- `docs/agent-notes/pulse.md`
+- `/data/.openclaw/workspace/autopoiesis-os-program/ROLLING-LOG.md`
+
+Implemented:
+
+- Added `scripts/admin-device-snapshot-check.sh`, a read-only acceptance gate that derives a compact redacted Admin/Profile device snapshot from `/local/support-bundle`.
+- The snapshot validates and summarizes identity, health/readiness, pairing and stored-key flags, remote-enabled state, playback/cache counts, role-gated command policies, command/delivery/release evidence, and device event export cursor state.
+- Added strict `AUTOPOIESIS_REQUIRE_DEVICE_ADMIN_READY=1` mode for paired staged devices where Admin > Frames should be able to offer role-gated remote actions.
+- Wired the check into Milestone 2 verification immediately after the admin-capabilities contract so hardware validation covers both the raw policy matrix and the hosted fleet row shape.
+
+Verification:
+
+- `node --check local-ui/server.js` passed.
+- `bash -n install.sh update.sh uninstall-dev-tools.sh factory-reset.sh scripts/*.sh` passed.
+- `git diff --check` passed.
+- `scripts/security-smoke.sh` passed.
+- Isolated temporary local UI smoke passed for snapshot JSON generation, strict paired/keyed remote-admin readiness, command policy summarization, event-count summarization, and stored device-key redaction.
+
+Next step:
+
+Mirror this snapshot shape into the online Admin > Frames and Profile > Frames device detail APIs so UI cards can consume one stable row instead of stitching together raw heartbeat/support fields.
+
 ## 2026-06-06 - Network onboarding acceptance gate
 
 Date: 2026-06-06

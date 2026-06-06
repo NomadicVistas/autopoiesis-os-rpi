@@ -40,6 +40,7 @@ Milestone 2 is scaffolded for physical Pi validation. The local UI can:
 - expose a metadata-only `/local/commands/audit` trail for recent remote command attempts
 - expose `/local/admin/capabilities` so Admin > Frames can discover role-gated remote action policy
 - verify the local admin capabilities contract so remote action controls do not drift from device policy
+- generate and verify a redacted Admin/Profile device snapshot from the support bundle for hosted fleet adapters
 - expose `/local/events/export` so backend/admin adapters can ingest command, delivery, and release lifecycle evidence through one redacted contract
 - expose a metadata-only `/local/release/history` trail for local release check/apply outcomes
 - verify the unified local event export contract for backend/admin ingestion readiness
@@ -143,6 +144,13 @@ Check the role-gated Admin > Frames remote-action policy contract:
 ```bash
 ./scripts/admin-capabilities-check.sh
 AUTOPOIESIS_REQUIRE_REMOTE_ADMIN_READY=1 ./scripts/admin-capabilities-check.sh
+```
+
+Generate and validate the redacted Admin/Profile device snapshot shape:
+
+```bash
+./scripts/admin-device-snapshot-check.sh ./admin-device-snapshot.json
+AUTOPOIESIS_REQUIRE_DEVICE_ADMIN_READY=1 ./scripts/admin-device-snapshot-check.sh
 ```
 
 Check the unified command/delivery/release event export contract:
