@@ -1,5 +1,42 @@
 # Progress
 
+## 2026-06-06 - Release manifest safety gate
+
+Date: 2026-06-06
+
+Milestone: RELEASE / ROLLOUT - safe update foundation
+
+Changed files:
+
+- `scripts/release-manifest-check.sh`
+- `scripts/update-from-release.sh`
+- `README.md`
+- `docs/api-contract.md`
+- `docs/agent-notes/pulse.md`
+- `docs/progress.md`
+- `/data/.openclaw/workspace/autopoiesis-os-program/ROLLING-LOG.md`
+
+Implemented:
+
+- Added `scripts/release-manifest-check.sh`, a saved-manifest or live-URL gate for release metadata before a frame accepts an update.
+- The checker validates semantic target versions, optional release channels, GitHub-style tags, HTTPS artifact URLs, SHA-256 checksums, rollout percentages, release-note URLs, optional rollback notes, and redaction of device keys, pairing hashes, private/admin tokens, secrets, passwords, and local appliance paths.
+- `scripts/update-from-release.sh` now runs the manifest gate before writing rollback metadata, downloading artifacts, or applying a git fallback update.
+- The updater now accepts `artifactUrl`/`sha256` style fields as aliases for the existing `artifact_url`/`checksum` contract so backend and GitHub release adapters can share one manifest shape.
+
+Verification:
+
+- `node --check local-ui/server.js` passed.
+- `bash -n install.sh update.sh uninstall-dev-tools.sh factory-reset.sh scripts/*.sh` passed.
+- `git diff --check` passed.
+- `scripts/release-manifest-check.sh` passed against a strict representative stable release fixture.
+- `scripts/release-manifest-check.sh` rejected an artifact release without a checksum.
+- `scripts/update-from-release.sh` rejected an invalid manifest before mutating an isolated fake install.
+- `scripts/security-smoke.sh` passed.
+
+Next step:
+
+Make the hosted release endpoint emit channel, tag, checksum, changelog URL, rollout percentage, and rollback notes, then run strict manifest validation before cutting the first GitHub-tagged production artifact.
+
 ## 2026-06-06 - Hosted pairing contract gate
 
 Date: 2026-06-06

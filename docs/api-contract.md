@@ -321,6 +321,16 @@ Durable schema gate:
 - Backend migrations should pass this check before stream, admin bundle, heartbeat event ingestion, command acknowledgement, broadcast delivery, or rollout tests are trusted.
 - SQLite database checks require the `sqlite3` CLI. CI may instead export JSON with `tables`, `columns`, `primaryKey`, and `unique` metadata.
 
+Release manifest validation:
+
+- `GET /api/frames/device/{deviceId}/release` should return either `{ release: null }` when current or a `release` object that passes `scripts/release-manifest-check.sh`.
+- Required release fields: `version`. Artifact-based releases also require `artifact_url` or `artifactUrl` and a SHA-256 `checksum`/`sha256`.
+- Recommended release fields for rollout: `channel` or `updateChannel`, `tagName` or `tag`, `publishedAt`, `rolloutPercent`, `changelogUrl` or `releaseNotesUrl`, and `rollbackNotes`.
+- Channels accepted by the device gate are `stable`, `beta`, `dev`, `canary`, `nightly`, `staged`, and `test`. Set `AUTOPOIESIS_RELEASE_CHANNEL` on a frame to reject a manifest for a different channel.
+- Artifact URLs must use HTTPS by default and must not point at localhost. Local testing may opt in with `AUTOPOIESIS_RELEASE_ALLOW_INSECURE_URLS=1`.
+- Release manifests must not expose device API keys, pairing-code hashes, private/admin tokens, secrets, passwords, local appliance paths, artifact checksums in public local support endpoints, or raw updater stdout/stderr.
+- `scripts/update-from-release.sh` runs the manifest check before it writes rollback metadata, downloads artifacts, or fast-forwards git. Strict production gates can set `AUTOPOIESIS_RELEASE_REQUIRE_CHANNEL=1`, `AUTOPOIESIS_RELEASE_REQUIRE_TAG=1`, `AUTOPOIESIS_RELEASE_REQUIRE_ARTIFACT=1`, and `AUTOPOIESIS_RELEASE_REQUIRE_ROLLBACK_NOTES=1`.
+
 Commands:
 
 - GET /api/frames/device/{deviceId}/commands

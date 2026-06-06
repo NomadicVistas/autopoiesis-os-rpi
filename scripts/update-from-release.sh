@@ -18,9 +18,11 @@ if [[ -z "$RELEASE_JSON" || ! -f "$RELEASE_JSON" ]]; then
   exit 2
 fi
 
+"$(dirname "$0")/release-manifest-check.sh" "$RELEASE_JSON" >> "$LOG_DIR/update.log"
+
 read_release_field() {
   local field="$1"
-  node -e "const fs=require('fs');const p=process.argv[1];const f=process.argv[2];const d=JSON.parse(fs.readFileSync(p,'utf8'));const r=d.release||d;process.stdout.write(String(r[f]||''));" "$RELEASE_JSON" "$field"
+  node -e "const fs=require('fs');const p=process.argv[1];const f=process.argv[2];const aliases={artifact_url:['artifact_url','artifactUrl','assetUrl','downloadUrl'],checksum:['checksum','sha256','artifactSha256','artifact_sha256'],version:['version','targetVersion','target_version']};const d=JSON.parse(fs.readFileSync(p,'utf8'));const r=d.release||d;for(const k of aliases[f]||[f]){if(typeof r[k]==='string'&&r[k].trim()){process.stdout.write(r[k].trim());process.exit(0);}}process.stdout.write('');" "$RELEASE_JSON" "$field"
 }
 
 VERSION_TARGET="$(read_release_field version)"

@@ -45,6 +45,7 @@ Milestone 2 is scaffolded for physical Pi validation. The local UI can:
 - generate and verify a redacted Admin/Profile device snapshot from the support bundle for hosted fleet adapters
 - expose `/local/events/export` so backend/admin adapters can ingest command, delivery, and release lifecycle evidence through one redacted contract
 - expose a metadata-only `/local/release/history` trail for local release check/apply outcomes
+- validate release manifests for channel/tag/artifact/checksum/rollback metadata before an update mutates app code
 - verify the unified local event export contract for backend/admin ingestion readiness
 - verify heartbeat event ingestion cursor acknowledgements, replay overlap, stale ack rejection, and diagnostics/support visibility
 - run a local security smoke test that checks device API key redaction and tracked secret hygiene
@@ -239,6 +240,15 @@ Validate the durable `aos_` database schema before backend/admin/device integrat
 ```
 
 The schema contract check validates the required Frames tables, columns, and primary/unique keys for devices, pairing, settings, preferences, heartbeats, commands, admin audits, events, likes, broadcasts, releases, subscriptions, delivery logs, and rollout records. SQLite database checks require the `sqlite3` CLI; CI can also pass a saved schema JSON fixture.
+
+Validate a release manifest before a device applies it:
+
+```bash
+./scripts/release-manifest-check.sh /path/to/release.json
+AUTOPOIESIS_RELEASE_CHANNEL=stable AUTOPOIESIS_RELEASE_REQUIRE_CHANNEL=1 AUTOPOIESIS_RELEASE_REQUIRE_TAG=1 AUTOPOIESIS_RELEASE_REQUIRE_ROLLBACK_NOTES=1 ./scripts/release-manifest-check.sh /path/to/release.json
+```
+
+The updater runs this check automatically before applying `/local/release/apply` or an `update_device` command. Artifact releases must use HTTPS and include a SHA-256 checksum unless explicitly overridden for local testing. Strict rollout can require channel, GitHub tag, and rollback notes before a production device accepts an update.
 
 Check defensive feed targeting and cache eligibility:
 

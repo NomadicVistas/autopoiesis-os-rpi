@@ -1,5 +1,14 @@
 # Pulse Agent Notes
 
+## 2026-06-06 - Release manifest safety gate
+
+Date/time: 2026-06-06 18:00 UTC / 2026-06-06 20:00 Europe/Berlin
+Agent: Pulse
+Context: RELEASE / ROLLOUT cron pass. The device updater already preserved local runtime state and had rollback support, but malformed release metadata could still reach the mutation point before being rejected.
+What changed: Added `scripts/release-manifest-check.sh` and wired it into `scripts/update-from-release.sh` before rollback metadata, artifact download, or git fallback. The gate validates version, optional channel/tag, HTTPS artifact URL, SHA-256 checksum, rollout percentage, release-note URL, optional rollback notes, and sensitive/local-only field redaction. It also accepts camelCase GitHub/backend aliases such as `artifactUrl` and `sha256`.
+What needs review: The hosted release endpoint should start emitting channel, tag, checksum, changelog URL, rollout percentage, and rollback notes. Production devices can then set strict `AUTOPOIESIS_RELEASE_REQUIRE_*` flags before broad rollout.
+Next recommended action: Cut a staged GitHub release fixture, run the strict manifest gate, then test artifact update plus rollback on the physical Pi.
+
 ## 2026-06-06 - Runtime storage diagnostics gate
 
 Date/time: 2026-06-06 16:35 UTC / 2026-06-06 18:35 Europe/Berlin
