@@ -47,7 +47,7 @@ Milestone 2 is scaffolded for physical Pi validation. The local UI can:
 - expose a metadata-only `/local/release/history` trail for local release check/apply outcomes
 - verify command-delivered broadcasts for targeting, scheduling, display-time delivery logs, dismissal, expiry, and acknowledgements
 - validate release manifests for channel/tag/artifact/checksum/rollback metadata before an update mutates app code
-- run the hosted contract suite for migration, schema, pairing, device-auth, heartbeat, stream, online-admin, broadcast, and release readiness before physical Pi testing
+- run the hosted contract suite for migration, schema, pairing, device-auth, settings conflict, heartbeat, stream, online-admin, broadcast, and release readiness before physical Pi testing
 - verify the unified local event export contract for backend/admin ingestion readiness
 - verify heartbeat event ingestion cursor acknowledgements, replay overlap, stale ack rejection, and diagnostics/support visibility
 - run a local security smoke test that checks device API key redaction and tracked secret hygiene
@@ -262,6 +262,15 @@ AUTOPOIESIS_DEVICE_AUTH_CONTRACT_TOKEN="$TOKEN" ./scripts/device-auth-contract-c
 
 The device auth contract check validates read-only staging evidence for the keyed device-only routes: pairing status, settings read/write, heartbeat, stream, command polling, command acknowledgement, and release manifest checks. For each route, the bundle must prove that the correct per-device credential succeeds, while missing, wrong, and cross-device credentials are rejected with 401/403/404-style failures. The bundle must not expose raw device API keys, pairing hashes, private tokens, secrets, or local appliance paths.
 
+Validate hosted settings conflict handling before treating sync as staging-ready:
+
+```bash
+./scripts/settings-contract-check.sh /path/to/settings-contract-bundle.json
+AUTOPOIESIS_SETTINGS_CONTRACT_TOKEN="$TOKEN" ./scripts/settings-contract-check.sh "https://autopoiesis.art/api/admin/frames/settings-contract-bundle"
+```
+
+The settings contract check validates read-only staging evidence for `GET /api/frames/device/{deviceId}/settings`, `POST /api/frames/device/{deviceId}/settings`, and heartbeat settings handoff. It requires an initial authoritative read, a newer write that preserves or advances the submitted `updatedAt`, a stale write rejection or explicit conflict, a final read proving the stale write did not overwrite the newer row, and a heartbeat response that returns settings at least as current as the accepted write. The bundle must not expose device API keys, pairing codes/hashes, private tokens, secrets, or local appliance paths.
+
 Validate the hosted heartbeat response before backend sync/admin evidence is treated as staging-ready:
 
 ```bash
@@ -296,6 +305,7 @@ AUTOPOIESIS_AOS_MIGRATION_CONTRACT_SOURCE=/path/to/migrations \
 AUTOPOIESIS_AOS_SCHEMA_CONTRACT_SOURCE=/path/to/schema-introspection.json \
 AUTOPOIESIS_PAIRING_CONTRACT_SOURCE=/path/to/pairing-contract-bundle.json \
 AUTOPOIESIS_DEVICE_AUTH_CONTRACT_SOURCE=/path/to/device-auth-contract-bundle.json \
+AUTOPOIESIS_SETTINGS_CONTRACT_SOURCE=/path/to/settings-contract-bundle.json \
 AUTOPOIESIS_HEARTBEAT_CONTRACT_SOURCE=/path/to/heartbeat-contract-bundle.json \
 AUTOPOIESIS_STREAM_CONTRACT_SOURCE=/path/to/stream-response.json \
 AUTOPOIESIS_ONLINE_ADMIN_CONTRACT_SOURCE=/path/to/online-admin-bundle.json \
@@ -304,7 +314,7 @@ AUTOPOIESIS_RELEASE_MANIFEST_SOURCE=/path/to/release.json \
 ./scripts/hosted-contract-suite-check.sh --strict
 ```
 
-The suite runs the existing hosted gates in dependency order: migrations, final schema, pairing, device auth, heartbeat, stream, online admin, broadcast lifecycle, then release manifest. In non-strict mode it runs every provided source and fails only if a gate named in `AUTOPOIESIS_HOSTED_CONTRACT_REQUIRE` is missing. Individual token and strictness variables are passed through to the underlying checkers unchanged.
+The suite runs the existing hosted gates in dependency order: migrations, final schema, pairing, device auth, settings conflict, heartbeat, stream, online admin, broadcast lifecycle, then release manifest. In non-strict mode it runs every provided source and fails only if a gate named in `AUTOPOIESIS_HOSTED_CONTRACT_REQUIRE` is missing. Individual token and strictness variables are passed through to the underlying checkers unchanged.
 
 Validate the hosted broadcast lifecycle before treating Admin > Frames broadcasts as rollout-ready:
 

@@ -1,5 +1,45 @@
 # Progress
 
+## 2026-06-07 - Hosted settings conflict contract
+
+Date: 2026-06-07
+
+Milestone: API / DATABASE / SYNC - hosted settings conflict readiness
+
+Changed files:
+
+- `scripts/settings-contract-check.sh`
+- `scripts/hosted-contract-suite-check.sh`
+- `README.md`
+- `docs/api-contract.md`
+- `docs/database-schema.md`
+- `docs/agent-notes/backend-settings-contract-issue.md`
+- `docs/agent-notes/pulse.md`
+- `docs/progress.md`
+- `/data/.openclaw/workspace/autopoiesis-os-program/ROLLING-LOG.md`
+
+Implemented:
+
+- Added `scripts/settings-contract-check.sh`, a read-only saved-bundle or live-URL verifier for hosted newest-`updatedAt` settings conflict behavior.
+- The checker validates an initial authoritative settings read, accepted newer write, stale write rejection or explicit conflict, final read preserving the newer row, heartbeat settings freshness, device-id consistency, and redaction boundaries.
+- Wired `settings` into `scripts/hosted-contract-suite-check.sh` between device-auth and heartbeat so strict hosted readiness now requires direct settings-row conflict evidence before heartbeat/admin evidence is trusted.
+- Added a backend handoff note for generating the bundle from durable `aos_frame_device_settings`, `aos_frame_user_preferences`, and heartbeat response assembly.
+
+Verification:
+
+- `scripts/settings-contract-check.sh` passed against a representative settings conflict bundle.
+- `scripts/settings-contract-check.sh` rejected a stale-overwrite fixture.
+- `scripts/hosted-contract-suite-check.sh` passed with `AUTOPOIESIS_HOSTED_CONTRACT_REQUIRE=settings` and the settings source provided.
+- `scripts/hosted-contract-suite-check.sh` rejected a missing required settings source.
+- `node --check local-ui/server.js` passed.
+- `bash -n install.sh update.sh uninstall-dev-tools.sh factory-reset.sh scripts/*.sh` passed.
+- `git diff --check` passed.
+- `scripts/security-smoke.sh` passed.
+
+Next step:
+
+Generate a hosted settings contract bundle from staging or CI and decide the canonical stale-write response shape (`409 Conflict`, `ok=false`, or `applied: false`) before exposing Profile > Frames conflict messaging.
+
 ## 2026-06-07 - Install preflight disk-space gate
 
 Date: 2026-06-07

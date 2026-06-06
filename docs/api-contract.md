@@ -231,6 +231,17 @@ Device-route authentication validation:
 
 `scripts/device-auth-contract-check.sh` validates this read-only bundle. It is intentionally separate from the pairing lifecycle gate: pairing proves a credential is issued and bound to an owner/device; device auth proves every device-only endpoint actually enforces that credential and cannot be used across devices.
 
+Hosted settings conflict validation:
+
+- Optional adapter endpoint: GET /api/admin/frames/settings-contract-bundle
+- The bundle should include `settingsRead`, `newerWrite`, `staleWrite`, `finalRead`, and `heartbeat` sections derived from controlled staging/CI evidence, not from destructive production mutations.
+- `settingsRead.response.settings.updatedAt` establishes the starting row. `newerWrite.request.settings.updatedAt` must be newer, and `newerWrite.response.settings.updatedAt` must preserve or advance the submitted timestamp.
+- `staleWrite.request.settings.updatedAt` must be older than the accepted row. Its response should reject the write with a 4xx status or return an explicit conflict/not-applied marker, and any returned authoritative settings must still be at least as current as the accepted row.
+- `finalRead.response.settings.updatedAt` and `heartbeat.response.settings.updatedAt` must be at least as current as the accepted newer write.
+- The bundle must not expose device API keys, pairing codes or hashes, private/admin tokens, secrets, passwords, raw bearer tokens, or local appliance paths.
+
+`scripts/settings-contract-check.sh` validates this read-only bundle. It closes the gap between device-side newest-`updatedAt` behavior and durable hosted `aos_` settings rows before heartbeat, Profile > Frames, or Admin > Frames evidence is trusted.
+
 Profile/Admin bundle validation:
 
 - GET /api/frames/user/devices
@@ -278,6 +289,7 @@ Device settings conflict behavior:
 - Untimestamped remote payloads are still applied for legacy API compatibility, but are recorded as `remote_applied_untimestamped`.
 - Heartbeat diagnostics include a compact `settingsSync` object with status, source, conflict, reason, localUpdatedAt, remoteUpdatedAt, and checkedAt.
 - `scripts/settings-sync-check.sh` is the acceptance gate for this contract. It runs an isolated local UI against a mock Frames API and verifies stale explicit sync rejection, newer remote apply, local push `updatedAt` propagation, stale heartbeat rejection, diagnostics conflict visibility, and the `settings_conflict` health issue.
+- `scripts/settings-contract-check.sh` is the hosted acceptance gate for the same rule. It validates direct staging/CI evidence that durable `aos_` settings rows reject or explicitly conflict stale writes and keep heartbeat settings current.
 - Backend `aos_` settings rows should mirror the same newest-`updatedAt` behavior and return authoritative `updatedAt` values from settings GET, settings POST, and heartbeat responses.
 
 Content stream:

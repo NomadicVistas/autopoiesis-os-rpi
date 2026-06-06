@@ -1,5 +1,14 @@
 # Pulse Agent Notes
 
+## 2026-06-07 - Hosted settings conflict contract
+
+Date/time: 2026-06-06 22:45 UTC / 2026-06-07 00:45 Europe/Berlin
+Agent: Pulse
+Context: API / DATABASE / SYNC cron pass. Device-side settings sync already proves newest-`updatedAt` conflict handling locally, but the strict hosted suite still lacked direct evidence that durable backend settings rows reject stale writes and keep heartbeat settings current.
+What changed: Added `scripts/settings-contract-check.sh` and wired it into `scripts/hosted-contract-suite-check.sh` between device auth and heartbeat. The gate validates initial read, newer write, stale write conflict/rejection, final read preservation, heartbeat settings freshness, device-id consistency, and redaction.
+What needs review: Hosted staging should generate the bundle from real `aos_frame_device_settings` / `aos_frame_user_preferences` rows and the same heartbeat response assembler used by devices. The stale-write response shape still needs a product/API decision.
+Next recommended action: Run the expanded hosted suite with a settings bundle before trusting heartbeat/Profile/Admin fixtures, then settle whether stale writes return `409 Conflict`, `ok=false`, or `applied: false`.
+
 ## 2026-06-07 - Install preflight disk-space gate
 
 Date/time: 2026-06-06 22:35 UTC / 2026-06-07 00:35 Europe/Berlin

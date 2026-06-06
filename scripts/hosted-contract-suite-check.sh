@@ -15,11 +15,12 @@ Usage:
 
 Environment:
   AUTOPOIESIS_HOSTED_CONTRACT_REQUIRE       comma-separated required gates
-                                            migrations,schema,pairing,device-auth,heartbeat,stream,online-admin,release
+                                            migrations,schema,pairing,device-auth,settings,heartbeat,stream,online-admin,broadcast,release
   AUTOPOIESIS_AOS_MIGRATION_CONTRACT_SOURCE migration directory or manifest
   AUTOPOIESIS_AOS_SCHEMA_CONTRACT_SOURCE    schema JSON or SQLite database
   AUTOPOIESIS_PAIRING_CONTRACT_SOURCE       pairing lifecycle bundle file or URL
   AUTOPOIESIS_DEVICE_AUTH_CONTRACT_SOURCE   device route auth bundle file or URL
+  AUTOPOIESIS_SETTINGS_CONTRACT_SOURCE      settings conflict bundle file or URL
   AUTOPOIESIS_HEARTBEAT_CONTRACT_SOURCE     heartbeat bundle/response file or URL
   AUTOPOIESIS_STREAM_CONTRACT_SOURCE        stream response file or URL
   AUTOPOIESIS_ONLINE_ADMIN_CONTRACT_SOURCE  Profile/Admin bundle file or URL
@@ -42,6 +43,7 @@ normalize_gate_name() {
     schema|aos-schema|aos_schema) echo "schema" ;;
     pairing|pairing-contract|pairing_contract) echo "pairing" ;;
     device-auth|device_auth|auth|device-auth-contract|device_auth_contract) echo "device-auth" ;;
+    settings|settings-sync|settings_sync|settings-contract|settings_contract) echo "settings" ;;
     heartbeat|heartbeat-contract|heartbeat_contract|event-ingestion|event_ingestion) echo "heartbeat" ;;
     stream|stream-contract|stream_contract) echo "stream" ;;
     admin|online-admin|online_admin|online-admin-contract|online_admin_contract) echo "online-admin" ;;
@@ -53,7 +55,7 @@ normalize_gate_name() {
 
 required_gate_csv() {
   if [[ "$REQUIRE_ALL" == "1" ]]; then
-    echo "migrations,schema,pairing,device-auth,heartbeat,stream,online-admin,broadcast,release"
+    echo "migrations,schema,pairing,device-auth,settings,heartbeat,stream,online-admin,broadcast,release"
   else
     echo "$REQUIRED_LIST"
   fi
@@ -128,6 +130,7 @@ run_gate "migrations" "AUTOPOIESIS_AOS_MIGRATION_CONTRACT_SOURCE" "aos-migration
 run_gate "schema" "AUTOPOIESIS_AOS_SCHEMA_CONTRACT_SOURCE" "aos-schema-contract-check.sh" "AOS schema contract"
 run_gate "pairing" "AUTOPOIESIS_PAIRING_CONTRACT_SOURCE" "pairing-contract-check.sh" "Hosted pairing contract"
 run_gate "device-auth" "AUTOPOIESIS_DEVICE_AUTH_CONTRACT_SOURCE" "device-auth-contract-check.sh" "Hosted device auth contract"
+run_gate "settings" "AUTOPOIESIS_SETTINGS_CONTRACT_SOURCE" "settings-contract-check.sh" "Hosted settings conflict contract"
 run_gate "heartbeat" "AUTOPOIESIS_HEARTBEAT_CONTRACT_SOURCE" "heartbeat-contract-check.sh" "Hosted heartbeat contract"
 run_gate "stream" "AUTOPOIESIS_STREAM_CONTRACT_SOURCE" "stream-contract-check.sh" "Hosted stream contract"
 run_gate "online-admin" "AUTOPOIESIS_ONLINE_ADMIN_CONTRACT_SOURCE" "online-admin-contract-check.sh" "Hosted Profile/Admin contract"

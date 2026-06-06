@@ -113,6 +113,7 @@ Profile/Admin contract notes:
 - `scripts/pairing-contract-check.sh` expects registration evidence to come from durable `aos_frame_devices` and `aos_frame_pairing_codes` rows, user claim evidence to bind the device to the authenticated canonical user, and post-claim status evidence to return the same owner/device relationship to the keyed device.
 - Pairing-code plaintext should be limited to active device-facing registration/status responses. Durable storage should prefer `pairingCodeHash`; Profile/Admin/user claim payloads must not expose device API keys or pairing-code hashes.
 - `scripts/device-auth-contract-check.sh` expects the hosted API to authenticate device-only routes against a stored hash or otherwise non-exposed representation of the per-device credential, then bind that credential to the route `deviceId`. Missing, invalid, and cross-device credentials must be rejected for pairing status, settings, heartbeat, stream, command polling/acknowledgement, and release routes before physical Pi acceptance.
+- `scripts/settings-contract-check.sh` expects durable `aos_frame_device_settings` and `aos_frame_user_preferences` writes to use newest-`updatedAt` conflict handling. Staging evidence should show an accepted newer settings write, a rejected or explicitly conflicted stale write, a final read preserving the newer row, and heartbeat settings at least as current as the accepted write.
 - `scripts/online-admin-contract-check.sh` expects the hosted Profile > Frames surface to derive owned devices from `aos_frame_devices`, user preferences from `aos_frame_user_preferences`, liked artworks from the canonical artwork-like table or an `aos_` mirror, active artists from canonical artist rows plus preference selections, and explicit cache preferences from user/device settings.
 - The Admin > Frames portion should derive users, subscribers, subscriptions, fleet devices, and remote action policies from durable `aos_` rows plus the canonical account/subscription models.
 - The contract intentionally rejects stored device API keys, pairing-code hashes, private tokens, secrets, passwords, and local Pi filesystem paths.
@@ -267,3 +268,4 @@ Migration contract gate:
 - server remains final source of truth.
 - offline local changes queue until connection returns.
 - remote admin commands override local state where safety requires it.
+- hosted settings GET, POST, and heartbeat responses should all return authoritative updatedAt values after conflict resolution.
