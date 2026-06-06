@@ -1,5 +1,39 @@
 # Progress
 
+## 2026-06-06 - Rollout issue report handoff
+
+Date: 2026-06-06
+
+Milestone: LEAD / integration - rollout support handoff
+
+Changed files:
+
+- `scripts/rollout-issue-report.sh`
+- `README.md`
+- `docs/api-contract.md`
+- `docs/progress.md`
+- `docs/agent-notes/pulse.md`
+- `/data/.openclaw/workspace/autopoiesis-os-program/ROLLING-LOG.md`
+
+Implemented:
+
+- Added `scripts/rollout-issue-report.sh`, a read-only handoff tool that collects `/local/rollout/acceptance` and `/local/support-bundle` from a device and formats a GitHub-style Markdown issue report.
+- The report includes device/version/profile, acceptance status, health/readiness status, blockers, warnings, support evidence counts, and reproduction commands.
+- The script validates that both source payloads are redacted contract shapes and rejects inputs that expose device API key field names.
+- Added profile/content/service/event-limit environment switches so setup, staged, and production rollout reports use the same acceptance parameters as the rollout gate.
+
+Verification:
+
+- `node --check local-ui/server.js` passed.
+- `bash -n install.sh update.sh uninstall-dev-tools.sh factory-reset.sh scripts/*.sh` passed.
+- `git diff --check` passed.
+- `scripts/security-smoke.sh` passed.
+- Targeted temporary local UI smoke passed for Markdown report generation, redaction validation, blocker/warning formatting, and output-file mode.
+
+Next step:
+
+Run `AUTOPOIESIS_ROLLOUT_PROFILE=staged /opt/autopoiesis-os/app/scripts/rollout-issue-report.sh ./rollout-issue.md` on the physical Pi when rollout acceptance blocks or warns, then attach the generated note plus support bundle to the hardware validation issue.
+
 ## 2026-06-06 - Settings sync acceptance gate
 
 Date: 2026-06-06

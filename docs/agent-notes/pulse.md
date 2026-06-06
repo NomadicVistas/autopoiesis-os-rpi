@@ -359,3 +359,12 @@ Context: LEAD / INTEGRATION cron pass. The Pi already exported a redacted unifie
 What changed: Added backend `aos_device_events` ingestion in the main gallery Frames API, keyed by `device_id + event_key`. Heartbeats now return `eventsAck`; command audit, broadcast delivery, and release history events project into existing durable admin/delivery/rollout rows; Admin device detail returns recent `deviceEvents`.
 What needs review: The backend code lives in the dirty main `autopoiesis` repo and remains uncommitted there. Review/stage `app/backend/production.py` only after separating it from the repo's unrelated backlog.
 Next recommended action: Add Admin > Frames UI rendering for `deviceEvents` and projected rollout/delivery state, then deploy the backend patch when the main checkout is commit-safe.
+
+## 2026-06-06 - Rollout issue report handoff
+
+Date/time: 2026-06-06 11:15 UTC / 2026-06-06 13:15 Europe/Berlin
+Agent: Pulse
+Context: LEAD / INTEGRATION cron pass. Rollout acceptance and support bundles were available, but blocked physical Pi validation still needed a precise issue-note format instead of manually stitching endpoint output together.
+What changed: Added `scripts/rollout-issue-report.sh` to collect redacted rollout acceptance plus support-bundle evidence and emit a GitHub-style Markdown report with blockers, warnings, support evidence, and reproduction commands.
+What needs review: Run the script on the physical Pi after live pairing/feed/cache cycles; confirm the report gives enough context for a GitHub issue without leaking device keys or local paths.
+Next recommended action: Use the report whenever staged or production rollout acceptance blocks, then attach the support bundle and hardware-specific evidence if the failure is physical-device-specific.
