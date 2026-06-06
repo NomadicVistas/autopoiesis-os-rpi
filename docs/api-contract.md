@@ -227,6 +227,7 @@ Unified device event export:
 - Optional `commandLimit`, `deliveryLimit`, and `releaseLimit` tune per-source bounds; optional `since=<iso timestamp>` filters events newer than that timestamp.
 - Heartbeats include the same shape under `events`, bounded by `AUTOPOIESIS_HEARTBEAT_EVENT_LIMIT` (default 10 per source), so the backend can persist durable `aos_` command audit, broadcast delivery, and release rollout rows without scraping Pi log files.
 - Every exported event includes a stable `source`, `eventKey`, and `observedAt` when available. Backend ingestion should treat `deviceId + eventKey` as idempotent.
+- The global `cursor` includes latest and oldest exported event pointers plus `hasMore`; `sourceCursors` repeats the same shape per source with total/exported counts and per-source limits so ingestion can detect truncation in command audit, display delivery, or release history independently.
 - Exported events intentionally omit raw command payloads, local cache paths, release artifact URLs, checksums, stdout/stderr, and stored device API keys.
 
 Commands:

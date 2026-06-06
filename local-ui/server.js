@@ -610,6 +610,22 @@ function eventAfterSince(event, sinceTimestamp) {
   return observedAt !== null && observedAt > sinceTimestamp;
 }
 
+function eventCursor(events, source, totalEntries, limit) {
+  const sourceEvents = events.filter(event => event.source === source);
+  const latest = sourceEvents[0] || null;
+  const oldest = sourceEvents[sourceEvents.length - 1] || null;
+  return {
+    totalEntries,
+    exported: sourceEvents.length,
+    limit,
+    hasMore: totalEntries > sourceEvents.length,
+    latestObservedAt: latest ? latest.observedAt || null : null,
+    latestEventKey: latest ? latest.eventKey || null : null,
+    oldestObservedAt: oldest ? oldest.observedAt || null : null,
+    oldestEventKey: oldest ? oldest.eventKey || null : null
+  };
+}
+
 function publicDeviceEvents(options = {}) {
   const limit = safeLimit(options.limit, 25, 100);
   const commandLimit = safeLimit(options.commandLimit || limit, limit, 100);
@@ -689,6 +705,18 @@ function publicDeviceEvents(options = {}) {
     .filter(event => eventAfterSince(event, sinceTimestamp))
     .sort((a, b) => (parseTimestamp(b.observedAt) || 0) - (parseTimestamp(a.observedAt) || 0));
   const latest = events[0] || null;
+  const oldest = events[events.length - 1] || null;
+  const counts = {
+    commandAudit: commandAuditEntries().length,
+    deliveryLog: deliveryEntries().length,
+    releaseHistory: releaseEntries().length,
+    exported: events.length
+  };
+  const sourceCursors = {
+    command_audit: eventCursor(events, "command_audit", counts.commandAudit, commandLimit),
+    display_delivery: eventCursor(events, "display_delivery", counts.deliveryLog, deliveryLimit),
+    release_history: eventCursor(events, "release_history", counts.releaseHistory, releaseLimit)
+  };
 
   return {
     ok: true,
@@ -702,12 +730,7 @@ function publicDeviceEvents(options = {}) {
       deviceName: data.device.deviceName || null,
       softwareVersion: version()
     },
-    counts: {
-      commandAudit: commandAuditEntries().length,
-      deliveryLog: deliveryEntries().length,
-      releaseHistory: releaseEntries().length,
-      exported: events.length
-    },
+    counts,
     limits: {
       commandAudit: commandLimit,
       deliveryLog: deliveryLimit,
@@ -715,8 +738,12 @@ function publicDeviceEvents(options = {}) {
     },
     cursor: {
       latestObservedAt: latest ? latest.observedAt || null : null,
-      latestEventKey: latest ? latest.eventKey || null : null
+      latestEventKey: latest ? latest.eventKey || null : null,
+      oldestObservedAt: oldest ? oldest.observedAt || null : null,
+      oldestEventKey: oldest ? oldest.eventKey || null : null,
+      hasMore: Object.values(sourceCursors).some(cursorValue => cursorValue.hasMore)
     },
+    sourceCursors,
     events
   };
 }

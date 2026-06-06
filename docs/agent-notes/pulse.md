@@ -1,5 +1,14 @@
 # Pulse Agent Notes
 
+## 2026-06-06 - Event export source cursors
+
+Date/time: 2026-06-06 06:15 UTC / 2026-06-06 08:15 Europe/Berlin
+Agent: Pulse
+Context: LEAD / INTEGRATION cron pass. The unified event export gave backend ingestion one mixed event stream, but only one global cursor, which made per-source truncation ambiguous.
+What changed: Added `sourceCursors` for command audit, display delivery, and release history, plus oldest/global `hasMore` cursor fields. Updated the event export check to validate cursor totals, exported counts, newest/oldest pointers, and per-source `hasMore`.
+What needs review: Backend heartbeat ingestion should store per-source cursor metadata or at least alert when `hasMore` is true so support knows the heartbeat payload was truncated.
+Next recommended action: Implement durable backend ingestion from heartbeat `events` into `aos_` command audit, broadcast delivery, and release rollout rows using `deviceId + eventKey` idempotency.
+
 ## 2026-06-06 - Local release rollback script
 
 Context: RELEASE / ROLLOUT cron pass. The updater wrote rollback metadata but did not yet provide a repeatable operator path to actually restore the last known app code.

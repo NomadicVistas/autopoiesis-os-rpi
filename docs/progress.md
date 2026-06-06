@@ -1,5 +1,39 @@
 # Progress
 
+## 2026-06-06 - Event export source cursors
+
+Date: 2026-06-06
+
+Milestone: Lead/integration ingestion readiness
+
+Changed files:
+
+- `local-ui/server.js`
+- `scripts/events-export-check.sh`
+- `docs/api-contract.md`
+- `docs/progress.md`
+- `docs/agent-notes/pulse.md`
+- `/data/.openclaw/workspace/autopoiesis-os-program/ROLLING-LOG.md`
+
+Implemented:
+
+- Extended the unified `/local/events/export` and heartbeat `events` payload with per-source cursors for command audit, display delivery, and release history.
+- Each source cursor now reports total entries, exported entries, per-source limit, `hasMore`, latest event pointer, and oldest exported event pointer.
+- The global cursor also exposes oldest exported event pointers and a mixed-stream `hasMore` flag.
+- Hardened `scripts/events-export-check.sh` so physical Pi validation checks the new cursor shape instead of only the mixed latest cursor.
+
+Verification:
+
+- `node --check local-ui/server.js` passed.
+- `bash -n install.sh update.sh uninstall-dev-tools.sh factory-reset.sh scripts/*.sh` passed.
+- `git diff --check` passed.
+- `scripts/security-smoke.sh` passed.
+- Targeted event cursor smoke passed for seeded command, display delivery, and release events with per-source truncation and device-key redaction.
+
+Next step:
+
+Use `sourceCursors` in backend heartbeat event ingestion so Admin > Frames can detect truncated device event exports per source and request/support replay without guessing from the mixed event order.
+
 ## 2026-06-06 - Local release rollback script
 
 Date: 2026-06-06
