@@ -14,6 +14,19 @@ systemctl status autopoiesis-kiosk.service
 journalctl -u autopoiesis-kiosk.service -n 100 --no-pager
 ```
 
+If the screen is blank and the journal shows `GLES3 is unsupported`,
+`CreateGLContext failed`, or `CollectGraphicsInfo failed`, update to the latest
+kiosk launcher and restart the service. Pi 3 class devices default to Chromium
+software rendering flags because hardware GL can fail before the UI paints.
+
+```bash
+sudo systemctl restart autopoiesis-kiosk.service
+sudo journalctl -u autopoiesis-kiosk.service -n 120 --no-pager
+```
+
+For hardware-specific testing, add extra flags through
+`AUTOPOIESIS_CHROMIUM_FLAGS` in a systemd override.
+
 ## Network
 
 ```bash

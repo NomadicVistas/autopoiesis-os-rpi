@@ -654,3 +654,25 @@ Verification:
 Next step:
 
 Run the offline cache path on physical Raspberry Pi hardware after a real feed/cache cycle, then add cache eviction and storage pressure policy.
+
+## 2026-06-06 - Raspberry Pi Chromium software rendering
+
+Date: 2026-06-06
+
+Milestone: Physical Pi kiosk hardening
+
+Changed files:
+
+- `scripts/start-kiosk.sh`
+- `docs/troubleshooting.md`
+- `docs/progress.md`
+
+Implemented:
+
+- Added conservative Chromium kiosk flags for Pi 3 class devices where GLES3 initialization fails.
+- Default flags now disable GPU compositing/accelerated canvas and use SwiftShader software GL.
+- Added `AUTOPOIESIS_CHROMIUM_FLAGS` escape hatch for future hardware-specific overrides.
+
+Verification:
+
+- `bash -n scripts/start-kiosk.sh` passed.
