@@ -50,6 +50,7 @@ GET  /local/diagnostics
 GET  /local/feed
 GET  /local/offline-cache
 GET  /local/commands/audit
+GET  /local/delivery-log
 GET  /local/network/status
 POST /local/lan/connect
 GET  /local/wifi/scan
@@ -120,7 +121,7 @@ Diagnostics fields are intentionally compact and safe for admin/profile/support 
 
 `GET /local/readiness` returns a redacted, phase-level rollout snapshot derived from diagnostics. It includes setup/local UI, network, pairing, settings sync, content/feed, cache, command executor, and release phases. Add `?services=0` to skip local systemd service checks when running outside an installed Pi environment.
 
-`GET /local/support-bundle` returns a redacted one-shot support object for hardware validation, admin adapters, and handoff reports. It aggregates diagnostics, compact health, readiness, active feed counts/items, offline-cache inventory, and recent command audit entries. Add `?services=0` to skip systemd service checks and `?auditLimit=50` to tune recent audit entry count. The bundle intentionally reuses existing redacted endpoint shapes instead of exposing raw command payloads, local cache paths, or stored device API keys.
+`GET /local/support-bundle` returns a redacted one-shot support object for hardware validation, admin adapters, and handoff reports. It aggregates diagnostics, compact health, readiness, active feed counts/items, offline-cache inventory, recent command audit entries, and recent display delivery events. Add `?services=0` to skip systemd service checks, `?auditLimit=50` to tune recent command audit entries, and `?deliveryLimit=50` to tune recent delivery events. The bundle intentionally reuses existing redacted endpoint shapes instead of exposing raw command payloads, local cache paths, or stored device API keys.
 
 Example:
 
@@ -169,6 +170,8 @@ Current issue codes include `device_unpaired`, `device_key_missing`, `network_of
 
 Cache-aware diagnostics add feed cache index fields: `cacheIndexGeneratedAt`, `cacheIndexedItems`, `cacheCachedItems`, `cacheFailedItems`, and `offlinePlayableItems`.
 
+Display delivery diagnostics add a compact `displayDelivery` summary with total entries, the last event type/item/timestamp, and recent feed/broadcast event counts.
+
 Settings sync:
 
 - GET /api/frames/device/{deviceId}/settings
@@ -204,6 +207,13 @@ Local feed behavior:
 - GET /local/cache/assets/{itemId}/media and GET /local/cache/assets/{itemId}/thumbnail serve cached files only when the indexed path resolves under the configured cache directory.
 - The `/offline` fallback reads `cache-index.json` and rotates playable cached feed media when the live Frames display is unreachable. Cache eviction remains a separate follow-up task.
 - Feed items are sorted by priority, then created time, then explicit order.
+
+Local delivery log behavior:
+
+- Feed syncs append a bounded metadata-only `feed_synced` event to `delivery-log.json`.
+- Broadcast display lifecycle appends `broadcast_shown`, `broadcast_dismissed`, and one-time `broadcast_expired` events.
+- GET /local/delivery-log returns recent events without raw payloads, local file paths, or stored device API keys.
+- Heartbeat diagnostics and `/local/support-bundle` include a compact delivery summary so the backend/admin layer can mirror these events into durable `aos_` delivery rows.
 
 Commands:
 

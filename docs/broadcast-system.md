@@ -49,6 +49,7 @@ Device-side MVP behavior:
 - Scheduled broadcasts are ignored locally until their start time.
 - Active `show_broadcast` commands set `currentMode: broadcast` and route `/launch` to the local `/broadcast` page before returning to the normal Frames URL.
 - The local broadcast page marks the broadcast display complete through `POST /local/broadcast/dismiss` after its duration elapses, then returns to `/launch`.
+- The device keeps a bounded local `delivery-log.json` with metadata-only `broadcast_shown`, `broadcast_dismissed`, `broadcast_expired`, and `feed_synced` events. `GET /local/delivery-log`, diagnostics, and the support bundle expose this safely for backend/admin delivery-log persistence.
 - Broadcast priority is preserved for feed ordering and diagnostics.
 - Cache eligibility is recorded as a manifest when `cacheAllowed` is not false and a media/thumbnail URL exists; actual media download/eviction belongs to the cache service.
 

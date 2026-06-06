@@ -152,3 +152,12 @@ Context: LEAD / INTEGRATION cron pass. Health, readiness, offline-cache, and com
 What changed: Added `GET /local/support-bundle` and `scripts/support-bundle.sh`. The bundle reuses the existing redacted diagnostics, health, readiness, feed, offline-cache, and command-audit shapes and adds a compact summary of health status, readiness status, issue codes, blockers, pending commands, offline playable items, and recent command audit state.
 What needs review: Run `scripts/support-bundle.sh` on physical Pi hardware after live pairing, real feed sync, cache worker execution, and at least one remote command attempt to confirm the collected evidence is enough for rollout decisions.
 Next recommended action: Let Admin > Frames consume the same support-bundle shape or a backend-stored subset for downloadable fleet support reports.
+
+## 2026-06-06 - Device delivery log foundation
+
+Date/time: 2026-06-06 02:25 UTC / 2026-06-06 04:25 Europe/Berlin
+Agent: Pulse
+Context: BROADCAST / FEED cron pass. The Pi could show broadcasts and sync feed state, but support/admin only saw command completion, not whether the device actually reached display lifecycle events.
+What changed: Added bounded local `delivery-log.json` persistence plus redacted `GET /local/delivery-log`. Feed sync writes `feed_synced`; broadcast lifecycle writes `broadcast_shown`, `broadcast_dismissed`, and one-time `broadcast_expired`. Diagnostics, health, and support bundle now include compact display-delivery summaries.
+What needs review: Backend/admin still needs durable `aos_` delivery rows and should decide whether heartbeat diagnostics, a future delivery-log POST, or support-bundle ingestion is the canonical persistence path.
+Next recommended action: Add backend delivery persistence and Admin > Frames delivery-state UI using these event names as the device-side source contract.

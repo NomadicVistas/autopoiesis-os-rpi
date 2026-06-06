@@ -19,6 +19,7 @@ const UPDATE_SCRIPT =
   path.resolve(__dirname, "../scripts/update-from-release.sh");
 const REMOTE_AUTH_WINDOW_MS = Number(process.env.AUTOPOIESIS_REMOTE_AUTH_WINDOW_MS || 24 * 60 * 60 * 1000);
 const COMMAND_AUDIT_LIMIT = Number(process.env.AUTOPOIESIS_COMMAND_AUDIT_LIMIT || 100);
+const DELIVERY_LOG_LIMIT = Number(process.env.AUTOPOIESIS_DELIVERY_LOG_LIMIT || 200);
 
 const COMMAND_POLICIES = {
   sync_settings: { risk: "low", requiresAuthorization: false },
@@ -47,7 +48,8 @@ const paths = {
   cacheIndex: path.join(DATA_DIR, "cache-index.json"),
   broadcast: path.join(DATA_DIR, "current-broadcast.json"),
   diagnostics: path.join(DATA_DIR, "diagnostics.json"),
-  commandAudit: path.join(DATA_DIR, "command-audit.json")
+  commandAudit: path.join(DATA_DIR, "command-audit.json"),
+  deliveryLog: path.join(DATA_DIR, "delivery-log.json")
 };
 
 const DIAGNOSTIC_SERVICES = [
@@ -359,6 +361,63 @@ function commandAuditSummary() {
   };
 }
 
+function deliveryEntries() {
+  const log = readJson(paths.deliveryLog, []);
+  if (Array.isArray(log)) return log;
+  if (Array.isArray(log.entries)) return log.entries;
+  return [];
+}
+
+function deliverySubject(item = {}) {
+  return {
+    itemId: item.id || item.broadcastId || item.feedItemId || null,
+    source: item.source || null,
+    type: item.type || null,
+    title: item.title || null,
+    priority: item.priority || null,
+    startsAt: item.startsAt || null,
+    expiresAt: item.expiresAt || null
+  };
+}
+
+function appendDeliveryEvent(entry) {
+  const entries = deliveryEntries();
+  const observedAt = new Date().toISOString();
+  entries.push({
+    eventId: observedAt + "-" + String(entries.length + 1),
+    observedAt,
+    ...entry
+  });
+  const limit = Number.isFinite(DELIVERY_LOG_LIMIT) && DELIVERY_LOG_LIMIT > 0 ? DELIVERY_LOG_LIMIT : 200;
+  writeJson(paths.deliveryLog, entries.slice(-limit));
+}
+
+function publicDeliveryLog(limit = 25) {
+  const entries = deliveryEntries();
+  const safeLimit = Math.max(1, Math.min(Number(limit) || 25, 100));
+  return {
+    ok: true,
+    count: entries.length,
+    limit: safeLimit,
+    entries: entries.slice(-safeLimit).reverse()
+  };
+}
+
+function deliverySummary() {
+  const entries = deliveryEntries();
+  const last = entries[entries.length - 1] || null;
+  const recent = entries.slice(-25);
+  return {
+    totalEntries: entries.length,
+    lastEventId: last ? last.eventId || null : null,
+    lastEventType: last ? last.eventType || null : null,
+    lastItemId: last ? last.itemId || null : null,
+    lastObservedAt: last ? last.observedAt || null : null,
+    recentBroadcastEvents: recent.filter(entry => String(entry.eventType || "").startsWith("broadcast_")).length,
+    recentFeedEvents: recent.filter(entry => String(entry.eventType || "").startsWith("feed_")).length
+  };
+}
+
 function normalizeSettings(settings = {}) {
   if (!settings || typeof settings !== "object") return {};
   const normalized = { ...settings };
@@ -553,6 +612,14 @@ function writeFeedState(feed) {
     count: cacheItems.length,
     items: cacheItems
   });
+  appendDeliveryEvent({
+    eventType: "feed_synced",
+    source: feed.source || "remote",
+    totalItems: Array.isArray(feed.items) ? feed.items.length : 0,
+    eligibleItems: eligibleFeedItems(feed).length,
+    cacheEligibleItems: cacheItems.length,
+    syncedAt: feed.syncedAt || null
+  });
 }
 
 function publicFeed() {
@@ -674,6 +741,14 @@ function activeBroadcast(now = Date.now()) {
   if (!broadcast) return null;
   if (isExpired(broadcast.expiresAt, now)) {
     updateState({ currentMode: "frame", currentBroadcastId: null, lastBroadcastExpiredAt: new Date().toISOString() });
+    if (!broadcast.expiredEventAt) {
+      appendDeliveryEvent({
+        eventType: "broadcast_expired",
+        ...deliverySubject(broadcast),
+        itemId: broadcast.broadcastId || broadcast.id || null
+      });
+      writeJson(paths.broadcast, { ...broadcast, expiredEventAt: new Date().toISOString() });
+    }
     return null;
   }
   const startsAt = parseTimestamp(broadcast.startsAt);
@@ -691,6 +766,12 @@ function dismissBroadcast(reason = "duration_elapsed") {
   });
   if (broadcast) {
     writeJson(paths.broadcast, { ...broadcast, dismissedAt: new Date().toISOString(), dismissReason: reason });
+    appendDeliveryEvent({
+      eventType: "broadcast_dismissed",
+      ...deliverySubject(broadcast),
+      itemId: broadcast.broadcastId || broadcast.id || null,
+      reason
+    });
   }
   return { ok: true, broadcastId: broadcast ? broadcast.broadcastId || broadcast.id || null : null, reason };
 }
@@ -903,6 +984,7 @@ async function collectDiagnostics(options = {}) {
   const cacheManifest = readJson(paths.feedCache, { generatedAt: null, count: 0 });
   const cacheIndex = readJson(paths.cacheIndex, { generatedAt: null, cachedCount: 0, failedCount: 0, items: [] });
   const commandAudit = commandAuditSummary();
+  const displayDelivery = deliverySummary();
   const disk = await diskStatus(DATA_DIR);
   const diagnostics = {
     collectedAt: new Date().toISOString(),
@@ -959,6 +1041,7 @@ async function collectDiagnostics(options = {}) {
       : null,
     pendingCommands: Array.isArray(commands) ? commands.length : 0,
     commandAudit,
+    displayDelivery,
     feed: {
       syncedAt: feed.syncedAt || null,
       totalItems: Array.isArray(feed.items) ? feed.items.length : 0,
@@ -1130,6 +1213,7 @@ function healthSummary(diagnostics) {
       : null,
     pendingCommands: diagnostics.pendingCommands || 0,
     commandAudit: diagnostics.commandAudit || null,
+    displayDelivery: diagnostics.displayDelivery || null,
     feed: diagnostics.feed || null,
     broadcast: diagnostics.broadcast || null,
     collectedAt: diagnostics.collectedAt || null
@@ -1143,6 +1227,7 @@ async function supportBundle(options = {}) {
   const feed = publicFeed();
   const offlineCache = publicOfflineCache();
   const commandAudit = publicCommandAudit(options.auditLimit);
+  const deliveryLog = publicDeliveryLog(options.deliveryLimit);
   const issueCodes = ((health.health || {}).issues || []).map(issue => issue.code).filter(Boolean);
   const blockers = Array.isArray(readiness.blockers) ? readiness.blockers : [];
 
@@ -1168,6 +1253,11 @@ async function supportBundle(options = {}) {
         totalEntries: commandAudit.count || 0,
         lastStatus: diagnostics.commandAudit ? diagnostics.commandAudit.lastStatus || null : null,
         recentErrors: diagnostics.commandAudit ? diagnostics.commandAudit.recentErrors || 0 : 0
+      },
+      displayDelivery: {
+        totalEntries: deliveryLog.count || 0,
+        lastEventType: diagnostics.displayDelivery ? diagnostics.displayDelivery.lastEventType || null : null,
+        recentBroadcastEvents: diagnostics.displayDelivery ? diagnostics.displayDelivery.recentBroadcastEvents || 0 : 0
       }
     },
     diagnostics,
@@ -1175,7 +1265,8 @@ async function supportBundle(options = {}) {
     readiness,
     feed,
     offlineCache,
-    commandAudit
+    commandAudit,
+    deliveryLog
   };
 }
 
@@ -2113,6 +2204,12 @@ async function executeCommand(command) {
       broadcastId: payload.broadcastId || payload.id || broadcast.id,
       shownAt: new Date().toISOString()
     });
+    appendDeliveryEvent({
+      eventType: "broadcast_shown",
+      ...deliverySubject(broadcast),
+      itemId: payload.broadcastId || payload.id || broadcast.id,
+      commandId: command.id || null
+    });
     writeJson(paths.state, {
       ...stateValue,
       currentMode: "broadcast",
@@ -2215,7 +2312,8 @@ async function handle(req, res) {
       const includeServices = url.searchParams.get("services") !== "0";
       return sendJson(res, await supportBundle({
         includeServices,
-        auditLimit: url.searchParams.get("auditLimit") || url.searchParams.get("limit")
+        auditLimit: url.searchParams.get("auditLimit") || url.searchParams.get("limit"),
+        deliveryLimit: url.searchParams.get("deliveryLimit") || url.searchParams.get("limit")
       }));
     }
     if (req.method === "GET" && url.pathname === "/local/feed") {
@@ -2226,6 +2324,9 @@ async function handle(req, res) {
     }
     if (req.method === "GET" && url.pathname === "/local/commands/audit") {
       return sendJson(res, publicCommandAudit(url.searchParams.get("limit")));
+    }
+    if (req.method === "GET" && url.pathname === "/local/delivery-log") {
+      return sendJson(res, publicDeliveryLog(url.searchParams.get("limit")));
     }
     const cacheAssetMatch = url.pathname.match(/^\/local\/cache\/assets\/([^/]+)\/(media|thumbnail)$/);
     if ((req.method === "GET" || req.method === "HEAD") && cacheAssetMatch) {

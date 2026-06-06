@@ -814,3 +814,40 @@ Verification:
 Next step:
 
 Run the support bundle collector on physical Raspberry Pi hardware after live pairing, real feed/cache sync, and at least one remote command attempt; then mirror the shape into Admin > Frames fleet support exports.
+
+## 2026-06-06 - Device delivery log foundation
+
+Date: 2026-06-06
+
+Milestone: MVP 0.4 - Broadcast delivery evidence
+
+Changed files:
+
+- `local-ui/server.js`
+- `scripts/security-smoke.sh`
+- `docs/api-contract.md`
+- `docs/broadcast-system.md`
+- `docs/agent-notes/pulse.md`
+- `docs/progress.md`
+- `/data/.openclaw/workspace/autopoiesis-os-program/ROLLING-LOG.md`
+
+Implemented:
+
+- Added bounded local `delivery-log.json` persistence for display/feed lifecycle events.
+- Feed sync now records `feed_synced` events with total, eligible, and cache-eligible counts.
+- Broadcast display now records `broadcast_shown`, `broadcast_dismissed`, and one-time `broadcast_expired` events.
+- Added redacted `GET /local/delivery-log` for support/admin adapters.
+- Diagnostics, `/local/health`, and `/local/support-bundle` now include compact display-delivery summaries.
+- Extended the security smoke gate so the delivery log endpoint is covered by device API key redaction checks.
+
+Verification:
+
+- `node --check local-ui/server.js` passed.
+- `bash -n install.sh update.sh uninstall-dev-tools.sh factory-reset.sh scripts/*.sh` passed.
+- `git diff --check` passed.
+- `scripts/security-smoke.sh` passed with `/local/delivery-log` included in device-key redaction coverage.
+- Targeted delivery-log smoke passed for feed sync, authorized broadcast show, dismiss, one-time expiry logging, support-bundle `deliveryLimit`, and device-key redaction.
+
+Next step:
+
+Mirror these device-side delivery events into durable backend `aos_` delivery rows from heartbeat diagnostics/support-bundle ingestion, then surface broadcast delivery state in Admin > Frames.
