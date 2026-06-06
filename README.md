@@ -20,6 +20,7 @@ Milestone 2 is scaffolded for physical Pi validation. The local UI can:
 - create/read device, preference, and state JSON files
 - show setup, settings, local frame, offline, disabled, and launch routes
 - show network status for LAN and Wi-Fi through nmcli
+- verify the local network onboarding API contract used by setup, support, and physical acceptance
 - connect Ethernet/LAN through DHCP when available
 - scan and connect Wi-Fi through nmcli
 - start a mock pairing flow
@@ -95,6 +96,13 @@ Check whether Linux sees the touchscreen/input devices:
 ```bash
 ./scripts/touchscreen-check.sh
 AUTOPOIESIS_REQUIRE_TOUCHSCREEN=1 ./scripts/touchscreen-check.sh
+```
+
+Check the local LAN/Wi-Fi onboarding contract:
+
+```bash
+./scripts/network-check.sh
+AUTOPOIESIS_REQUIRE_NETWORK_ONLINE=1 ./scripts/network-check.sh
 ```
 
 Check appliance timer wiring for sync, command, cache, update, and watchdog loops:

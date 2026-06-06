@@ -1,5 +1,14 @@
 # Pulse Agent Notes
 
+## 2026-06-06 - Network onboarding acceptance gate
+
+Date/time: 2026-06-06 12:35 UTC / 2026-06-06 14:35 Europe/Berlin
+Agent: Pulse
+Context: RPI APPLIANCE cron pass. Milestone 2 printed raw `nmcli` state, but it did not prove the local `/local/network/status` contract that the touchscreen setup UI and support flow actually consume.
+What changed: Added `scripts/network-check.sh` and wired it into Milestone 2 verification. The gate validates LAN/Wi-Fi shape, visible NetworkManager devices, primary connected-link consistency, optional strict online mode, and redaction of sensitive key material.
+What needs review: On the physical Pi, run strict mode after LAN or Wi-Fi onboarding. If NetworkManager shows a connection but this script fails, inspect the local UI network parser before adjusting setup-page behavior.
+Next recommended action: Use this network check in hardware reports alongside touchscreen and timer checks so setup failures can be separated from kiosk/feed/cache failures.
+
 ## 2026-06-06 - Event ingestion cursor acceptance gate
 
 Date/time: 2026-06-06 12:15 UTC / 2026-06-06 14:15 Europe/Berlin

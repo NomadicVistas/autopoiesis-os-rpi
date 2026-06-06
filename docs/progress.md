@@ -1,5 +1,39 @@
 # Progress
 
+## 2026-06-06 - Network onboarding acceptance gate
+
+Date: 2026-06-06
+
+Milestone: RPI APPLIANCE - LAN/Wi-Fi setup contract
+
+Changed files:
+
+- `scripts/network-check.sh`
+- `scripts/milestone2-verify.sh`
+- `README.md`
+- `docs/progress.md`
+- `docs/agent-notes/pulse.md`
+- `/data/.openclaw/workspace/autopoiesis-os-program/ROLLING-LOG.md`
+
+Implemented:
+
+- Added `scripts/network-check.sh`, a local acceptance gate for the `/local/network/status` contract used by touchscreen setup, support handoff, and physical Pi validation.
+- The check validates LAN/Wi-Fi availability shape, primary-link consistency, optional online requirement, device visibility, and sensitive-key redaction.
+- Wired the gate into Milestone 2 verification immediately after the raw `nmcli` printout so the physical Pi pass proves both NetworkManager state and the local onboarding API are usable.
+- Documented normal and strict online modes for staged hardware validation.
+
+Verification:
+
+- `node --check local-ui/server.js` passed.
+- `bash -n install.sh update.sh uninstall-dev-tools.sh factory-reset.sh scripts/*.sh` passed.
+- `git diff --check` passed.
+- `scripts/security-smoke.sh` passed.
+- Targeted temporary local UI smoke passed for connected LAN, offline Wi-Fi-only, strict online rejection, and unavailable-network reporting.
+
+Next step:
+
+Run `AUTOPOIESIS_REQUIRE_NETWORK_ONLINE=1 /opt/autopoiesis-os/app/scripts/network-check.sh` on the physical Pi after LAN/Wi-Fi onboarding; if it fails, capture `/local/network/status`, `nmcli -t -f DEVICE,TYPE,STATE,CONNECTION device status`, and the setup UI state before changing connection scripts.
+
 ## 2026-06-06 - Event ingestion cursor acceptance gate
 
 Date: 2026-06-06

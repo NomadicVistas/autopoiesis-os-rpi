@@ -41,6 +41,7 @@ if command -v nmcli >/dev/null 2>&1; then
 else
   echo "   nmcli unavailable"
 fi
+"$(dirname "$0")/network-check.sh"
 
 echo
 echo "3b. Touchscreen/input"
