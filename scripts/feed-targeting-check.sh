@@ -270,7 +270,9 @@ curl -fsS "$BASE_URL/local/status" >/dev/null || fail "local UI did not start"
 curl -fsS -X POST "$BASE_URL/local/feed/sync" >"$TMP_DIR/sync.json" || fail "feed sync failed"
 curl -fsS "$BASE_URL/local/feed" >"$TMP_DIR/feed.json" || fail "local feed request failed"
 curl -fsS "$BASE_URL/local/frame-state" >"$TMP_DIR/frame-state.json" || fail "frame-state request failed"
+curl -fsS -X POST -H "content-type: application/json" -d '{"itemId":"broadcast-device-ok"}' "$BASE_URL/local/frame/display" >"$TMP_DIR/display.json" || fail "broadcast display acknowledgement failed"
 curl -fsS "$BASE_URL/local/delivery-log?limit=10" >"$TMP_DIR/delivery.json" || fail "delivery-log request failed"
+curl -fsS "$BASE_URL/local/events/export?limit=10" >"$TMP_DIR/events.json" || fail "events export request failed"
 if [[ ! -f "$TMP_DIR/data/feed-cache.json" ]]; then
   echo "--- sync response ---" >&2
   cat "$TMP_DIR/sync.json" >&2 || true
@@ -281,13 +283,15 @@ if [[ ! -f "$TMP_DIR/data/feed-cache.json" ]]; then
   fail "feed cache manifest was not written"
 fi
 
-node - "$TMP_DIR/sync.json" "$TMP_DIR/feed.json" "$TMP_DIR/frame-state.json" "$TMP_DIR/delivery.json" "$TMP_DIR/data/feed-cache.json" <<'NODE'
+node - "$TMP_DIR/sync.json" "$TMP_DIR/feed.json" "$TMP_DIR/frame-state.json" "$TMP_DIR/display.json" "$TMP_DIR/delivery.json" "$TMP_DIR/events.json" "$TMP_DIR/data/feed-cache.json" <<'NODE'
 const fs = require("fs");
-const [syncPath, feedPath, framePath, deliveryPath, cachePath] = process.argv.slice(2);
+const [syncPath, feedPath, framePath, displayPath, deliveryPath, eventsPath, cachePath] = process.argv.slice(2);
 const sync = JSON.parse(fs.readFileSync(syncPath, "utf8"));
 const feed = JSON.parse(fs.readFileSync(feedPath, "utf8"));
 const frame = JSON.parse(fs.readFileSync(framePath, "utf8"));
+const display = JSON.parse(fs.readFileSync(displayPath, "utf8"));
 const delivery = JSON.parse(fs.readFileSync(deliveryPath, "utf8"));
+const events = JSON.parse(fs.readFileSync(eventsPath, "utf8"));
 const cache = JSON.parse(fs.readFileSync(cachePath, "utf8"));
 
 function fail(message) {
@@ -328,6 +332,9 @@ if (feed.items.some(item => Object.prototype.hasOwnProperty.call(item, "visibili
 if (frame.items.some(item => item.id === "broadcast-device-blocked")) fail("frame-state included blocked broadcast");
 if (frame.items.some(item => item.id === "art-expired" || item.id === "art-future")) fail("frame-state included expired or future item");
 if (!frame.playback || frame.playback.ready !== true) fail("frame playback was not ready for targeted playable items");
+if (!display.ok || display.itemId !== "broadcast-device-ok" || display.eventType !== "broadcast_shown") {
+  fail("mixed-stream broadcast display acknowledgement did not return broadcast_shown");
+}
 
 const cacheIds = new Set((cache.items || []).map(item => item.id));
 if (!cacheIds.has("art-device-ok")) fail("cache manifest missed targeted cache-eligible artwork");
@@ -341,6 +348,14 @@ if (!synced) fail("delivery log missed feed_synced event");
 if (!synced.categories || synced.categories.broadcast !== 1 || synced.categories.artwork !== 2) {
   fail("feed_synced category counts did not reflect eligible mixed stream");
 }
+const shown = delivery.entries.find(entry => entry.eventType === "broadcast_shown" && entry.itemId === "broadcast-device-ok");
+if (!shown) fail("mixed-stream broadcast display did not write broadcast_shown delivery evidence");
+if (delivery.entries.some(entry => entry.eventType === "feed_item_shown" && entry.itemId === "broadcast-device-ok")) {
+  fail("mixed-stream broadcast display was logged as a generic feed item");
+}
+const exported = (events.events || []).find(entry => entry.source === "display_delivery" && entry.eventType === "broadcast_shown" && entry.itemId === "broadcast-device-ok");
+if (!exported) fail("events export did not expose mixed-stream broadcast_shown evidence");
+if (exported.itemSource !== "broadcast") fail("mixed-stream broadcast event did not preserve broadcast source");
 NODE
 
-echo "feed targeting check passed: local stream targeting, expiry/start filtering, priority order, public redaction, and cache eligibility are coherent"
+echo "feed targeting check passed: local stream targeting, expiry/start filtering, priority order, public redaction, broadcast display evidence, and cache eligibility are coherent"

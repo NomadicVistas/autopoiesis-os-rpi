@@ -51,7 +51,8 @@ Device-side MVP behavior:
 - `show_broadcast` commands are normalized through the same defensive targeting, expiry, priority, and schedule checks used by mixed-stream broadcasts.
 - Immediate active broadcasts route `/launch` to the local `/broadcast` page. Scheduled broadcasts are stored but do not interrupt normal playback until their `startsAt` window opens.
 - The local broadcast page records `broadcast_shown` only when `/broadcast` actually renders, then marks display complete through `POST /local/broadcast/dismiss` after its duration elapses and returns to `/launch`.
-- The device keeps a bounded local `delivery-log.json` with metadata-only `broadcast_shown`, `broadcast_dismissed`, `broadcast_expired`, `broadcast_skipped`, and `feed_synced` events. `GET /local/delivery-log`, diagnostics, and the support bundle expose this safely for backend/admin delivery-log persistence.
+- Mixed-stream broadcast items displayed inside `/frame` also record `broadcast_shown`, so Admin > Frames can persist one broadcast delivery event name regardless of whether the broadcast arrived through a command or the personalized content stream.
+- The device keeps a bounded local `delivery-log.json` with metadata-only `broadcast_shown`, `broadcast_dismissed`, `broadcast_expired`, `broadcast_skipped`, `feed_item_shown`, and `feed_synced` events. `GET /local/delivery-log`, diagnostics, and the support bundle expose this safely for backend/admin delivery-log persistence.
 - Broadcast priority is preserved for feed ordering and diagnostics.
 - The local feed exposes a derived `displayQueue` for frame playback. It preserves priority bands, then round-robins broadcast, curatorial, artwork, blog, news, and general content categories inside each band so a personalized stream stays mixed without letting lower-priority items jump ahead.
 - Public local feed output redacts targeting metadata after eligibility is evaluated.

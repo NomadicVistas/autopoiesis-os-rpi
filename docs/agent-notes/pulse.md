@@ -585,6 +585,15 @@ Context: LEAD / INTEGRATION cron pass. Pairing sits early in the profile/databas
 What changed: Added `scripts/pairing-contract-check.sh` plus backend handoff docs for a read-only pairing contract bundle. The gate validates registration, user claim, final pairing status, bounded code TTL, durable device key handoff, owner/device consistency, settings handoff shape, and redaction boundaries.
 What needs review: The online backend should assemble a staging/CI bundle from durable `aos_frame_devices` and `aos_frame_pairing_codes` rows without running a destructive live claim.
 Next recommended action: Run the pairing contract checker against staging before treating physical Pi account pairing as rollout-ready.
+
+## 2026-06-07 - Mixed-stream broadcast display evidence
+
+Date/time: 2026-06-06 22:25 UTC / 2026-06-07 00:25 Europe/Berlin
+Agent: Pulse
+Context: BROADCAST / FEED cron pass. Command-delivered broadcasts produced `broadcast_shown` only when `/broadcast` rendered, but broadcast-category items inside the personalized mixed `/frame` queue were still logged as generic `feed_item_shown` events.
+What changed: `POST /local/frame/display` now emits `broadcast_shown` for broadcast-category frame items while preserving `feed_item_shown` for artwork, blog, news, curatorial, and other non-broadcast stream content. The feed targeting gate now proves the delivery log and unified event export expose this mixed-stream broadcast evidence with broadcast source metadata.
+What needs review: Hosted heartbeat event ingestion should map both command and mixed-stream `broadcast_shown` events into durable `aos_broadcast_deliveries` rows without treating repeated frame rotations as separate rollout failures.
+Next recommended action: Surface mixed-stream broadcast delivery rows in Admin > Frames alongside command-delivered broadcast rows, keyed idempotently by `deviceId + eventKey`.
 ## 2026-06-06 - Systemd unit rendering gate
 
 Date/time: 2026-06-06 18:39 UTC / 2026-06-06 20:39 Europe/Berlin

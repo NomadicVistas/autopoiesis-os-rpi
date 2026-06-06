@@ -1498,14 +1498,16 @@ function recordFrameItemDisplay(body = {}) {
   const item = publicFrameState().items.find(candidate => String(candidate.id) === String(itemId));
   if (!item) return { ok: false, error: "Frame item is not currently display eligible", itemId: String(itemId) };
   const observedAt = new Date().toISOString();
+  const displayCategory = item.displayCategory || feedItemCategory(item);
+  const eventType = displayCategory === "broadcast" ? "broadcast_shown" : "feed_item_shown";
   appendDeliveryEvent({
-    eventType: "feed_item_shown",
+    eventType,
     itemId: item.id,
     source: item.source || "feed",
     type: item.type || null,
     title: item.title || null,
     priority: item.priority || "normal",
-    displayCategory: item.displayCategory || feedItemCategory(item),
+    displayCategory,
     displayPosition: item.displayPosition || null,
     mediaRole: item.media ? item.media.role || null : null,
     mediaCached: item.media ? Boolean(item.media.cached) : false,
@@ -1521,7 +1523,8 @@ function recordFrameItemDisplay(body = {}) {
   return {
     ok: true,
     itemId: item.id,
-    displayCategory: item.displayCategory || null,
+    eventType,
+    displayCategory,
     displayPosition: item.displayPosition || null,
     observedAt
   };

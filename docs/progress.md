@@ -1,5 +1,41 @@
 # Progress
 
+## 2026-06-07 - Mixed-stream broadcast display evidence
+
+Date: 2026-06-07
+
+Milestone: BROADCAST / FEED - delivery-log reconciliation
+
+Changed files:
+
+- `local-ui/server.js`
+- `scripts/feed-targeting-check.sh`
+- `README.md`
+- `docs/api-contract.md`
+- `docs/broadcast-system.md`
+- `docs/agent-notes/pulse.md`
+- `docs/progress.md`
+- `/data/.openclaw/workspace/autopoiesis-os-program/ROLLING-LOG.md`
+
+Implemented:
+
+- Changed `POST /local/frame/display` so broadcast-category items displayed in the mixed `/frame` queue append `broadcast_shown` delivery evidence instead of a generic `feed_item_shown` event.
+- Kept non-broadcast artwork/blog/news/curatorial playback on `feed_item_shown`, preserving the distinction between content display and broadcast delivery rows.
+- Extended `scripts/feed-targeting-check.sh` to acknowledge display of a targeted mixed-stream broadcast and assert both `GET /local/delivery-log` and `GET /local/events/export` expose `broadcast_shown` with broadcast source metadata.
+- Documented that backend/admin ingestion can treat `broadcast_shown` as the durable display event for both command-delivered broadcasts and personalized-stream broadcasts.
+
+Verification:
+
+- `scripts/feed-targeting-check.sh` passed, including mixed-stream broadcast display evidence and event export coverage.
+- `node --check local-ui/server.js` passed.
+- `bash -n install.sh update.sh uninstall-dev-tools.sh factory-reset.sh scripts/*.sh` passed.
+- `git diff --check` passed.
+- `scripts/security-smoke.sh` passed.
+
+Next step:
+
+Ensure hosted heartbeat event ingestion projects mixed-stream `broadcast_shown` events into durable `aos_broadcast_deliveries` rows with idempotency by `deviceId + eventKey`, then surface those rows in Admin > Frames delivery status.
+
 ## 2026-06-07 - Hosted broadcast lifecycle contract
 
 Date: 2026-06-07

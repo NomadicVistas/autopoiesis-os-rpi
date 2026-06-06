@@ -325,7 +325,7 @@ Check defensive feed targeting and cache eligibility:
 ./scripts/feed-targeting-check.sh
 ```
 
-This isolated check validates local stream targeting for device, owner, subscriber status, tier, and region shapes; expiry/start-time filtering; priority order; public targeting redaction; delivery evidence; and feed cache manifest eligibility.
+This isolated check validates local stream targeting for device, owner, subscriber status, tier, and region shapes; expiry/start-time filtering; priority order; public targeting redaction; mixed-stream broadcast display evidence; and feed cache manifest eligibility.
 
 Check command-delivered broadcast behavior:
 
