@@ -1,5 +1,14 @@
 # Pulse Agent Notes
 
+## 2026-06-06 - Mixed feed display queue
+
+Date/time: 2026-06-06 06:25 UTC / 2026-06-06 08:25 Europe/Berlin
+Agent: Pulse
+Context: BROADCAST / FEED cron pass. The Pi could store and filter mixed feed items, but local display order was still a simple priority/recency list that could let one content class dominate.
+What changed: Added a derived `displayQueue` to `/local/feed`. It preserves priority bands, then round-robins broadcast, curatorial, artwork, blog, news, and general content categories inside each band. Diagnostics and feed output now expose category counts and queue size; the cache manifest records display category/position.
+What needs review: Backend feed generation should return real mixed content types and decide whether its own ranking metadata should influence category order. Kiosk/display playback should consume `displayQueue` when running local-first or offline-assisted modes.
+Next recommended action: Implement the backend `/api/frames/device/{deviceId}/feed` mixed content query and map artwork/blog/news/curatorial/broadcast rows into the normalized local feed contract.
+
 ## 2026-06-06 - Event export source cursors
 
 Date/time: 2026-06-06 06:15 UTC / 2026-06-06 08:15 Europe/Berlin

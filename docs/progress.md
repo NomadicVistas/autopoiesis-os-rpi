@@ -1,5 +1,39 @@
 # Progress
 
+## 2026-06-06 - Mixed feed display queue
+
+Date: 2026-06-06
+
+Milestone: MVP 0.2 - Personal Stream / MVP 0.4 - Broadcast System
+
+Changed files:
+
+- `local-ui/server.js`
+- `docs/api-contract.md`
+- `docs/broadcast-system.md`
+- `docs/progress.md`
+- `docs/agent-notes/pulse.md`
+- `/data/.openclaw/workspace/autopoiesis-os-program/ROLLING-LOG.md`
+
+Implemented:
+
+- Added a derived local `displayQueue` to `GET /local/feed` for personalized mixed stream playback.
+- The queue preserves priority bands first, then round-robins broadcast, curatorial, artwork, blog, news, and general content categories within each band.
+- Added feed category counts and `displayQueueItems` to local feed output and diagnostics so Admin > Frames/support tooling can see whether a device has a balanced displayable stream.
+- Wrote display category/position into the feed cache manifest so cache workers follow the same display order instead of only raw recency.
+- Feed sync delivery events now include category counts for backend delivery-log ingestion.
+
+Verification:
+
+- `node --check local-ui/server.js` passed.
+- `bash -n install.sh update.sh uninstall-dev-tools.sh factory-reset.sh scripts/*.sh` passed.
+- `git diff --check` passed.
+- Direct local feed smoke confirmed that `/local/feed` exposes `displayQueue`, `displayQueueItems`, and category counts. Broader syntax/security gates passed; full physical feed/cache validation still belongs on the Pi after live feed sync.
+
+Next step:
+
+Have the backend `/api/frames/device/{deviceId}/feed` return real mixed artwork/blog/news/curatorial/broadcast items, then point the kiosk/display surface at `displayQueue` for local-first playback behavior.
+
 ## 2026-06-06 - Event export source cursors
 
 Date: 2026-06-06

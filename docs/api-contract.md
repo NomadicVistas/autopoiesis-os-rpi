@@ -208,11 +208,13 @@ Local feed behavior:
 - POST /local/feed/sync fetches GET /api/frames/device/{deviceId}/feed and stores a normalized local feed.
 - Heartbeat responses may also carry feed, items, artworks, or broadcasts; the local UI normalizes those into the same feed state.
 - GET /local/feed returns active, display-eligible items only. Expired items, future scheduled items, and preference-disabled media types are filtered out.
+- GET /local/feed also returns `displayQueue`, a priority-preserving mixed-content queue. The device keeps emergency/critical/high/normal/low priority bands intact, then round-robins categories inside each band across broadcast, curatorial, artwork, blog, news, and general content items so personalized streams do not collapse into a single content class.
+- Feed diagnostics include `displayQueueItems` and category counts so Admin > Frames and support bundles can see whether a device has a usable mixed stream.
 - The local UI also writes a feed cache manifest for items with cacheAllowed !== false and a media or thumbnail URL. `scripts/cache-artworks.sh` downloads those eligible assets into the local runtime cache and writes `cache-index.json` with cached/failed asset status.
 - GET /local/offline-cache returns the redacted playable cache inventory. It reports counts and browser-safe local asset URLs without exposing absolute filesystem paths.
 - GET /local/cache/assets/{itemId}/media and GET /local/cache/assets/{itemId}/thumbnail serve cached files only when the indexed path resolves under the configured cache directory.
 - The `/offline` fallback reads `cache-index.json` and rotates playable cached feed media when the live Frames display is unreachable. Cache eviction remains a separate follow-up task.
-- Feed items are sorted by priority, then created time, then explicit order.
+- Feed items are sorted by priority, then created time, then explicit order; the derived display queue applies category mixing after that stable eligibility sort.
 
 Local delivery log behavior:
 

@@ -51,6 +51,7 @@ Device-side MVP behavior:
 - The local broadcast page marks the broadcast display complete through `POST /local/broadcast/dismiss` after its duration elapses, then returns to `/launch`.
 - The device keeps a bounded local `delivery-log.json` with metadata-only `broadcast_shown`, `broadcast_dismissed`, `broadcast_expired`, and `feed_synced` events. `GET /local/delivery-log`, diagnostics, and the support bundle expose this safely for backend/admin delivery-log persistence.
 - Broadcast priority is preserved for feed ordering and diagnostics.
+- The local feed exposes a derived `displayQueue` for frame playback. It preserves priority bands, then round-robins broadcast, curatorial, artwork, blog, news, and general content categories inside each band so a personalized stream stays mixed without letting lower-priority items jump ahead.
 - Cache eligibility is recorded as a manifest when `cacheAllowed` is not false and a media/thumbnail URL exists; actual media download/eviction belongs to the cache service.
 
 Suggested endpoint:
