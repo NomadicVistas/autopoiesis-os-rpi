@@ -1,5 +1,14 @@
 # Pulse Agent Notes
 
+## 2026-06-06 - Online admin contract gate
+
+Date/time: 2026-06-06 16:05 UTC / 2026-06-06 18:05 Europe/Berlin
+Agent: Pulse
+Context: ONLINE ADMIN cron pass. Profile > Frames and Admin > Frames now have several partial contracts, but the online surface needed one staging gate spanning owner devices, pairing, preferences, cache, subscription/admin data, fleet devices, and role-gated actions.
+What changed: Added `scripts/online-admin-contract-check.sh`, a saved-response or live-URL validator for an `autopoiesis_frames_online_admin_bundle` assembled from Profile/Admin Frames endpoints. Documented the bundle in README, API contract, admin/profile docs, and database notes.
+What needs review: Once the hosted app exposes the relevant endpoints or a staging-only adapter, run the checker against real auth/session data before enabling destructive remote actions.
+Next recommended action: Implement the optional `GET /api/admin/frames/online-admin-bundle` staging adapter or generate the same fixture in CI from the individual Profile/Admin endpoints, then use this gate with backend auth tests.
+
 ## 2026-06-06 - Hosted stream contract verifier
 
 Date/time: 2026-06-06 15:15 UTC / 2026-06-06 17:15 Europe/Berlin

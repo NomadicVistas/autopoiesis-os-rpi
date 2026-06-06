@@ -1,5 +1,41 @@
 # Progress
 
+## 2026-06-06 - Online admin contract gate
+
+Date: 2026-06-06
+
+Milestone: ONLINE ADMIN - Profile/Admin Frames contract
+
+Changed files:
+
+- `scripts/online-admin-contract-check.sh`
+- `README.md`
+- `docs/api-contract.md`
+- `docs/admin-system.md`
+- `docs/online-frames-profile.md`
+- `docs/database-schema.md`
+- `docs/agent-notes/pulse.md`
+- `docs/progress.md`
+- `/data/.openclaw/workspace/autopoiesis-os-program/ROLLING-LOG.md`
+
+Implemented:
+
+- Added `scripts/online-admin-contract-check.sh`, a saved-response or live-URL validator for the hosted Profile > Frames and Admin > Frames bundle.
+- The checker validates user devices, pairing metadata, settings, active artists, liked artworks, cache preferences, users, subscribers, subscriptions, fleet devices, accepted admin roles, remote action policy rows, authorization/audit requirements, and redaction of local-only or sensitive fields.
+- Documented the expected bundle as an optional staging/CI adapter assembled from existing Profile/Admin endpoints, so UI, backend authorization, and Pi command policy can be checked before real fleet actions are enabled.
+
+Verification:
+
+- `node --check local-ui/server.js` passed.
+- `bash -n install.sh update.sh uninstall-dev-tools.sh factory-reset.sh scripts/*.sh` passed.
+- `git diff --check` passed.
+- `scripts/online-admin-contract-check.sh` passed against a representative Profile/Admin bundle fixture.
+- `scripts/security-smoke.sh` passed.
+
+Next step:
+
+Expose or assemble the online admin bundle from durable `aos_` and canonical account/subscription rows, then run `scripts/online-admin-contract-check.sh` against staging auth data before enabling destructive remote actions.
+
 ## 2026-06-06 - Hosted stream contract verifier
 
 Date: 2026-06-06

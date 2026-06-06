@@ -204,6 +204,15 @@ AUTOPOIESIS_STREAM_CONTRACT_TOKEN="$TOKEN" ./scripts/stream-contract-check.sh "h
 
 The stream contract check validates the hosted `GET /api/frames/device/{deviceId}/stream` response before physical Pi testing. It checks schema version, generated timestamps, settings shape, item identity/media/cache/priority/schedule/targeting fields, duplicate ids, and redaction of local-only or sensitive fields.
 
+Validate the hosted Profile/Admin Frames contract before wiring UI or physical fleet actions:
+
+```bash
+./scripts/online-admin-contract-check.sh /path/to/online-admin-bundle.json
+AUTOPOIESIS_ONLINE_ADMIN_CONTRACT_TOKEN="$TOKEN" ./scripts/online-admin-contract-check.sh "https://autopoiesis.art/api/admin/frames/online-admin-bundle"
+```
+
+The online admin contract check validates a saved or live bundle assembled from Profile > Frames and Admin > Frames endpoints. It checks user devices, pairing metadata, settings, active artists, liked artworks, cache preferences, users, subscribers, subscriptions, fleet devices, role-gated remote actions, and redaction of device keys, pairing hashes, private tokens, secrets, and local appliance paths.
+
 Check defensive feed targeting and cache eligibility:
 
 ```bash

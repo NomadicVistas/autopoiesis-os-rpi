@@ -90,3 +90,6 @@ Initial artist examples:
 - clear device cache
 - set cache size limit
 
+## Contract Gate
+
+`scripts/online-admin-contract-check.sh` validates the online Profile > Frames surface together with Admin > Frames. The profile portion must expose owned devices, pairing metadata, authoritative settings, active artists, liked artworks, and cache preferences without leaking stored device keys, pairing-code hashes, private tokens, secrets, or local appliance paths.

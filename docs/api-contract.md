@@ -202,6 +202,30 @@ Settings sync:
 - GET /api/frames/user/devices
 - POST /api/frames/user/devices/pair
 
+Profile/Admin bundle validation:
+
+- GET /api/frames/user/devices
+- GET /api/frames/user/preferences
+- GET /api/frames/user/active-artists
+- GET /api/frames/user/liked-artworks
+- GET /api/frames/user/cache-preferences
+- GET /api/admin/frames/users
+- GET /api/admin/frames/subscribers
+- GET /api/admin/frames/subscriptions
+- GET /api/admin/frames/devices
+- GET /api/admin/frames/remote-actions
+- Optional adapter endpoint: GET /api/admin/frames/online-admin-bundle
+
+`scripts/online-admin-contract-check.sh` validates a saved or live bundle assembled from the online Profile > Frames and Admin > Frames surfaces. The bundle is intentionally a contract fixture, not a required production endpoint; the optional adapter endpoint can assemble the same shape for staging and CI.
+
+The bundle root should include `ok`, `kind: "autopoiesis_frames_online_admin_bundle"`, `schemaVersion: 1`, `generatedAt`, `profileFrames`, and `adminFrames`.
+
+`profileFrames` should include `userId`, `devices`, `pairing` metadata when available, authoritative user/device `preferences`, `activeArtists`, `likedArtworks`, and cache preferences. Device rows should expose owner-safe fields such as device name, pairing/online/remote state, software version, current mode/artwork, heartbeat timestamp, health/release summaries, device settings, subscription summary, and cache summary.
+
+`adminFrames` should include the authenticated `actor`, paged `users`, `subscribers`, `subscriptions`, paged fleet `devices`, and `remoteActions`. Remote action policies must include accepted actor roles, authorization window, high/critical audit-id requirements, and command policy rows for `sync_settings`, `clear_cache`, `restart_display`, `enable_device`, `disable_device`, `restart_device`, `update_device`, and `factory_reset_request`. Medium/high/critical actions must require authorization; high/critical actions must require an audit id; critical actions must require local confirmation.
+
+The contract check rejects sensitive or local-only fields including stored device API keys, pairing-code hashes, private access/refresh tokens, secrets, passwords, and absolute appliance paths.
+
 Device settings conflict behavior:
 
 - Settings payloads should include `updatedAt` as an ISO timestamp. The Pi also accepts legacy `updated_at` and normalizes it locally.

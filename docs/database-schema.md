@@ -108,6 +108,12 @@ User-level defaults synced to all frames unless overridden.
 - offlineFallbackMode
 - updatedAt
 
+Profile/Admin contract notes:
+
+- `scripts/online-admin-contract-check.sh` expects the hosted Profile > Frames surface to derive owned devices from `aos_frame_devices`, user preferences from `aos_frame_user_preferences`, liked artworks from the canonical artwork-like table or an `aos_` mirror, active artists from canonical artist rows plus preference selections, and cache preferences from user/device settings.
+- The Admin > Frames portion should derive users, subscribers, subscriptions, fleet devices, and remote action policies from durable `aos_` rows plus the canonical account/subscription models.
+- The contract intentionally rejects stored device API keys, pairing-code hashes, private tokens, secrets, passwords, and local Pi filesystem paths.
+
 ### ContentFeedItem
 
 - id
