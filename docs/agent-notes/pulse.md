@@ -125,3 +125,12 @@ Context: RPI APPLIANCE cron pass. The Pi 3 software-rendering fix existed, but h
 What changed: Added kiosk launcher dry-run support, `scripts/kiosk-check.sh`, and wired the check into Milestone 2 verification with process flag enforcement.
 What needs review: Run the updated `milestone2-verify.sh` on physical Pi hardware after install/update and kiosk restart.
 Next recommended action: If the kiosk still blanks with these flags, capture `journalctl -u autopoiesis-kiosk.service -n 200 --no-pager` plus `scripts/kiosk-check.sh` output and tune `AUTOPOIESIS_CHROMIUM_FLAGS` per hardware revision.
+
+## 2026-06-06 - Remote action authorization guard
+
+Date/time: 2026-06-06 01:05 UTC / 2026-06-06 03:05 Europe/Berlin
+Agent: Pulse
+Context: ONLINE ADMIN cron pass. Admin > Frames can queue remote actions, but the Pi executor needed a shared command policy so role-gated online actions are not just a UI convention.
+What changed: Added device-side command risk policy and authorization metadata validation for medium/high/critical remote commands. Updated the API and admin docs with the expected online admin authorization/audit shape.
+What needs review: Update the online Frames backend command queueing path to create `authorization` metadata from real authenticated roles and audit rows before sending non-`sync_settings` commands.
+Next recommended action: Add admin command audit persistence in the `aos_` backend tables, then surface denied-command errors in Admin > Frames.

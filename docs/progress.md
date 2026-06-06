@@ -708,3 +708,36 @@ Verification:
 - Local kiosk smoke passed against a temporary local UI server for `/launch` reachability and required Chromium software-rendering flags.
 - Required-process kiosk smoke passed with a simulated Chromium command line carrying the expected Pi-safe flags.
 - `git diff --check` passed.
+
+## 2026-06-06 - Remote action authorization guard
+
+Date: 2026-06-06
+
+Milestone: Online admin remote-action foundation
+
+Changed files:
+
+- `local-ui/server.js`
+- `docs/api-contract.md`
+- `docs/admin-system.md`
+- `docs/agent-notes/pulse.md`
+- `docs/progress.md`
+- `/data/.openclaw/workspace/autopoiesis-os-program/ROLLING-LOG.md`
+
+Implemented:
+
+- Added command risk policy for remote device actions.
+- `sync_settings` remains low-risk and can run without remote authorization metadata.
+- Medium/high/critical commands now require approved authorization metadata with actor, role, and timestamp.
+- High/critical commands also require an admin audit id.
+- Denied commands are reported through the existing command ack error path with policy context.
+
+Verification:
+
+- `node --check local-ui/server.js` passed.
+- `bash -n install.sh update.sh uninstall-dev-tools.sh factory-reset.sh scripts/*.sh` passed.
+- Mock API/local UI smoke passed for missing-authorization rejection and authorized `disable_device` completion.
+
+Next step:
+
+Update the online Frames backend command queueing path to create real audit rows and include authorization metadata before sending non-`sync_settings` commands.

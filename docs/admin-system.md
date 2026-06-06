@@ -35,6 +35,18 @@ The admin system manages Frames users, subscribers, subscriptions, device fleet 
 - Queue factory reset request.
 - View heartbeat, diagnostics, storage, current artwork, and last error.
 
+### Remote Action Authorization
+
+Admin-triggered device commands must be role-gated before they are queued. The admin API should:
+
+- Authenticate the actor and resolve their Frames role.
+- Confirm the actor is allowed to act on the target device, owner, subscriber, or fleet segment.
+- Record an audit row with actor, role, command type, target, reason, payload summary, and timestamp.
+- Queue the command with `authorization.approved`, `authorization.action`, `authorization.actorId`, `authorization.actorRole`, `authorization.authorizedAt`, and `authorization.auditId`.
+- Surface command ack/error/completed status back to Admin > Frames.
+
+The Pi executor now refuses medium/high/critical commands that lack this metadata. `sync_settings` remains the only low-risk command that can run without remote authorization metadata.
+
 ### Broadcasts
 
 - Compose broadcasts.
@@ -56,4 +68,3 @@ The admin system manages Frames users, subscribers, subscriptions, device fleet 
 - Destructive commands require confirmation and audit logs.
 - Device commands are queued and acknowledged; the server does not assume success until the device reports completion.
 - Private billing data stays with the billing provider.
-

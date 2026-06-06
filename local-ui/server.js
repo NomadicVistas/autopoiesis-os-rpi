@@ -17,6 +17,21 @@ const LOG_DIR = process.env.AUTOPOIESIS_LOG_DIR || "/var/log/autopoiesis-os";
 const UPDATE_SCRIPT =
   process.env.AUTOPOIESIS_RELEASE_UPDATE_SCRIPT ||
   path.resolve(__dirname, "../scripts/update-from-release.sh");
+const REMOTE_AUTH_WINDOW_MS = Number(process.env.AUTOPOIESIS_REMOTE_AUTH_WINDOW_MS || 24 * 60 * 60 * 1000);
+
+const COMMAND_POLICIES = {
+  sync_settings: { risk: "low", requiresAuthorization: false },
+  clear_cache: { risk: "medium", requiresAuthorization: true },
+  restart_display: { risk: "medium", requiresAuthorization: true },
+  restart_device: { risk: "high", requiresAuthorization: true },
+  update_device: { risk: "high", requiresAuthorization: true },
+  disable_device: { risk: "high", requiresAuthorization: true },
+  enable_device: { risk: "medium", requiresAuthorization: true },
+  show_broadcast: { risk: "medium", requiresAuthorization: true },
+  factory_reset_request: { risk: "critical", requiresAuthorization: true, requiresLocalConfirmation: true }
+};
+
+const COMMAND_AUTH_ROLES = new Set(["admin", "owner", "support", "ops", "maintainer", "super_admin"]);
 
 const paths = {
   device: path.join(DATA_DIR, "device.json"),
@@ -208,6 +223,78 @@ function parseTimestamp(value) {
 function timestampString(value) {
   const timestamp = parseTimestamp(value);
   return timestamp === null ? null : new Date(timestamp).toISOString();
+}
+
+function commandTypeOf(command = {}) {
+  return command.commandType || command.command_type || null;
+}
+
+function commandPolicy(commandType) {
+  return COMMAND_POLICIES[commandType] || { risk: "unknown", requiresAuthorization: true };
+}
+
+function commandAuthorization(command = {}) {
+  const payload = command.payload && typeof command.payload === "object" ? command.payload : {};
+  const authorization =
+    command.authorization ||
+    command.authorisation ||
+    command.remoteAuthorization ||
+    payload.authorization ||
+    payload.remoteAuthorization ||
+    {};
+  return authorization && typeof authorization === "object" ? authorization : {};
+}
+
+function validateCommandAuthorization(command, commandType, policy = commandPolicy(commandType)) {
+  if (!policy.requiresAuthorization) return { ok: true, policy };
+  const authorization = commandAuthorization(command);
+  const approved = authorization.approved === true || authorization.authorized === true || authorization.confirmed === true;
+  if (!approved) {
+    return { ok: false, policy, error: "Remote command denied: missing authorization.approved" };
+  }
+
+  const action = authorization.action || authorization.commandType || authorization.command_type;
+  if (action && action !== commandType) {
+    return { ok: false, policy, error: "Remote command denied: authorization action mismatch" };
+  }
+
+  const actorId = authorization.actorId || authorization.adminId || authorization.userId || authorization.requestedBy;
+  if (!actorId) {
+    return { ok: false, policy, error: "Remote command denied: missing authorization actor" };
+  }
+
+  const actorRole = String(authorization.actorRole || authorization.role || authorization.adminRole || "").toLowerCase();
+  if (!COMMAND_AUTH_ROLES.has(actorRole)) {
+    return { ok: false, policy, error: "Remote command denied: unauthorized actor role" };
+  }
+
+  const authorizedAt = parseTimestamp(authorization.authorizedAt || authorization.approvedAt || authorization.confirmedAt);
+  if (authorizedAt === null) {
+    return { ok: false, policy, error: "Remote command denied: missing authorization timestamp" };
+  }
+  const now = Date.now();
+  if (authorizedAt > now + 5 * 60 * 1000) {
+    return { ok: false, policy, error: "Remote command denied: authorization timestamp is in the future" };
+  }
+  if (now - authorizedAt > REMOTE_AUTH_WINDOW_MS) {
+    return { ok: false, policy, error: "Remote command denied: authorization expired" };
+  }
+
+  const auditId = authorization.auditId || authorization.actionId || authorization.requestId || authorization.commandId;
+  if ((policy.risk === "high" || policy.risk === "critical") && !auditId) {
+    return { ok: false, policy, error: "Remote command denied: missing admin audit id" };
+  }
+
+  return {
+    ok: true,
+    policy,
+    authorization: {
+      actorId,
+      actorRole,
+      authorizedAt: new Date(authorizedAt).toISOString(),
+      auditId: auditId || null
+    }
+  };
 }
 
 function normalizeSettings(settings = {}) {
@@ -1849,9 +1936,16 @@ async function checkAndApplyRelease(payload = {}) {
 }
 
 async function executeCommand(command) {
-  const commandType = command.commandType || command.command_type;
+  const commandType = commandTypeOf(command);
   const payload = command.payload || {};
-  appendLog("commands.log", "execute " + command.id + " " + commandType);
+  const policy = commandPolicy(commandType);
+  const authorization = validateCommandAuthorization(command, commandType, policy);
+  if (!authorization.ok) {
+    appendLog("commands.log", "refuse " + command.id + " " + commandType + " " + authorization.error);
+    return { ok: false, error: authorization.error, policy };
+  }
+  const actor = authorization.authorization ? " actor=" + authorization.authorization.actorId : "";
+  appendLog("commands.log", "execute " + command.id + " " + commandType + " risk=" + policy.risk + actor);
   if (commandType === "sync_settings") {
     return syncSettingsFromRemote();
   }
@@ -1935,11 +2029,14 @@ async function processCommands() {
       await ackCommand(device.deviceId, command.id, "acknowledged");
       const result = await executeCommand(command);
       if (result && result.ok === false) {
-        await ackCommand(device.deviceId, command.id, "error", { error: result.error || "Command failed" });
+        await ackCommand(device.deviceId, command.id, "error", {
+          error: result.error || "Command failed",
+          policy: result.policy || null
+        });
       } else {
         await ackCommand(device.deviceId, command.id, "completed");
       }
-      results.push({ commandId: command.id, commandType: command.commandType, result });
+      results.push({ commandId: command.id, commandType: commandTypeOf(command), result });
     } catch (error) {
       const message = error.stderr || error.message;
       appendLog("commands-error.log", command.id + " " + message);
@@ -1948,7 +2045,7 @@ async function processCommands() {
       } catch (ackError) {
         appendLog("commands-error.log", command.id + " ack failed " + ackError.message);
       }
-      results.push({ commandId: command.id, commandType: command.commandType, error: message });
+      results.push({ commandId: command.id, commandType: commandTypeOf(command), error: message });
     }
   }
   writeJson(paths.commands, []);

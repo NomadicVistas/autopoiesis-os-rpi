@@ -205,6 +205,34 @@ Commands:
 - GET /api/frames/device/{deviceId}/commands
 - POST /api/frames/device/{deviceId}/commands/{commandId}/ack
 
+Remote command rows returned by heartbeat or `GET /commands` use:
+
+```json
+{
+  "id": "cmd_123",
+  "commandType": "disable_device",
+  "payload": {},
+  "authorization": {
+    "approved": true,
+    "action": "disable_device",
+    "actorId": "admin-user-id",
+    "actorRole": "admin",
+    "authorizedAt": "2026-06-06T01:05:00.000Z",
+    "auditId": "audit_123",
+    "reason": "Support action requested by subscriber."
+  }
+}
+```
+
+Device-side command policy:
+
+- `sync_settings`: low risk, no remote authorization required.
+- `clear_cache`, `restart_display`, `enable_device`, `show_broadcast`: medium risk, require approved authorization metadata.
+- `restart_device`, `update_device`, `disable_device`: high risk, require approved authorization metadata plus an audit id.
+- `factory_reset_request`: critical risk, requires approved authorization metadata plus an audit id, and still refuses execution until local device confirmation exists.
+
+Authorization roles accepted by the Pi executor are `admin`, `owner`, `support`, `ops`, `maintainer`, and `super_admin`. Authorization timestamps expire after 24 hours by default. The device cannot prove server-side role truth; the online admin API must authenticate the actor, check role/ownership, create an audit row, and then queue the command with this metadata.
+
 ## Admin API
 
 Users and subscribers:
