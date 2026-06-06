@@ -1,5 +1,14 @@
 # Pulse Agent Notes
 
+## 2026-06-06 - Support bundle acceptance gate
+
+Date/time: 2026-06-06 20:35 UTC / 2026-06-06 22:35 Europe/Berlin
+Agent: Pulse
+Context: RPI APPLIANCE cron pass. The device already had a rich redacted support bundle, but physical Pi reports and Admin/Profile support adapters needed a direct contract gate instead of relying on partial storage, security, and admin snapshot checks.
+What changed: Added `scripts/support-bundle-check.sh` to validate the support bundle schema, redaction marker, timestamps, health/readiness summaries, runtime storage, input, playback, command policies, event export, and required evidence sections. Wired it into Milestone 2 before the derived admin device snapshot check.
+What needs review: Run the checker on physical paired hardware after real feed/cache sync and at least one command or broadcast attempt so the bundle proves useful under non-empty evidence.
+Next recommended action: Use the validated support bundle as the attachment/source payload for hardware rollout issue reports and future Admin/Profile downloadable support exports.
+
 ## 2026-06-06 - Hosted heartbeat contract gate
 
 Date/time: 2026-06-06 20:15 UTC / 2026-06-06 22:15 Europe/Berlin

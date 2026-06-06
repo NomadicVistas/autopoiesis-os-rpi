@@ -168,6 +168,9 @@ For one-step support handoff, collect the redacted support bundle:
 ```bash
 /opt/autopoiesis-os/app/scripts/support-bundle.sh ./support-bundle.json
 curl -fsS http://127.0.0.1:3030/local/support-bundle
+
+# Validate the collected support contract before attaching it to a report.
+/opt/autopoiesis-os/app/scripts/support-bundle-check.sh
 ```
 
 The bundle combines diagnostics, compact health, rollout readiness, runtime storage writability, clock/NTP summary, touchscreen/input summary, systemd timer summary, active feed state, local frame playback state, offline-cache inventory, recent command audit entries, recent delivery events, recent release history, and the unified device event export. It is intended for hardware validation notes and admin support adapters, and it should stay free of stored device API keys, raw command payloads, release artifact URLs, checksums, and absolute cache asset paths.

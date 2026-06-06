@@ -314,6 +314,12 @@ Collect a redacted local support bundle:
 ./scripts/support-bundle.sh ./support-bundle.json
 ```
 
+Validate the support bundle contract used by hardware reports and Admin/Profile support adapters:
+
+```bash
+./scripts/support-bundle-check.sh
+```
+
 Rollback the last release update on a device after a bad rollout:
 
     sudo /opt/autopoiesis-os/app/scripts/rollback-release.sh

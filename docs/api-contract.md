@@ -136,6 +136,8 @@ Diagnostics fields are intentionally compact and safe for admin/profile/support 
 
 `GET /local/support-bundle` returns a redacted one-shot support object for hardware validation, admin adapters, and handoff reports. It aggregates diagnostics, compact health, readiness, runtime storage writability, system clock/NTP summary, touchscreen/input summary, systemd timer summary, active feed counts/items, local frame state, offline-cache inventory, recent command audit entries, local admin capability policy, recent display delivery events, recent release history events, and the unified device event export. Add `?services=0` to skip systemd service/timer checks, `?auditLimit=50` to tune recent command audit entries, `?deliveryLimit=50` to tune recent delivery events, `?releaseLimit=50` to tune recent release history entries, and `?eventLimit=50` to tune the unified device event export. The bundle intentionally reuses existing redacted endpoint shapes instead of exposing raw command payloads, local cache paths, release artifact URLs, checksums, or stored device API keys.
 
+`scripts/support-bundle-check.sh` validates this support-bundle contract for physical Pi handoffs and Admin/Profile adapters. It checks the schema marker, redaction flag, generated timestamp, device identity, health/readiness summaries, runtime storage booleans, input summary, playback state, command policy matrix, event export shape, and absence of stored device-key fields, raw command payloads, release checksums, and artifact URLs.
+
 Example:
 
 ```json

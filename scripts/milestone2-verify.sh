@@ -91,6 +91,7 @@ echo "8. Local admin capabilities contract"
 
 echo
 echo "9. Admin device snapshot contract"
+"$(dirname "$0")/support-bundle-check.sh"
 "$(dirname "$0")/admin-device-snapshot-check.sh"
 
 echo

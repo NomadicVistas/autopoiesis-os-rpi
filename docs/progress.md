@@ -1,5 +1,41 @@
 # Progress
 
+## 2026-06-06 - Support bundle acceptance gate
+
+Date: 2026-06-06
+
+Milestone: RPI APPLIANCE - support handoff contract
+
+Changed files:
+
+- `scripts/support-bundle-check.sh`
+- `scripts/milestone2-verify.sh`
+- `README.md`
+- `docs/api-contract.md`
+- `docs/troubleshooting.md`
+- `docs/agent-notes/pulse.md`
+- `docs/progress.md`
+- `/data/.openclaw/workspace/autopoiesis-os-program/ROLLING-LOG.md`
+
+Implemented:
+
+- Added `scripts/support-bundle-check.sh`, a read-only verifier for `GET /local/support-bundle`.
+- The checker validates the support-bundle schema marker, redaction flag, generated timestamp, device identity, health/readiness summaries, runtime storage booleans, input summary, playback state, command policy matrix, event export shape, and required support sections.
+- The checker rejects stored device-key field names, raw command payloads, release checksums, and release artifact URLs in the support bundle.
+- Wired the support-bundle gate into Milestone 2 verification before the derived Admin/Profile device snapshot check.
+
+Verification:
+
+- `node --check local-ui/server.js` passed.
+- `bash -n install.sh update.sh uninstall-dev-tools.sh factory-reset.sh scripts/*.sh` passed.
+- `git diff --check` passed.
+- `scripts/support-bundle-check.sh` passed against an isolated local UI in setup mode.
+- `scripts/security-smoke.sh` passed.
+
+Next step:
+
+Run `scripts/support-bundle-check.sh` on the physical Pi after live pairing, feed/cache sync, and at least one command/broadcast attempt; attach the validated bundle to hardware rollout blockers or Admin/Profile support adapter work.
+
 ## 2026-06-06 - Hosted heartbeat contract gate
 
 Date: 2026-06-06
