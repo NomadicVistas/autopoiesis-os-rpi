@@ -18,6 +18,7 @@ const UPDATE_SCRIPT =
   process.env.AUTOPOIESIS_RELEASE_UPDATE_SCRIPT ||
   path.resolve(__dirname, "../scripts/update-from-release.sh");
 const REMOTE_AUTH_WINDOW_MS = Number(process.env.AUTOPOIESIS_REMOTE_AUTH_WINDOW_MS || 24 * 60 * 60 * 1000);
+const COMMAND_AUDIT_LIMIT = Number(process.env.AUTOPOIESIS_COMMAND_AUDIT_LIMIT || 100);
 
 const COMMAND_POLICIES = {
   sync_settings: { risk: "low", requiresAuthorization: false },
@@ -45,7 +46,8 @@ const paths = {
   feedCache: path.join(DATA_DIR, "feed-cache.json"),
   cacheIndex: path.join(DATA_DIR, "cache-index.json"),
   broadcast: path.join(DATA_DIR, "current-broadcast.json"),
-  diagnostics: path.join(DATA_DIR, "diagnostics.json")
+  diagnostics: path.join(DATA_DIR, "diagnostics.json"),
+  commandAudit: path.join(DATA_DIR, "command-audit.json")
 };
 
 const DIAGNOSTIC_SERVICES = [
@@ -294,6 +296,66 @@ function validateCommandAuthorization(command, commandType, policy = commandPoli
       authorizedAt: new Date(authorizedAt).toISOString(),
       auditId: auditId || null
     }
+  };
+}
+
+function commandAuditEntries() {
+  const audit = readJson(paths.commandAudit, []);
+  if (Array.isArray(audit)) return audit;
+  if (Array.isArray(audit.entries)) return audit.entries;
+  return [];
+}
+
+function commandAuditSubject(command, commandType = commandTypeOf(command), policy = commandPolicy(commandType)) {
+  const authorization = commandAuthorization(command);
+  const actorId = authorization.actorId || authorization.adminId || authorization.userId || authorization.requestedBy || null;
+  const actorRole = authorization.actorRole || authorization.role || authorization.adminRole || null;
+  const auditId = authorization.auditId || authorization.actionId || authorization.requestId || authorization.commandId || null;
+  return {
+    commandId: command.id || null,
+    commandType: commandType || "unknown",
+    risk: policy.risk || "unknown",
+    actorId,
+    actorRole: actorRole ? String(actorRole).toLowerCase() : null,
+    auditId,
+    authorizedAt: timestampString(authorization.authorizedAt || authorization.approvedAt || authorization.confirmedAt),
+    approved: authorization.approved === true || authorization.authorized === true || authorization.confirmed === true
+  };
+}
+
+function appendCommandAudit(entry) {
+  const entries = commandAuditEntries();
+  entries.push({
+    observedAt: new Date().toISOString(),
+    ...entry
+  });
+  const limit = Number.isFinite(COMMAND_AUDIT_LIMIT) && COMMAND_AUDIT_LIMIT > 0 ? COMMAND_AUDIT_LIMIT : 100;
+  writeJson(paths.commandAudit, entries.slice(-limit));
+}
+
+function publicCommandAudit(limit = 25) {
+  const entries = commandAuditEntries();
+  const safeLimit = Math.max(1, Math.min(Number(limit) || 25, 100));
+  const recent = entries.slice(-safeLimit).reverse();
+  return {
+    ok: true,
+    count: entries.length,
+    limit: safeLimit,
+    entries: recent
+  };
+}
+
+function commandAuditSummary() {
+  const entries = commandAuditEntries();
+  const last = entries[entries.length - 1] || null;
+  const recent = entries.slice(-10);
+  return {
+    totalEntries: entries.length,
+    lastCommandId: last ? last.commandId || null : null,
+    lastCommandType: last ? last.commandType || null : null,
+    lastStatus: last ? last.status || null : null,
+    lastObservedAt: last ? last.observedAt || null : null,
+    recentErrors: recent.filter(entry => entry.status === "error").length
   };
 }
 
@@ -840,6 +902,7 @@ async function collectDiagnostics(options = {}) {
   const feed = readJson(paths.feed, { syncedAt: null, items: [] });
   const cacheManifest = readJson(paths.feedCache, { generatedAt: null, count: 0 });
   const cacheIndex = readJson(paths.cacheIndex, { generatedAt: null, cachedCount: 0, failedCount: 0, items: [] });
+  const commandAudit = commandAuditSummary();
   const disk = await diskStatus(DATA_DIR);
   const diagnostics = {
     collectedAt: new Date().toISOString(),
@@ -895,6 +958,7 @@ async function collectDiagnostics(options = {}) {
         }
       : null,
     pendingCommands: Array.isArray(commands) ? commands.length : 0,
+    commandAudit,
     feed: {
       syncedAt: feed.syncedAt || null,
       totalItems: Array.isArray(feed.items) ? feed.items.length : 0,
@@ -940,6 +1004,7 @@ function readinessSummary(diagnostics) {
   const feed = diagnostics.feed || {};
   const release = diagnostics.release || null;
   const services = diagnostics.services || null;
+  const commandAudit = diagnostics.commandAudit || {};
   const commandExecutorActive = serviceActive(services, "autopoiesis-command-executor.service");
   const cacheServiceActive = serviceActive(services, "autopoiesis-cache.service");
   const heartbeatServiceActive = serviceActive(services, "autopoiesis-heartbeat.service");
@@ -1002,7 +1067,7 @@ function readinessSummary(diagnostics) {
         : paired && deviceKeyPresent
           ? "Remote command processing is available."
           : "Command processing waits for pairing and device key storage.",
-      { pendingCommands: diagnostics.pendingCommands || 0, commandExecutorActive }
+      { pendingCommands: diagnostics.pendingCommands || 0, commandExecutorActive, commandAudit }
     ),
     release: phase(
       !release || release.status !== "error",
@@ -1064,6 +1129,7 @@ function healthSummary(diagnostics) {
         }
       : null,
     pendingCommands: diagnostics.pendingCommands || 0,
+    commandAudit: diagnostics.commandAudit || null,
     feed: diagnostics.feed || null,
     broadcast: diagnostics.broadcast || null,
     collectedAt: diagnostics.collectedAt || null
@@ -2025,6 +2091,10 @@ async function processCommands() {
   const results = [];
   for (const command of commands) {
     if (!command.id) continue;
+    const commandType = commandTypeOf(command);
+    const policy = commandPolicy(commandType);
+    const auditBase = commandAuditSubject(command, commandType, policy);
+    const startedAt = new Date().toISOString();
     try {
       await ackCommand(device.deviceId, command.id, "acknowledged");
       const result = await executeCommand(command);
@@ -2033,10 +2103,23 @@ async function processCommands() {
           error: result.error || "Command failed",
           policy: result.policy || null
         });
+        appendCommandAudit({
+          ...auditBase,
+          status: "error",
+          startedAt,
+          completedAt: new Date().toISOString(),
+          error: result.error || "Command failed"
+        });
       } else {
         await ackCommand(device.deviceId, command.id, "completed");
+        appendCommandAudit({
+          ...auditBase,
+          status: "completed",
+          startedAt,
+          completedAt: new Date().toISOString()
+        });
       }
-      results.push({ commandId: command.id, commandType: commandTypeOf(command), result });
+      results.push({ commandId: command.id, commandType, result });
     } catch (error) {
       const message = error.stderr || error.message;
       appendLog("commands-error.log", command.id + " " + message);
@@ -2045,7 +2128,14 @@ async function processCommands() {
       } catch (ackError) {
         appendLog("commands-error.log", command.id + " ack failed " + ackError.message);
       }
-      results.push({ commandId: command.id, commandType: commandTypeOf(command), error: message });
+      appendCommandAudit({
+        ...auditBase,
+        status: "error",
+        startedAt,
+        completedAt: new Date().toISOString(),
+        error: message
+      });
+      results.push({ commandId: command.id, commandType, error: message });
     }
   }
   writeJson(paths.commands, []);
@@ -2083,6 +2173,9 @@ async function handle(req, res) {
     }
     if (req.method === "GET" && url.pathname === "/local/offline-cache") {
       return sendJson(res, publicOfflineCache());
+    }
+    if (req.method === "GET" && url.pathname === "/local/commands/audit") {
+      return sendJson(res, publicCommandAudit(url.searchParams.get("limit")));
     }
     const cacheAssetMatch = url.pathname.match(/^\/local\/cache\/assets\/([^/]+)\/(media|thumbnail)$/);
     if ((req.method === "GET" || req.method === "HEAD") && cacheAssetMatch) {

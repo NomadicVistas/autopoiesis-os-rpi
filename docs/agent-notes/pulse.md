@@ -134,3 +134,12 @@ Context: ONLINE ADMIN cron pass. Admin > Frames can queue remote actions, but th
 What changed: Added device-side command risk policy and authorization metadata validation for medium/high/critical remote commands. Updated the API and admin docs with the expected online admin authorization/audit shape.
 What needs review: Update the online Frames backend command queueing path to create `authorization` metadata from real authenticated roles and audit rows before sending non-`sync_settings` commands.
 Next recommended action: Add admin command audit persistence in the `aos_` backend tables, then surface denied-command errors in Admin > Frames.
+
+## 2026-06-06 - Local command audit trail
+
+Date/time: 2026-06-06 01:15 UTC / 2026-06-06 03:15 Europe/Berlin
+Agent: Pulse
+Context: LEAD / INTEGRATION cron pass. The Pi now refuses unsafe remote commands without authorization metadata, but support/admin still needed local evidence of what each device actually attempted.
+What changed: Added bounded metadata-only `command-audit.json` persistence, redacted `GET /local/commands/audit`, and compact command audit summaries inside diagnostics, health, and readiness.
+What needs review: Confirm on physical Pi hardware that the command executor timer writes the audit trail under the installed `frame` user and that support workflows can collect it without exposing payload data.
+Next recommended action: Add backend `aos_` admin command audit rows and queue real authorization metadata from authenticated roles before non-`sync_settings` commands.

@@ -51,9 +51,10 @@ curl -fsS "$BASE_URL/local/diagnostics" >"$TMP_DIR/diagnostics.json" || fail "GE
 curl -fsS "$BASE_URL/local/health" >"$TMP_DIR/health.json" || fail "GET /local/health failed"
 curl -fsS "$BASE_URL/local/readiness" >"$TMP_DIR/readiness.json" || fail "GET /local/readiness failed"
 curl -fsS "$BASE_URL/local/offline-cache" >"$TMP_DIR/offline-cache.json" || fail "GET /local/offline-cache failed"
+curl -fsS "$BASE_URL/local/commands/audit" >"$TMP_DIR/command-audit.json" || fail "GET /local/commands/audit failed"
 
 COMBINED="$TMP_DIR/combined.json"
-cat "$TMP_DIR/status.json" "$TMP_DIR/pairing-status.json" "$TMP_DIR/diagnostics.json" "$TMP_DIR/health.json" "$TMP_DIR/readiness.json" "$TMP_DIR/offline-cache.json" >"$COMBINED"
+cat "$TMP_DIR/status.json" "$TMP_DIR/pairing-status.json" "$TMP_DIR/diagnostics.json" "$TMP_DIR/health.json" "$TMP_DIR/readiness.json" "$TMP_DIR/offline-cache.json" "$TMP_DIR/command-audit.json" >"$COMBINED"
 
 if grep -F "$SECRET" "$COMBINED" >/dev/null; then
   fail "stored device API key leaked through a local JSON endpoint"
@@ -76,4 +77,4 @@ if git -C "$ROOT_DIR" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
   fi
 fi
 
-echo "security smoke passed: local status, pairing status, diagnostics, health, readiness, and offline cache redact device API keys"
+echo "security smoke passed: local status, pairing status, diagnostics, health, readiness, offline cache, and command audit redact device API keys"

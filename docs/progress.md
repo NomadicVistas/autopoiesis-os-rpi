@@ -741,3 +741,39 @@ Verification:
 Next step:
 
 Update the online Frames backend command queueing path to create real audit rows and include authorization metadata before sending non-`sync_settings` commands.
+
+## 2026-06-06 - Local command audit trail
+
+Date: 2026-06-06
+
+Milestone: Lead/integration admin-command reconciliation
+
+Changed files:
+
+- `local-ui/server.js`
+- `scripts/security-smoke.sh`
+- `README.md`
+- `docs/api-contract.md`
+- `docs/admin-system.md`
+- `docs/agent-notes/pulse.md`
+- `docs/progress.md`
+- `/data/.openclaw/workspace/autopoiesis-os-program/ROLLING-LOG.md`
+
+Implemented:
+
+- Added bounded local `command-audit.json` persistence for completed, denied, and failed remote command attempts.
+- Added redacted `GET /local/commands/audit` for support/admin adapters.
+- Heartbeat diagnostics, `/local/health`, and `/local/readiness` now include a compact `commandAudit` summary.
+- Extended the security smoke gate so the command audit endpoint is included in device API key redaction coverage.
+
+Verification:
+
+- `node --check local-ui/server.js` passed.
+- `bash -n install.sh update.sh uninstall-dev-tools.sh factory-reset.sh scripts/*.sh` passed.
+- `git diff --check` passed.
+- `scripts/security-smoke.sh` passed with `/local/commands/audit` included in redaction coverage.
+- Mock Frames API/local UI command audit smoke passed for missing-authorization denial, authorized `disable_device` completion, audit endpoint output, diagnostics/readiness summaries, and device-key redaction.
+
+Next step:
+
+Mirror this device-side command audit trail with durable backend `aos_` admin audit rows and include real authorization metadata when queueing non-`sync_settings` commands.

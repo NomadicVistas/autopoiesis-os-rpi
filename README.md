@@ -28,6 +28,7 @@ Milestone 2 is scaffolded for physical Pi validation. The local UI can:
 - show cached feed media on `/offline` when the live display is unreachable
 - expose a compact `/local/health` probe for support, admin adapters, and hardware acceptance checks
 - expose a phase-level `/local/readiness` probe for setup, pairing, sync, content, cache, commands, and release rollout checks
+- expose a metadata-only `/local/commands/audit` trail for recent remote command attempts
 - run a local security smoke test that checks device API key redaction and tracked secret hygiene
 - run a kiosk check that proves the Chromium launch command uses Pi-safe software rendering flags
 - verify setup, kiosk, HTTP, Chromium, network, and restart behavior on a Pi

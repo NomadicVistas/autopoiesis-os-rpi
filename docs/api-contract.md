@@ -48,6 +48,7 @@ GET  /local/readiness
 GET  /local/diagnostics
 GET  /local/feed
 GET  /local/offline-cache
+GET  /local/commands/audit
 GET  /local/network/status
 POST /local/lan/connect
 GET  /local/wifi/scan
@@ -108,6 +109,7 @@ Diagnostics fields are intentionally compact and safe for admin/profile/support 
 - storage
 - release
 - pendingCommands
+- commandAudit
 - broadcast
 - health
 
@@ -232,6 +234,14 @@ Device-side command policy:
 - `factory_reset_request`: critical risk, requires approved authorization metadata plus an audit id, and still refuses execution until local device confirmation exists.
 
 Authorization roles accepted by the Pi executor are `admin`, `owner`, `support`, `ops`, `maintainer`, and `super_admin`. Authorization timestamps expire after 24 hours by default. The device cannot prove server-side role truth; the online admin API must authenticate the actor, check role/ownership, create an audit row, and then queue the command with this metadata.
+
+Local command audit:
+
+- `POST /local/commands/process` appends one metadata-only audit entry for each completed, denied, or failed command attempt.
+- Entries are stored locally in `command-audit.json` and capped by `AUTOPOIESIS_COMMAND_AUDIT_LIMIT` (default 100).
+- `GET /local/commands/audit?limit=25` returns newest entries first. The endpoint is intended for local support, admin adapters, and hardware validation.
+- Audit entries include command id/type, risk, status, actor id/role when supplied, admin audit id, authorization timestamp, processing timestamps, and error text. They intentionally omit command payloads and stored device API keys.
+- Heartbeat diagnostics and `GET /local/readiness` include a compact `commandAudit` summary with total entries, last command id/type/status, last observed timestamp, and recent error count.
 
 ## Admin API
 

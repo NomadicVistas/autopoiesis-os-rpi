@@ -47,6 +47,8 @@ Admin-triggered device commands must be role-gated before they are queued. The a
 
 The Pi executor now refuses medium/high/critical commands that lack this metadata. `sync_settings` remains the only low-risk command that can run without remote authorization metadata.
 
+The Pi also keeps a bounded local command audit trail for support and reconciliation. `GET /local/commands/audit` exposes newest metadata-only entries, and diagnostics/readiness include a compact command-audit summary. The local trail is not a substitute for backend `aos_` audit rows; it is the device-side evidence that a queued command was attempted, completed, denied, or failed.
+
 ### Broadcasts
 
 - Compose broadcasts.
