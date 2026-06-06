@@ -1,5 +1,41 @@
 # Progress
 
+## 2026-06-07 - Online admin profile cache contract
+
+Date: 2026-06-07
+
+Milestone: ONLINE ADMIN - Profile > Frames contract fidelity
+
+Changed files:
+
+- `scripts/online-admin-contract-check.sh`
+- `README.md`
+- `docs/api-contract.md`
+- `docs/admin-system.md`
+- `docs/online-frames-profile.md`
+- `docs/database-schema.md`
+- `docs/agent-notes/pulse.md`
+- `docs/progress.md`
+- `/data/.openclaw/workspace/autopoiesis-os-program/ROLLING-LOG.md`
+
+Implemented:
+
+- Tightened the hosted online-admin bundle gate so `profileFrames.cachePreferences` is now required.
+- Cache preferences must explicitly expose `enabled`, `likedArtworks`, `recentArtworks`, `selectedArtists`, and `sizeLimitMb`, giving Profile > Frames enough data to render cache policy without guessing from generic settings.
+- Paged `profileFrames.likedArtworks.items` rows now validate the same stable artwork id shape as flat liked-artwork arrays.
+- Updated the online-admin contract docs to make the required cache policy and paged liked-artwork validation explicit.
+
+Verification:
+
+- `scripts/online-admin-contract-check.sh` passed against a representative paged-liked-artwork bundle with explicit cache preferences.
+- `scripts/online-admin-contract-check.sh` rejected a bundle missing `profileFrames.cachePreferences`.
+- `scripts/online-admin-contract-check.sh` rejected a bundle with an incomplete cache preference policy.
+- `scripts/online-admin-contract-check.sh` rejected a paged liked-artwork row without a stable artwork id.
+
+Next step:
+
+Update the hosted Profile > Frames bundle adapter or CI fixture to derive this explicit cache policy from durable user/device settings, then run the hosted suite before enabling cache-management controls in staging.
+
 ## 2026-06-06 - Production cleanup audit gate
 
 Date: 2026-06-06

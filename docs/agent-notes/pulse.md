@@ -1,5 +1,14 @@
 # Pulse Agent Notes
 
+## 2026-06-07 - Online admin profile cache contract
+
+Date/time: 2026-06-06 22:05 UTC / 2026-06-07 00:05 Europe/Berlin
+Agent: Pulse
+Context: ONLINE ADMIN cron pass. The Profile > Frames contract named cache preferences and liked artworks as required surface data, but the checker still allowed missing cache preference policy and did not validate paged liked-artwork item rows.
+What changed: Tightened `scripts/online-admin-contract-check.sh` so `profileFrames.cachePreferences` is required with explicit cache enabled/liked/recent/selected-artist toggles and a size limit. Paged `likedArtworks.items` now validate stable artwork ids like the flat array form.
+What needs review: Hosted staging fixtures or adapters should build cache preferences from durable user/device settings, not frontend defaults. Empty liked-artwork pages are fine, but any returned item must identify the artwork.
+Next recommended action: Run the hosted contract suite with the updated online-admin bundle before enabling Profile > Frames cache-management controls in staging.
+
 ## 2026-06-06 - Production cleanup audit gate
 
 Date/time: 2026-06-06 21:56 UTC / 2026-06-06 23:56 Europe/Berlin

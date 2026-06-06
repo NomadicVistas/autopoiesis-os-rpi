@@ -163,8 +163,11 @@ function validatePreferences(preferences, field) {
   optionalString(preferences.offlineFallbackMode, field + ".offlineFallbackMode");
 }
 
-function validateCache(cache, field) {
-  if (cache === undefined || cache === null) return;
+function validateCache(cache, field, options = {}) {
+  if (cache === undefined || cache === null) {
+    if (options.required) fail(field + " is required");
+    return;
+  }
   if (!isObject(cache)) fail(field + " must be an object when present");
   for (const key of ["enabled", "likedArtworks", "recentArtworks", "selectedArtists"]) {
     optionalBoolean(cache[key], field + "." + key);
@@ -173,6 +176,12 @@ function validateCache(cache, field) {
     optionalNumber(cache[key], field + "." + key);
   }
   optionalIso(cache.lastSyncedAt, field + ".lastSyncedAt");
+  if (options.requirePreferences) {
+    for (const key of ["enabled", "likedArtworks", "recentArtworks", "selectedArtists"]) {
+      if (typeof cache[key] !== "boolean") fail(field + "." + key + " must be an explicit boolean");
+    }
+    if (!Number.isFinite(Number(cache.sizeLimitMb))) fail(field + ".sizeLimitMb is required");
+  }
 }
 
 function validatePairing(pairing, field) {
@@ -376,7 +385,10 @@ function validateProfileFrames(profileFrames) {
   if (profileFrames.preferences === undefined) fail("profileFrames.preferences is required");
   validatePreferences(profileFrames.preferences, "profileFrames.preferences");
   validatePairing(profileFrames.pairing, "profileFrames.pairing");
-  validateCache(profileFrames.cachePreferences || profileFrames.cache, "profileFrames.cachePreferences");
+  validateCache(profileFrames.cachePreferences || profileFrames.cache, "profileFrames.cachePreferences", {
+    required: true,
+    requirePreferences: true
+  });
 
   const activeArtists = asArray(profileFrames.activeArtists, "profileFrames.activeArtists");
   for (const [index, artist] of activeArtists.entries()) {
@@ -387,17 +399,25 @@ function validateProfileFrames(profileFrames) {
     optionalBoolean(artist.enabled, prefix + ".enabled");
   }
 
+  function validateLikedArtwork(artwork, prefix) {
+    if (!isObject(artwork)) fail(prefix + " must be an object");
+    requiredString(artwork.artworkId || artwork.id, prefix + ".artworkId");
+    optionalIso(artwork.likedAt, prefix + ".likedAt");
+    optionalString(artwork.artistId, prefix + ".artistId");
+    optionalString(artwork.title, prefix + ".title");
+  }
+
   const likedArtworks = profileFrames.likedArtworks;
   if (Array.isArray(likedArtworks)) {
     for (const [index, artwork] of likedArtworks.entries()) {
-      const prefix = "profileFrames.likedArtworks[" + index + "]";
-      if (!isObject(artwork)) fail(prefix + " must be an object");
-      requiredString(artwork.artworkId || artwork.id, prefix + ".artworkId");
-      optionalIso(artwork.likedAt, prefix + ".likedAt");
+      validateLikedArtwork(artwork, "profileFrames.likedArtworks[" + index + "]");
     }
   } else if (isObject(likedArtworks)) {
     optionalNumber(likedArtworks.total, "profileFrames.likedArtworks.total");
-    optionalArray(likedArtworks.items, "profileFrames.likedArtworks.items");
+    const items = asArray(likedArtworks.items, "profileFrames.likedArtworks.items");
+    for (const [index, artwork] of items.entries()) {
+      validateLikedArtwork(artwork, "profileFrames.likedArtworks.items[" + index + "]");
+    }
   } else {
     fail("profileFrames.likedArtworks must be an array or page object");
   }
