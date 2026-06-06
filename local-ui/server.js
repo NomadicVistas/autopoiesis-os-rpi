@@ -22,6 +22,7 @@ const COMMAND_AUDIT_LIMIT = Number(process.env.AUTOPOIESIS_COMMAND_AUDIT_LIMIT |
 const DELIVERY_LOG_LIMIT = Number(process.env.AUTOPOIESIS_DELIVERY_LOG_LIMIT || 200);
 const RELEASE_LOG_LIMIT = Number(process.env.AUTOPOIESIS_RELEASE_LOG_LIMIT || 100);
 const HEARTBEAT_EVENT_LIMIT = Number(process.env.AUTOPOIESIS_HEARTBEAT_EVENT_LIMIT || 10);
+const FEED_QUEUE_LIMIT = Number(process.env.AUTOPOIESIS_FEED_QUEUE_LIMIT || 100);
 
 const COMMAND_POLICIES = {
   sync_settings: { risk: "low", requiresAuthorization: false },
@@ -856,6 +857,34 @@ function feedItemTypeAllowed(item, preferences) {
   return true;
 }
 
+function feedItemCategory(item = {}) {
+  const source = String(item.source || "").toLowerCase();
+  const type = String(item.type || "").toLowerCase();
+  if (source === "broadcast" || type.includes("broadcast")) return "broadcast";
+  if (type.includes("curatorial") || type.includes("announcement") || type.includes("notice")) return "curatorial";
+  if (type.includes("blog") || type.includes("essay") || type.includes("post")) return "blog";
+  if (type.includes("news") || type.includes("update")) return "news";
+  if (type.includes("artwork") || type.includes("artist_drop")) return "artwork";
+  if (
+    type.includes("image") ||
+    type.includes("video") ||
+    type.includes("audio") ||
+    type.includes("sound") ||
+    type.includes("generative")
+  ) {
+    return "artwork";
+  }
+  return "content";
+}
+
+function feedCategoryCounts(items = []) {
+  return items.reduce((counts, item) => {
+    const category = feedItemCategory(item);
+    counts[category] = (counts[category] || 0) + 1;
+    return counts;
+  }, {});
+}
+
 function normalizeFeedItem(raw, source, index = 0) {
   if (!raw || typeof raw !== "object") return null;
   const id = raw.id || raw.feedItemId || raw.feed_item_id || raw.artworkId || raw.broadcastId || raw.broadcast_id;
@@ -924,14 +953,60 @@ function eligibleFeedItems(feed = readJson(paths.feed, {}), preferences = readJs
     });
 }
 
+function mixedFeedQueue(feed = readJson(paths.feed, {}), preferences = readJson(paths.preferences, {}), limit = FEED_QUEUE_LIMIT) {
+  const eligibleItems = eligibleFeedItems(feed, preferences);
+  const queueLimit = safeLimit(limit, 100, 500);
+  const categoryOrder = ["broadcast", "curatorial", "artwork", "blog", "news", "content"];
+  const priorityGroups = new Map();
+
+  for (const item of eligibleItems) {
+    const rank = priorityRank(item.priority);
+    if (!priorityGroups.has(rank)) priorityGroups.set(rank, []);
+    priorityGroups.get(rank).push(item);
+  }
+
+  const queue = [];
+  const ranks = Array.from(priorityGroups.keys()).sort((a, b) => b - a);
+  for (const rank of ranks) {
+    const buckets = new Map(categoryOrder.map(category => [category, []]));
+    for (const item of priorityGroups.get(rank) || []) {
+      const category = feedItemCategory(item);
+      if (!buckets.has(category)) buckets.set(category, []);
+      buckets.get(category).push(item);
+    }
+
+    let added = true;
+    while (added && queue.length < queueLimit) {
+      added = false;
+      for (const category of categoryOrder) {
+        const bucket = buckets.get(category) || [];
+        const next = bucket.shift();
+        if (!next) continue;
+        queue.push(next);
+        added = true;
+        if (queue.length >= queueLimit) break;
+      }
+    }
+  }
+
+  return queue.map((item, index) => ({
+    ...item,
+    displayCategory: feedItemCategory(item),
+    displayPosition: index + 1
+  }));
+}
+
 function writeFeedState(feed) {
   writeJson(paths.feed, feed);
-  const cacheItems = eligibleFeedItems(feed)
+  const displayQueue = mixedFeedQueue(feed);
+  const cacheItems = displayQueue
     .filter(item => item.cacheAllowed && (item.mediaUrl || item.thumbnailUrl))
     .map(item => ({
       id: item.id,
       source: item.source,
       type: item.type,
+      displayCategory: item.displayCategory,
+      displayPosition: item.displayPosition,
       mediaUrl: item.mediaUrl,
       thumbnailUrl: item.thumbnailUrl,
       priority: item.priority,
@@ -946,8 +1021,9 @@ function writeFeedState(feed) {
     eventType: "feed_synced",
     source: feed.source || "remote",
     totalItems: Array.isArray(feed.items) ? feed.items.length : 0,
-    eligibleItems: eligibleFeedItems(feed).length,
+    eligibleItems: displayQueue.length,
     cacheEligibleItems: cacheItems.length,
+    categories: feedCategoryCounts(displayQueue),
     syncedAt: feed.syncedAt || null
   });
 }
@@ -955,6 +1031,7 @@ function writeFeedState(feed) {
 function publicFeed() {
   const feed = readJson(paths.feed, { syncedAt: null, items: [] });
   const items = eligibleFeedItems(feed).map(({ raw, ...item }) => item);
+  const displayQueue = mixedFeedQueue(feed).map(({ raw, ...item }) => item);
   const cache = readJson(paths.feedCache, { generatedAt: null, count: 0, items: [] });
   return {
     ok: true,
@@ -962,6 +1039,9 @@ function publicFeed() {
     totalItems: (feed.items || []).length,
     eligibleItems: items.length,
     cacheEligibleItems: cache.count || 0,
+    categories: feedCategoryCounts(items),
+    displayQueueItems: displayQueue.length,
+    displayQueue,
     items
   };
 }
@@ -1378,6 +1458,8 @@ async function collectDiagnostics(options = {}) {
       syncedAt: feed.syncedAt || null,
       totalItems: Array.isArray(feed.items) ? feed.items.length : 0,
       eligibleItems: eligibleFeedItems(feed, data.preferences).length,
+      displayQueueItems: mixedFeedQueue(feed, data.preferences).length,
+      categories: feedCategoryCounts(eligibleFeedItems(feed, data.preferences)),
       cacheEligibleItems: cacheManifest.count || 0,
       cacheManifestGeneratedAt: cacheManifest.generatedAt || null,
       cacheIndexGeneratedAt: cacheIndex.generatedAt || null,
