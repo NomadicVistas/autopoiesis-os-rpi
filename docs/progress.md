@@ -1,5 +1,38 @@
 # Progress
 
+## 2026-06-06 - Event export acceptance gate
+
+Date: 2026-06-06
+
+Milestone: Lead/integration ingestion readiness
+
+Changed files:
+
+- `scripts/events-export-check.sh`
+- `scripts/milestone2-verify.sh`
+- `README.md`
+- `docs/progress.md`
+- `docs/agent-notes/pulse.md`
+- `/data/.openclaw/workspace/autopoiesis-os-program/ROLLING-LOG.md`
+
+Implemented:
+
+- Added a local event export verification script for the unified command, display delivery, and release history feed exposed at `/local/events/export`.
+- The check validates the redacted contract kind/schema, device id, exported counts, allowed sources, parseable timestamps, newest-first ordering, unique event keys, and cursor consistency when events exist.
+- Wired the check into Milestone 2 verification so physical Pi validation proves the event stream is ready for backend `aos_` ingestion alongside health/readiness/kiosk checks.
+
+Verification:
+
+- `node --check local-ui/server.js` passed.
+- `bash -n install.sh update.sh uninstall-dev-tools.sh factory-reset.sh scripts/*.sh` passed.
+- `scripts/security-smoke.sh` passed.
+- `git diff --check` passed.
+- Targeted local smoke passed for seeded command/delivery/release events and for `since` filtering.
+
+Next step:
+
+Implement backend heartbeat event ingestion using `deviceId + eventKey` as the idempotency key, then surface durable command audit, broadcast delivery, and release rollout rows in Admin > Frames.
+
 ## 2026-06-06 - Installer preflight and appliance user bootstrap
 
 Date: 2026-06-06

@@ -1,5 +1,14 @@
 # Pulse Agent Notes
 
+## 2026-06-06 - Event export acceptance gate
+
+Date/time: 2026-06-06 05:15 UTC / 2026-06-06 07:15 Europe/Berlin
+Agent: Pulse
+Context: LEAD / INTEGRATION cron pass. The unified device event export existed, but hardware validation and backend handoff still needed a simple proof that the local contract is usable and redacted.
+What changed: Added `scripts/events-export-check.sh` and wired it into Milestone 2 verification. The check validates kind/schema, redaction, counts, allowed event sources, parseable timestamps, newest-first ordering, unique event keys, and cursor consistency.
+What needs review: Run the updated Milestone 2 verification on physical Pi hardware after at least one command attempt, feed/broadcast display event, and release check so the script validates populated real-device history.
+Next recommended action: Implement backend heartbeat event ingestion with `deviceId + eventKey` idempotency and map events into durable `aos_` command audit, delivery, and rollout rows.
+
 ## 2026-06-06 - Installer preflight and appliance user bootstrap
 
 Date/time: 2026-06-06 04:35 UTC / 2026-06-06 06:35 Europe/Berlin
