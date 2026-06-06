@@ -55,3 +55,20 @@ The local UI also exposes LAN and Wi-Fi setup at:
 ```txt
 http://localhost:3030/network
 ```
+
+## Factory Reset
+
+Use the installed script when a device needs to return to a fresh, unpaired
+state without reinstalling app code:
+
+```bash
+sudo /opt/autopoiesis-os/app/factory-reset.sh --dry-run
+sudo /opt/autopoiesis-os/app/factory-reset.sh
+```
+
+The reset clears local identity, pairing, preferences, network state, pending
+commands, active broadcasts, feed/cache manifests, release state, and local
+support-history JSON. It preserves the installed app code and
+`/var/log/autopoiesis-os`. Use `--keep-support-history` when support needs the
+recent diagnostics/audit/delivery/release JSON files for a handoff before
+re-pairing.

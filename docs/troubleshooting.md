@@ -143,6 +143,24 @@ If a release leaves the frame unhealthy, run the local rollback script from the 
 
 Rollback restores only app code from the previous git revision or the pre-update app snapshot. It intentionally preserves `/var/lib/autopoiesis-os`, including pairing, device API keys, preferences, cache metadata, and support logs.
 
+## Factory Reset
+
+Use factory reset when a frame should become a fresh, unpaired device without
+reinstalling the appliance layer:
+
+```bash
+sudo /opt/autopoiesis-os/app/factory-reset.sh --dry-run
+sudo /opt/autopoiesis-os/app/factory-reset.sh
+```
+
+The script stops the local timers while it clears state, removes local identity,
+pairing, preferences, pending commands, broadcasts, feed/cache manifests,
+release state, and runtime cache directories, then bootstraps a fresh device and
+restarts setup/kiosk services. App code and `/var/log/autopoiesis-os` are
+preserved. Add `--keep-support-history` if `diagnostics.json`,
+`command-audit.json`, `delivery-log.json`, and `release-log.json` should survive
+for a support handoff.
+
 ## Security Smoke
 
 ```bash

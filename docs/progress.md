@@ -1,5 +1,40 @@
 # Progress
 
+## 2026-06-06 - Factory reset state hygiene
+
+Date: 2026-06-06
+
+Milestone: MVP 1.0 - Production installer foundation
+
+Changed files:
+
+- `factory-reset.sh`
+- `README.md`
+- `docs/installation.md`
+- `docs/troubleshooting.md`
+- `docs/progress.md`
+- `docs/agent-notes/pulse.md`
+- `/data/.openclaw/workspace/autopoiesis-os-program/ROLLING-LOG.md`
+
+Implemented:
+
+- Reworked `factory-reset.sh` into a deliberate appliance reset path with `--dry-run`, `--no-restart`, and `--keep-support-history`.
+- Reset now clears local identity, pairing, preferences, network state, pending commands, active broadcasts, feed/cache manifests, release state, rollback metadata, support-history JSON, and runtime cache directories.
+- App code and `/var/log/autopoiesis-os` are preserved; the script bootstraps a fresh unpaired device afterward and re-chowns runtime state/cache directories for the appliance user.
+- When restarting is enabled, the script stops local timers during reset, reinstalls systemd units, and restarts setup/kiosk services.
+
+Verification:
+
+- `node --check local-ui/server.js` passed.
+- `bash -n install.sh update.sh uninstall-dev-tools.sh factory-reset.sh scripts/*.sh` passed.
+- `git diff --check` passed.
+- `scripts/security-smoke.sh` passed.
+- Targeted factory-reset smoke passed against temporary data/cache/install/log directories, confirming stale identity, pairing, command, feed, release, support-history, and cache files are removed while fresh bootstrap files are regenerated.
+
+Next step:
+
+Run `sudo /opt/autopoiesis-os/app/factory-reset.sh --dry-run` and then the real reset on physical Pi hardware, confirm the setup screen returns with a new unpaired device id, and then re-run Milestone 2 verification.
+
 ## 2026-06-06 - Mixed feed display queue
 
 Date: 2026-06-06

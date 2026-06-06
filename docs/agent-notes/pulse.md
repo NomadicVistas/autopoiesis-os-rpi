@@ -1,5 +1,14 @@
 # Pulse Agent Notes
 
+## 2026-06-06 - Factory reset state hygiene
+
+Date/time: 2026-06-06 06:38 UTC / 2026-06-06 08:38 Europe/Berlin
+Agent: Pulse
+Context: RPI APPLIANCE cron pass. The appliance had accumulated local command, feed, cache, release, and support ledgers, but `factory-reset.sh` still only removed the original identity/preferences subset.
+What changed: Reworked `factory-reset.sh` with dry-run/no-restart/support-history options. It now clears identity, pairing, preferences, network state, pending commands, broadcast/feed/cache/release state, rollback metadata, support-history JSON, and runtime cache directories, then bootstraps a fresh unpaired device and re-chowns runtime directories for the appliance user.
+What needs review: Physical Pi validation should confirm the reset returns the touchscreen to setup with a new unpaired device id and that the restarted timers/services remain healthy.
+Next recommended action: Run factory reset on a staged Pi after collecting a support bundle, then re-pair and run `scripts/milestone2-verify.sh`.
+
 ## 2026-06-06 - Mixed feed display queue
 
 Date/time: 2026-06-06 06:25 UTC / 2026-06-06 08:25 Europe/Berlin
