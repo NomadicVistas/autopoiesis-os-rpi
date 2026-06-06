@@ -1,5 +1,41 @@
 # Progress
 
+## 2026-06-06 - Local release rollback script
+
+Date: 2026-06-06
+
+Milestone: MVP 1.0 - Release rollout safety
+
+Changed files:
+
+- `scripts/update-from-release.sh`
+- `scripts/rollback-release.sh`
+- `README.md`
+- `docs/github-updates.md`
+- `docs/troubleshooting.md`
+- `docs/progress.md`
+- `docs/agent-notes/pulse.md`
+- `/data/.openclaw/workspace/autopoiesis-os-program/ROLLING-LOG.md`
+
+Implemented:
+
+- Added a device-local rollback script for the last release update.
+- Git-checkout updates now record rollback metadata before fast-forwarding; artifact updates also snapshot the current app into `/opt/autopoiesis-os/releases/rollback/app` before replacing app files.
+- Rollback restores either the previous git revision or the pre-update app snapshot, reruns bootstrap/systemd unit installation, restarts setup/kiosk services, writes `release-state.json`, and appends metadata-only rollback events to `release-log.json`.
+- Rollback is intentionally app-code only: `/var/lib/autopoiesis-os` is preserved so pairing, device API keys, preferences, cache metadata, and support logs survive.
+
+Verification:
+
+- `node --check local-ui/server.js` passed.
+- `bash -n install.sh update.sh uninstall-dev-tools.sh factory-reset.sh scripts/*.sh` passed.
+- `git diff --check` passed.
+- `scripts/security-smoke.sh` passed.
+- Targeted rollback smoke passed for snapshot restore, release-state/log updates, and preserving device data under `/var/lib/autopoiesis-os`.
+
+Next step:
+
+Run rollback on physical Pi hardware after a staged release update and confirm the frame returns to the previous app version while staying paired.
+
 ## 2026-06-06 - Event export acceptance gate
 
 Date: 2026-06-06

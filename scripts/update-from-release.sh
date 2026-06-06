@@ -7,6 +7,8 @@ INSTALL_DIR="${AUTOPOIESIS_INSTALL_DIR:-/opt/autopoiesis-os}"
 DATA_DIR="${AUTOPOIESIS_DATA_DIR:-/var/lib/autopoiesis-os}"
 LOG_DIR="${AUTOPOIESIS_LOG_DIR:-/var/log/autopoiesis-os}"
 STAGING_DIR="$INSTALL_DIR/releases/staging"
+ROLLBACK_DIR="$INSTALL_DIR/releases/rollback"
+ROLLBACK_BACKUP_DIR=""
 ROLLBACK_FILE="$DATA_DIR/release-rollback.json"
 
 mkdir -p "$LOG_DIR" "$INSTALL_DIR/releases" "$DATA_DIR"
@@ -36,7 +38,9 @@ PREVIOUS_REV=""
 if [[ -d "$APP_DIR/.git" ]]; then
   PREVIOUS_REV="$(git -C "$APP_DIR" rev-parse --short HEAD 2>/dev/null || true)"
 fi
-node -e "const fs=require('fs');fs.writeFileSync(process.argv[1], JSON.stringify({previousVersion:process.argv[2],previousRevision:process.argv[3],targetVersion:process.argv[4],startedAt:new Date().toISOString()}, null, 2)+'\n')" "$ROLLBACK_FILE" "$PREVIOUS_VERSION" "$PREVIOUS_REV" "$VERSION_TARGET"
+write_rollback_metadata() {
+  node -e "const fs=require('fs');const file=process.argv[1];const previousVersion=process.argv[2];const previousRevision=process.argv[3]||null;const targetVersion=process.argv[4];const backupDir=process.argv[5]||null;fs.writeFileSync(file, JSON.stringify({previousVersion,previousRevision,targetVersion,backupDir,startedAt:new Date().toISOString()}, null, 2)+'\n')" "$ROLLBACK_FILE" "$PREVIOUS_VERSION" "$PREVIOUS_REV" "$VERSION_TARGET" "$ROLLBACK_BACKUP_DIR"
+}
 
 if [[ -z "$ARTIFACT_URL" ]]; then
   echo "$(date -Is) release $VERSION_TARGET has no artifact_url; applying git fast-forward without setup-service restart" >> "$LOG_DIR/update.log"
@@ -44,6 +48,7 @@ if [[ -z "$ARTIFACT_URL" ]]; then
     echo "$(date -Is) release update failed: installed app is not a git checkout and no artifact_url was supplied" >> "$LOG_DIR/update.log"
     exit 2
   fi
+  write_rollback_metadata
   git -C "$APP_DIR" fetch origin main
   git -C "$APP_DIR" pull --ff-only origin main
   "$APP_DIR/scripts/bootstrap.sh"
@@ -60,6 +65,12 @@ fi
 TMP_ARCHIVE="$(mktemp -t autopoiesis-release.XXXXXX.tar.gz)"
 cleanup() { rm -f "$TMP_ARCHIVE"; rm -rf "$STAGING_DIR"; }
 trap cleanup EXIT
+
+rm -rf "$ROLLBACK_DIR"
+mkdir -p "$ROLLBACK_DIR/app"
+rsync -a --delete --exclude '.git' --exclude 'node_modules' "$APP_DIR/" "$ROLLBACK_DIR/app/"
+ROLLBACK_BACKUP_DIR="$ROLLBACK_DIR/app"
+write_rollback_metadata
 
 curl -fL "$ARTIFACT_URL" -o "$TMP_ARCHIVE"
 if [[ -n "$CHECKSUM" ]]; then

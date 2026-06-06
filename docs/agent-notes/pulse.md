@@ -1,5 +1,12 @@
 # Pulse Agent Notes
 
+## 2026-06-06 - Local release rollback script
+
+Context: RELEASE / ROLLOUT cron pass. The updater wrote rollback metadata but did not yet provide a repeatable operator path to actually restore the last known app code.
+What changed: Added `scripts/rollback-release.sh` and made artifact updates snapshot the current app before replacement. Rollback restores app code only, preserves `/var/lib/autopoiesis-os`, reruns bootstrap/systemd wiring, restarts setup/kiosk services, and records metadata-only rollback events.
+What needs review: Physical Pi validation should test this after a staged artifact update, including paired-device state and kiosk recovery.
+Next recommended action: Add an authenticated admin rollback command only after backend command audit rows and role metadata are durable.
+
 ## 2026-06-06 - Event export acceptance gate
 
 Date/time: 2026-06-06 05:15 UTC / 2026-06-06 07:15 Europe/Berlin

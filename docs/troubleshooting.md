@@ -136,6 +136,13 @@ curl -fsS http://127.0.0.1:3030/local/support-bundle
 
 The release history endpoint shows recent check/apply lifecycle events without artifact URLs, checksums, stdout/stderr, local paths, or stored device API keys. Use it with `release-state.json` and `/var/log/autopoiesis-os/update.log` when an update command fails.
 
+If a release leaves the frame unhealthy, run the local rollback script from the Pi:
+
+    sudo /opt/autopoiesis-os/app/scripts/rollback-release.sh
+    curl -fsS http://127.0.0.1:3030/local/release/history
+
+Rollback restores only app code from the previous git revision or the pre-update app snapshot. It intentionally preserves `/var/lib/autopoiesis-os`, including pairing, device API keys, preferences, cache metadata, and support logs.
+
 ## Security Smoke
 
 ```bash

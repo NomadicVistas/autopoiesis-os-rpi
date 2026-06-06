@@ -37,6 +37,7 @@ Milestone 2 is scaffolded for physical Pi validation. The local UI can:
 - run a local security smoke test that checks device API key redaction and tracked secret hygiene
 - run an appliance preflight that checks root install mode, Node.js, rsync, curl, systemd, Chromium, NetworkManager, and whether the appliance user exists
 - create the appliance user during install/bootstrap before runtime directories are chowned
+- keep rollback metadata and a pre-update app snapshot for release artifact installs
 - run a kiosk check that proves the Chromium launch command uses Pi-safe software rendering flags
 - run a local watchdog timer that restarts setup/kiosk services only when liveness checks fail
 - reinstall and enable systemd units during install/update so new timers reach existing devices
@@ -102,6 +103,10 @@ Collect a redacted local support bundle:
 ```bash
 ./scripts/support-bundle.sh ./support-bundle.json
 ```
+
+Rollback the last release update on a device after a bad rollout:
+
+    sudo /opt/autopoiesis-os/app/scripts/rollback-release.sh
 
 Run one local cache refresh after a feed sync:
 
