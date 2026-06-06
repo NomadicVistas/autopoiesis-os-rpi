@@ -5,6 +5,7 @@ URL="${AUTOPOIESIS_LAUNCH_URL:-http://localhost:3030/launch}"
 PROFILE_DIR="${AUTOPOIESIS_CHROMIUM_PROFILE:-/var/lib/autopoiesis-os/chromium}"
 WAIT_SECONDS="${AUTOPOIESIS_KIOSK_WAIT_SECONDS:-30}"
 EXTRA_CHROMIUM_FLAGS="${AUTOPOIESIS_CHROMIUM_FLAGS:-}"
+DRY_RUN="${AUTOPOIESIS_KIOSK_DRY_RUN:-0}"
 
 mkdir -p "$PROFILE_DIR"
 
@@ -17,7 +18,10 @@ if command -v curl >/dev/null 2>&1; then
   done
 fi
 
-CHROMIUM_BIN="$(command -v chromium-browser || command -v chromium || true)"
+CHROMIUM_BIN="${AUTOPOIESIS_CHROMIUM_BIN:-}"
+if [[ -z "$CHROMIUM_BIN" ]]; then
+  CHROMIUM_BIN="$(command -v chromium-browser || command -v chromium || true)"
+fi
 if [[ -z "$CHROMIUM_BIN" ]]; then
   echo "Chromium is not installed." >&2
   exit 1
@@ -44,6 +48,12 @@ if [[ -n "$EXTRA_CHROMIUM_FLAGS" ]]; then
   # shellcheck disable=SC2206
   EXTRA_FLAGS=( $EXTRA_CHROMIUM_FLAGS )
   CHROMIUM_FLAGS+=("${EXTRA_FLAGS[@]}")
+fi
+
+if [[ "$DRY_RUN" == "1" ]]; then
+  printf '%q ' "$CHROMIUM_BIN" "${CHROMIUM_FLAGS[@]}" "$URL"
+  printf '\n'
+  exit 0
 fi
 
 exec "$CHROMIUM_BIN" \

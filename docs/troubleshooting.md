@@ -22,6 +22,7 @@ software rendering flags because hardware GL can fail before the UI paints.
 ```bash
 sudo systemctl restart autopoiesis-kiosk.service
 sudo journalctl -u autopoiesis-kiosk.service -n 120 --no-pager
+/opt/autopoiesis-os/app/scripts/kiosk-check.sh
 ```
 
 For hardware-specific testing, add extra flags through

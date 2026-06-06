@@ -676,3 +676,35 @@ Implemented:
 Verification:
 
 - `bash -n scripts/start-kiosk.sh` passed.
+
+## 2026-06-06 - Kiosk launch verification
+
+Date: 2026-06-06
+
+Milestone: Physical Pi kiosk hardening
+
+Changed files:
+
+- `scripts/start-kiosk.sh`
+- `scripts/kiosk-check.sh`
+- `scripts/milestone2-verify.sh`
+- `README.md`
+- `docs/troubleshooting.md`
+- `docs/progress.md`
+- `docs/agent-notes/pulse.md`
+- `/data/.openclaw/workspace/autopoiesis-os-program/ROLLING-LOG.md`
+
+Implemented:
+
+- Added a dry-run mode to the kiosk launcher so support checks can validate the exact Chromium command without starting a browser.
+- Added `scripts/kiosk-check.sh` to assert the launch route is reachable, the launcher includes Pi-safe software rendering flags, and an installed running kiosk process has picked up those flags when required.
+- Wired the kiosk check into `scripts/milestone2-verify.sh` so physical Pi acceptance fails if the kiosk process is still using stale Chromium flags after a restart.
+
+Verification:
+
+- `node --check local-ui/server.js` passed.
+- `bash -n install.sh update.sh uninstall-dev-tools.sh factory-reset.sh scripts/*.sh` passed.
+- `scripts/kiosk-check.sh` passed in dry-run mode without a local server.
+- Local kiosk smoke passed against a temporary local UI server for `/launch` reachability and required Chromium software-rendering flags.
+- Required-process kiosk smoke passed with a simulated Chromium command line carrying the expected Pi-safe flags.
+- `git diff --check` passed.

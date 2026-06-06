@@ -43,6 +43,8 @@ else
   exit 1
 fi
 
+AUTOPOIESIS_REQUIRE_KIOSK_PROCESS=1 "$(dirname "$0")/kiosk-check.sh"
+
 echo
 echo "5. Restart behavior"
 sudo systemctl restart autopoiesis-setup.service autopoiesis-kiosk.service

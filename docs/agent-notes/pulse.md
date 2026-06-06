@@ -116,3 +116,12 @@ Context: LEAD / INTEGRATION cron pass. The feed cache worker could download loca
 What changed: Added a redacted `/local/offline-cache` inventory, safe `/local/cache/assets/{itemId}/{media|thumbnail}` serving from within the cache directory, and a `/offline` cached-media rotation view when playable cached assets exist.
 What needs review: Validate on physical Raspberry Pi hardware after a real feed/cache cycle, including Chromium playback for cached video and touchscreen timing during network recovery.
 Next recommended action: Add cache eviction and storage-pressure policy once the real content feed size is known.
+
+## 2026-06-06 - Kiosk launch verification
+
+Date/time: 2026-06-06 00:35 UTC / 2026-06-06 02:35 Europe/Berlin
+Agent: Pulse
+Context: RPI APPLIANCE cron pass. The Pi 3 software-rendering fix existed, but hardware validation still needed a repeatable way to prove the launcher and running Chromium process actually use those flags.
+What changed: Added kiosk launcher dry-run support, `scripts/kiosk-check.sh`, and wired the check into Milestone 2 verification with process flag enforcement.
+What needs review: Run the updated `milestone2-verify.sh` on physical Pi hardware after install/update and kiosk restart.
+Next recommended action: If the kiosk still blanks with these flags, capture `journalctl -u autopoiesis-kiosk.service -n 200 --no-pager` plus `scripts/kiosk-check.sh` output and tune `AUTOPOIESIS_CHROMIUM_FLAGS` per hardware revision.

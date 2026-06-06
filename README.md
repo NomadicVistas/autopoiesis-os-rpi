@@ -29,6 +29,7 @@ Milestone 2 is scaffolded for physical Pi validation. The local UI can:
 - expose a compact `/local/health` probe for support, admin adapters, and hardware acceptance checks
 - expose a phase-level `/local/readiness` probe for setup, pairing, sync, content, cache, commands, and release rollout checks
 - run a local security smoke test that checks device API key redaction and tracked secret hygiene
+- run a kiosk check that proves the Chromium launch command uses Pi-safe software rendering flags
 - verify setup, kiosk, HTTP, Chromium, network, and restart behavior on a Pi
 
 ## Install
@@ -59,6 +60,12 @@ Check the compact local health summary:
 
 ```bash
 ./scripts/health-check.sh
+```
+
+Check the kiosk launch command and any running kiosk process:
+
+```bash
+./scripts/kiosk-check.sh
 ```
 
 Check rollout readiness across the local integration phases:
