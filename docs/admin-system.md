@@ -49,7 +49,7 @@ The Pi executor now refuses medium/high/critical commands that lack this metadat
 
 Admin/support adapters can call `GET /local/admin/capabilities` or read the same object from `/local/support-bundle` to discover the device-side policy matrix. This endpoint lists supported commands, risk levels, accepted actor roles, audit-id requirements, local confirmation gates, and runtime opt-in requirements. It is not an authorization source of truth; it prevents Admin > Frames from hardcoding stale action policy while the backend remains responsible for real authentication, authorization, and durable `aos_` audit rows.
 
-The Pi also keeps a bounded local command audit trail for support and reconciliation. `GET /local/commands/audit` exposes newest metadata-only entries, and diagnostics/readiness include a compact command-audit summary. The local trail is not a substitute for backend `aos_` audit rows; it is the device-side evidence that a queued command was attempted, completed, denied, or failed.
+The Pi also keeps a bounded local command audit trail for support and reconciliation. `GET /local/commands/audit` exposes newest metadata-only entries, and diagnostics/readiness include a compact command-audit summary. The local trail is not a substitute for backend `aos_` audit rows; it is the device-side evidence that a queued command was attempted, completed, denied, or failed. Backend/admin adapters should prefer the unified `GET /local/events/export` shape, or the heartbeat `events` copy, when ingesting command audit, broadcast delivery, and release rollout evidence into durable `aos_` rows.
 
 ### Broadcasts
 
@@ -58,6 +58,7 @@ The Pi also keeps a bounded local command audit trail for support and reconcilia
 - Send test broadcast.
 - Schedule broadcast.
 - View delivery logs.
+- Ingest device-side display events from heartbeat `events` or `/local/events/export` using `deviceId + eventKey` idempotency.
 
 ### Releases
 
@@ -66,7 +67,7 @@ The Pi also keeps a bounded local command audit trail for support and reconcilia
 - Trigger safe update command.
 - Track rollback refs.
 - Ingest device-side release history events (`release_checked`, `release_apply_started`, `release_apply_completed`, `release_apply_failed`, `release_skipped`) into durable `aos_` rollout rows.
-- Surface per-device rollout status from heartbeat diagnostics/support bundles without relying on raw Pi log files.
+- Surface per-device rollout status from heartbeat diagnostics/events/support bundles without relying on raw Pi log files.
 
 ## Security Rules
 

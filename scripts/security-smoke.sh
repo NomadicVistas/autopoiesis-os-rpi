@@ -56,9 +56,10 @@ curl -fsS "$BASE_URL/local/commands/audit" >"$TMP_DIR/command-audit.json" || fai
 curl -fsS "$BASE_URL/local/admin/capabilities" >"$TMP_DIR/admin-capabilities.json" || fail "GET /local/admin/capabilities failed"
 curl -fsS "$BASE_URL/local/delivery-log" >"$TMP_DIR/delivery-log.json" || fail "GET /local/delivery-log failed"
 curl -fsS "$BASE_URL/local/release/history" >"$TMP_DIR/release-history.json" || fail "GET /local/release/history failed"
+curl -fsS "$BASE_URL/local/events/export" >"$TMP_DIR/events-export.json" || fail "GET /local/events/export failed"
 
 COMBINED="$TMP_DIR/combined.json"
-cat "$TMP_DIR/status.json" "$TMP_DIR/pairing-status.json" "$TMP_DIR/diagnostics.json" "$TMP_DIR/health.json" "$TMP_DIR/readiness.json" "$TMP_DIR/support-bundle.json" "$TMP_DIR/offline-cache.json" "$TMP_DIR/command-audit.json" "$TMP_DIR/admin-capabilities.json" "$TMP_DIR/delivery-log.json" "$TMP_DIR/release-history.json" >"$COMBINED"
+cat "$TMP_DIR/status.json" "$TMP_DIR/pairing-status.json" "$TMP_DIR/diagnostics.json" "$TMP_DIR/health.json" "$TMP_DIR/readiness.json" "$TMP_DIR/support-bundle.json" "$TMP_DIR/offline-cache.json" "$TMP_DIR/command-audit.json" "$TMP_DIR/admin-capabilities.json" "$TMP_DIR/delivery-log.json" "$TMP_DIR/release-history.json" "$TMP_DIR/events-export.json" >"$COMBINED"
 
 if grep -F "$SECRET" "$COMBINED" >/dev/null; then
   fail "stored device API key leaked through a local JSON endpoint"
@@ -77,6 +78,8 @@ grep -F '"deviceKeyPresent": true' "$TMP_DIR/support-bundle.json" >/dev/null || 
 grep -F '"kind": "autopoiesis_frame_admin_capabilities"' "$TMP_DIR/admin-capabilities.json" >/dev/null || fail "/local/admin/capabilities did not expose the expected kind"
 grep -F '"commandType": "disable_device"' "$TMP_DIR/admin-capabilities.json" >/dev/null || fail "/local/admin/capabilities did not list disable_device"
 grep -F '"requiresAuditId": true' "$TMP_DIR/admin-capabilities.json" >/dev/null || fail "/local/admin/capabilities did not expose high-risk audit requirements"
+grep -F '"kind": "autopoiesis_frame_event_export"' "$TMP_DIR/events-export.json" >/dev/null || fail "/local/events/export did not expose the expected kind"
+grep -F '"redacted": true' "$TMP_DIR/events-export.json" >/dev/null || fail "/local/events/export did not identify itself as redacted"
 
 if git -C "$ROOT_DIR" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
   TRACKED_SENSITIVE="$(git -C "$ROOT_DIR" ls-files | grep -E '(^|/)(\.env|.*\.pem|.*\.key|secrets?)(/|$)' || true)"
@@ -86,4 +89,4 @@ if git -C "$ROOT_DIR" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
   fi
 fi
 
-echo "security smoke passed: local status, pairing status, diagnostics, health, readiness, support bundle, offline cache, command audit, admin capabilities, delivery log, and release history redact device API keys"
+echo "security smoke passed: local status, pairing status, diagnostics, health, readiness, support bundle, offline cache, command audit, admin capabilities, delivery log, release history, and event export redact device API keys"

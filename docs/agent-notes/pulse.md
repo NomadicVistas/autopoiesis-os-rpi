@@ -197,3 +197,12 @@ Context: ONLINE ADMIN cron pass. Admin > Frames needs to render remote action co
 What changed: Added redacted `GET /local/admin/capabilities`, included the same object in support bundles, and extended the security smoke test to cover command policy shape and key redaction.
 What needs review: Physical Pi validation should confirm support operators can collect the capability object from a paired frame and that Admin > Frames maps these policies to disabled/confirm/audit-required UI states.
 Next recommended action: Build backend `aos_` admin action audit rows and have Admin > Frames read the capability contract before enabling non-`sync_settings` remote actions.
+
+## 2026-06-06 - Unified device event export
+
+Date/time: 2026-06-06 04:15 UTC / 2026-06-06 06:15 Europe/Berlin
+Agent: Pulse
+Context: LEAD / INTEGRATION cron pass. The Pi had separate local command audit, display delivery, and release history endpoints, but backend/admin ingestion still needed one redacted event shape instead of three endpoint-specific adapters.
+What changed: Added `GET /local/events/export`, included the same bounded export in heartbeat payloads under `events`, and added `deviceEvents` to support bundles. Events carry `source`, stable `eventKey`, and `observedAt` so the backend can persist durable `aos_` rows idempotently.
+What needs review: Backend ingestion must decide the final table mapping, but should treat `deviceId + eventKey` as the idempotency key and ignore repeated heartbeat reports.
+Next recommended action: Add backend heartbeat event ingestion for command audit, broadcast delivery, and release rollout progress, then surface those durable rows in Admin > Frames.

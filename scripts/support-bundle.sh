@@ -25,6 +25,7 @@ const blockers = Array.isArray(summary.blockers) && summary.blockers.length
   ? summary.blockers.map(item => item.phase + ":" + item.status).join(",")
   : "none";
 const release = summary.releaseHistory || {};
+const events = payload.deviceEvents || {};
 
 console.error([
   "Autopoiesis Frame support bundle",
@@ -35,6 +36,7 @@ console.error([
   "issues=" + issues,
   "blockers=" + blockers,
   "release=" + (release.lastStatus || "none") + ":" + (release.lastVersion || "unknown"),
+  "events=" + ((events.counts || {}).exported || 0),
   "offlinePlayable=" + (summary.offlinePlayableItems || 0)
 ].join(" "));
 

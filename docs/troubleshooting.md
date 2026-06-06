@@ -119,7 +119,13 @@ For one-step support handoff, collect the redacted support bundle:
 curl -fsS http://127.0.0.1:3030/local/support-bundle
 ```
 
-The bundle combines diagnostics, compact health, rollout readiness, active feed state, offline-cache inventory, recent command audit entries, recent delivery events, and recent release history. It is intended for hardware validation notes and admin support adapters, and it should stay free of stored device API keys, raw command payloads, release artifact URLs, checksums, and absolute cache asset paths.
+The bundle combines diagnostics, compact health, rollout readiness, active feed state, offline-cache inventory, recent command audit entries, recent delivery events, recent release history, and the unified device event export. It is intended for hardware validation notes and admin support adapters, and it should stay free of stored device API keys, raw command payloads, release artifact URLs, checksums, and absolute cache asset paths.
+
+For backend/admin ingestion checks, fetch the same redacted event stream directly:
+
+```bash
+curl -fsS 'http://127.0.0.1:3030/local/events/export?limit=25'
+```
 
 ## Release Rollout
 
@@ -136,4 +142,4 @@ The release history endpoint shows recent check/apply lifecycle events without a
 /opt/autopoiesis-os/app/scripts/security-smoke.sh
 ```
 
-Run this before production imaging and after changing local JSON endpoints. It verifies that local status, pairing status, diagnostics, health, readiness, support-bundle, offline-cache, command audit, delivery log, and release history responses redact the stored device API key while still reporting safe key-presence flags for support.
+Run this before production imaging and after changing local JSON endpoints. It verifies that local status, pairing status, diagnostics, health, readiness, support-bundle, offline-cache, command audit, delivery log, release history, and event export responses redact the stored device API key while still reporting safe key-presence flags for support.

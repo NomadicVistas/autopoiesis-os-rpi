@@ -53,6 +53,7 @@ GET  /local/commands/audit
 GET  /local/admin/capabilities
 GET  /local/delivery-log
 GET  /local/release/history
+GET  /local/events/export
 GET  /local/network/status
 POST /local/lan/connect
 GET  /local/wifi/scan
@@ -92,6 +93,7 @@ Heartbeat request body includes:
 - networkType
 - storageStatus
 - diagnostics
+- events
 
 Diagnostics fields are intentionally compact and safe for admin/profile/support surfaces:
 
@@ -123,7 +125,7 @@ Diagnostics fields are intentionally compact and safe for admin/profile/support 
 
 `GET /local/readiness` returns a redacted, phase-level rollout snapshot derived from diagnostics. It includes setup/local UI, network, pairing, settings sync, content/feed, cache, command executor, and release phases. Add `?services=0` to skip local systemd service checks when running outside an installed Pi environment.
 
-`GET /local/support-bundle` returns a redacted one-shot support object for hardware validation, admin adapters, and handoff reports. It aggregates diagnostics, compact health, readiness, active feed counts/items, offline-cache inventory, recent command audit entries, local admin capability policy, recent display delivery events, and recent release history events. Add `?services=0` to skip systemd service checks, `?auditLimit=50` to tune recent command audit entries, `?deliveryLimit=50` to tune recent delivery events, and `?releaseLimit=50` to tune recent release history entries. The bundle intentionally reuses existing redacted endpoint shapes instead of exposing raw command payloads, local cache paths, release artifact URLs, checksums, or stored device API keys.
+`GET /local/support-bundle` returns a redacted one-shot support object for hardware validation, admin adapters, and handoff reports. It aggregates diagnostics, compact health, readiness, active feed counts/items, offline-cache inventory, recent command audit entries, local admin capability policy, recent display delivery events, recent release history events, and the unified device event export. Add `?services=0` to skip systemd service checks, `?auditLimit=50` to tune recent command audit entries, `?deliveryLimit=50` to tune recent delivery events, `?releaseLimit=50` to tune recent release history entries, and `?eventLimit=50` to tune the unified event export. The bundle intentionally reuses existing redacted endpoint shapes instead of exposing raw command payloads, local cache paths, release artifact URLs, checksums, or stored device API keys.
 
 Example:
 
@@ -218,6 +220,14 @@ Local delivery log behavior:
 - Broadcast display lifecycle appends `broadcast_shown`, `broadcast_dismissed`, and one-time `broadcast_expired` events.
 - GET /local/delivery-log returns recent events without raw payloads, local file paths, or stored device API keys.
 - Heartbeat diagnostics and `/local/support-bundle` include a compact delivery summary so the backend/admin layer can mirror these events into durable `aos_` delivery rows.
+
+Unified device event export:
+
+- `GET /local/events/export?limit=25` returns one redacted, newest-first event stream built from the command audit trail, display delivery log, and release history.
+- Optional `commandLimit`, `deliveryLimit`, and `releaseLimit` tune per-source bounds; optional `since=<iso timestamp>` filters events newer than that timestamp.
+- Heartbeats include the same shape under `events`, bounded by `AUTOPOIESIS_HEARTBEAT_EVENT_LIMIT` (default 10 per source), so the backend can persist durable `aos_` command audit, broadcast delivery, and release rollout rows without scraping Pi log files.
+- Every exported event includes a stable `source`, `eventKey`, and `observedAt` when available. Backend ingestion should treat `deviceId + eventKey` as idempotent.
+- Exported events intentionally omit raw command payloads, local cache paths, release artifact URLs, checksums, stdout/stderr, and stored device API keys.
 
 Commands:
 

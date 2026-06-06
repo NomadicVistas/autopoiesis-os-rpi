@@ -31,6 +31,7 @@ Milestone 2 is scaffolded for physical Pi validation. The local UI can:
 - expose a redacted `/local/support-bundle` for one-step hardware/support handoff collection
 - expose a metadata-only `/local/commands/audit` trail for recent remote command attempts
 - expose `/local/admin/capabilities` so Admin > Frames can discover role-gated remote action policy
+- expose `/local/events/export` so backend/admin adapters can ingest command, delivery, and release lifecycle evidence through one redacted contract
 - expose a metadata-only `/local/release/history` trail for local release check/apply outcomes
 - run a local security smoke test that checks device API key redaction and tracked secret hygiene
 - run a kiosk check that proves the Chromium launch command uses Pi-safe software rendering flags

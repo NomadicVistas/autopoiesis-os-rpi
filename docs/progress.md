@@ -1000,3 +1000,42 @@ Verification:
 Next step:
 
 Use `/local/admin/capabilities` or its support-bundle copy when building Admin > Frames action buttons, and persist real backend `aos_` audit rows before queueing non-`sync_settings` commands.
+
+## 2026-06-06 - Unified device event export
+
+Date: 2026-06-06
+
+Milestone: Lead/integration backend ingestion contract
+
+Changed files:
+
+- `local-ui/server.js`
+- `scripts/security-smoke.sh`
+- `scripts/support-bundle.sh`
+- `README.md`
+- `docs/api-contract.md`
+- `docs/admin-system.md`
+- `docs/troubleshooting.md`
+- `docs/agent-notes/pulse.md`
+- `docs/progress.md`
+- `/data/.openclaw/workspace/autopoiesis-os-program/ROLLING-LOG.md`
+
+Implemented:
+
+- Added redacted `GET /local/events/export`, a unified newest-first event stream built from local command audit, display delivery, and release history evidence.
+- Heartbeats now include the same bounded event export under `events`, giving the backend one ingestion shape for durable `aos_` command audit, broadcast delivery, and release rollout rows.
+- Support bundles now include `deviceEvents`, and the support-bundle CLI summary reports exported event count.
+- Event exports include stable `source`, `eventKey`, and `observedAt` fields so backend ingestion can use `deviceId + eventKey` idempotency.
+- Extended the local security smoke gate so `/local/events/export` is covered by device-key redaction checks.
+
+Verification:
+
+- `node --check local-ui/server.js` passed.
+- `bash -n install.sh update.sh uninstall-dev-tools.sh factory-reset.sh scripts/*.sh` passed.
+- `git diff --check` passed.
+- `scripts/security-smoke.sh` passed with `/local/events/export` included in device-key redaction coverage.
+- Targeted event export smoke passed for event aggregation, `since` filtering, support-bundle inclusion, heartbeat inclusion, and device-key redaction.
+
+Next step:
+
+Implement backend heartbeat event ingestion into durable `aos_` command audit, broadcast delivery, and release rollout rows, treating repeated `deviceId + eventKey` reports as idempotent.

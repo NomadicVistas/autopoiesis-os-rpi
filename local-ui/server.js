@@ -21,6 +21,7 @@ const REMOTE_AUTH_WINDOW_MS = Number(process.env.AUTOPOIESIS_REMOTE_AUTH_WINDOW_
 const COMMAND_AUDIT_LIMIT = Number(process.env.AUTOPOIESIS_COMMAND_AUDIT_LIMIT || 100);
 const DELIVERY_LOG_LIMIT = Number(process.env.AUTOPOIESIS_DELIVERY_LOG_LIMIT || 200);
 const RELEASE_LOG_LIMIT = Number(process.env.AUTOPOIESIS_RELEASE_LOG_LIMIT || 100);
+const HEARTBEAT_EVENT_LIMIT = Number(process.env.AUTOPOIESIS_HEARTBEAT_EVENT_LIMIT || 10);
 
 const COMMAND_POLICIES = {
   sync_settings: { risk: "low", requiresAuthorization: false },
@@ -408,14 +409,18 @@ function appendCommandAudit(entry) {
   writeJson(paths.commandAudit, entries.slice(-limit));
 }
 
+function safeLimit(value, fallback = 25, max = 100) {
+  return Math.max(1, Math.min(Number(value) || fallback, max));
+}
+
 function publicCommandAudit(limit = 25) {
   const entries = commandAuditEntries();
-  const safeLimit = Math.max(1, Math.min(Number(limit) || 25, 100));
-  const recent = entries.slice(-safeLimit).reverse();
+  const safeEntryLimit = safeLimit(limit);
+  const recent = entries.slice(-safeEntryLimit).reverse();
   return {
     ok: true,
     count: entries.length,
-    limit: safeLimit,
+    limit: safeEntryLimit,
     entries: recent
   };
 }
@@ -514,12 +519,12 @@ function appendDeliveryEvent(entry) {
 
 function publicDeliveryLog(limit = 25) {
   const entries = deliveryEntries();
-  const safeLimit = Math.max(1, Math.min(Number(limit) || 25, 100));
+  const safeEntryLimit = safeLimit(limit);
   return {
     ok: true,
     count: entries.length,
-    limit: safeLimit,
-    entries: entries.slice(-safeLimit).reverse()
+    limit: safeEntryLimit,
+    entries: entries.slice(-safeEntryLimit).reverse()
   };
 }
 
@@ -570,12 +575,12 @@ function appendReleaseEvent(entry) {
 
 function publicReleaseHistory(limit = 25) {
   const entries = releaseEntries();
-  const safeLimit = Math.max(1, Math.min(Number(limit) || 25, 100));
+  const safeEntryLimit = safeLimit(limit);
   return {
     ok: true,
     count: entries.length,
-    limit: safeLimit,
-    entries: entries.slice(-safeLimit).reverse()
+    limit: safeEntryLimit,
+    entries: entries.slice(-safeEntryLimit).reverse()
   };
 }
 
@@ -592,6 +597,127 @@ function releaseHistorySummary() {
     lastVersion: last ? last.version || null : null,
     lastObservedAt: last ? last.observedAt || null : null,
     recentFailures: recent.filter(entry => failureStatuses.has(entry.status) || String(entry.eventType || "").includes("failed")).length
+  };
+}
+
+function eventTimestamp(entry = {}) {
+  return timestampString(entry.observedAt || entry.completedAt || entry.startedAt || entry.syncedAt || entry.checkedAt);
+}
+
+function eventAfterSince(event, sinceTimestamp) {
+  if (sinceTimestamp === null) return true;
+  const observedAt = parseTimestamp(event.observedAt);
+  return observedAt !== null && observedAt > sinceTimestamp;
+}
+
+function publicDeviceEvents(options = {}) {
+  const limit = safeLimit(options.limit, 25, 100);
+  const commandLimit = safeLimit(options.commandLimit || limit, limit, 100);
+  const deliveryLimit = safeLimit(options.deliveryLimit || limit, limit, 100);
+  const releaseLimit = safeLimit(options.releaseLimit || limit, limit, 100);
+  const since = timestampString(options.since);
+  const sinceTimestamp = parseTimestamp(since);
+  const data = status();
+
+  const commandEvents = commandAuditEntries().slice(-commandLimit).map(entry => {
+    const observedAt = eventTimestamp(entry);
+    return {
+      source: "command_audit",
+      eventKey: [
+        "command",
+        observedAt || "unknown",
+        entry.commandId || "unknown",
+        entry.commandType || "unknown",
+        entry.status || "unknown"
+      ].join(":"),
+      observedAt,
+      commandId: entry.commandId || null,
+      commandType: entry.commandType || null,
+      status: entry.status || null,
+      risk: entry.risk || null,
+      actorRole: entry.actorRole || null,
+      auditId: entry.auditId || null,
+      authorizedAt: entry.authorizedAt || null,
+      startedAt: entry.startedAt || null,
+      completedAt: entry.completedAt || null,
+      approved: entry.approved === true
+    };
+  });
+
+  const deliveryEvents = deliveryEntries().slice(-deliveryLimit).map(entry => {
+    const observedAt = eventTimestamp(entry);
+    return {
+      source: "display_delivery",
+      eventKey: "delivery:" + (entry.eventId || [observedAt, entry.eventType, entry.itemId].join(":")),
+      eventId: entry.eventId || null,
+      observedAt,
+      eventType: entry.eventType || null,
+      itemId: entry.itemId || null,
+      itemType: entry.type || null,
+      itemSource: entry.source || null,
+      priority: entry.priority || null,
+      status: entry.status || null,
+      reason: entry.reason || null,
+      totalItems: Number.isFinite(Number(entry.totalItems)) ? Number(entry.totalItems) : null,
+      eligibleItems: Number.isFinite(Number(entry.eligibleItems)) ? Number(entry.eligibleItems) : null,
+      cacheEligibleItems: Number.isFinite(Number(entry.cacheEligibleItems)) ? Number(entry.cacheEligibleItems) : null,
+      syncedAt: entry.syncedAt || null
+    };
+  });
+
+  const releaseEvents = releaseEntries().slice(-releaseLimit).map(entry => {
+    const observedAt = eventTimestamp(entry);
+    return {
+      source: "release_history",
+      eventKey: "release:" + (entry.eventId || [observedAt, entry.eventType, entry.version].join(":")),
+      eventId: entry.eventId || null,
+      observedAt,
+      eventType: entry.eventType || null,
+      status: entry.status || null,
+      releaseId: entry.releaseId || null,
+      rolloutId: entry.rolloutId || null,
+      version: entry.version || null,
+      channel: entry.channel || null,
+      currentVersion: entry.currentVersion || null,
+      targetVersion: entry.targetVersion || null,
+      updateAvailable: entry.updateAvailable === true,
+      reason: entry.reason || null
+    };
+  });
+
+  const events = [...commandEvents, ...deliveryEvents, ...releaseEvents]
+    .filter(event => eventAfterSince(event, sinceTimestamp))
+    .sort((a, b) => (parseTimestamp(b.observedAt) || 0) - (parseTimestamp(a.observedAt) || 0));
+  const latest = events[0] || null;
+
+  return {
+    ok: true,
+    kind: "autopoiesis_frame_event_export",
+    schemaVersion: 1,
+    generatedAt: new Date().toISOString(),
+    redacted: true,
+    since,
+    device: {
+      deviceId: data.device.deviceId || null,
+      deviceName: data.device.deviceName || null,
+      softwareVersion: version()
+    },
+    counts: {
+      commandAudit: commandAuditEntries().length,
+      deliveryLog: deliveryEntries().length,
+      releaseHistory: releaseEntries().length,
+      exported: events.length
+    },
+    limits: {
+      commandAudit: commandLimit,
+      deliveryLog: deliveryLimit,
+      releaseHistory: releaseLimit
+    },
+    cursor: {
+      latestObservedAt: latest ? latest.observedAt || null : null,
+      latestEventKey: latest ? latest.eventKey || null : null
+    },
+    events
   };
 }
 
@@ -1409,6 +1535,11 @@ async function supportBundle(options = {}) {
   const commandAudit = publicCommandAudit(options.auditLimit);
   const deliveryLog = publicDeliveryLog(options.deliveryLimit);
   const releaseHistory = publicReleaseHistory(options.releaseLimit);
+  const deviceEvents = publicDeviceEvents({
+    commandLimit: options.eventLimit || options.auditLimit,
+    deliveryLimit: options.eventLimit || options.deliveryLimit,
+    releaseLimit: options.eventLimit || options.releaseLimit
+  });
   const adminCapabilities = publicAdminCapabilities();
   const issueCodes = ((health.health || {}).issues || []).map(issue => issue.code).filter(Boolean);
   const blockers = Array.isArray(readiness.blockers) ? readiness.blockers : [];
@@ -1456,6 +1587,7 @@ async function supportBundle(options = {}) {
     commandAudit,
     deliveryLog,
     releaseHistory,
+    deviceEvents,
     adminCapabilities
   };
 }
@@ -2232,6 +2364,7 @@ async function sendHeartbeat() {
   const data = status();
   if (!data.device.deviceId || !data.device.paired) return { ok: false, skipped: true, reason: "Device is not paired" };
   const diagnostics = await collectDiagnostics();
+  const events = publicDeviceEvents({ limit: HEARTBEAT_EVENT_LIMIT });
   const result = await apiRequest(`/frames/device/${encodeURIComponent(data.device.deviceId)}/heartbeat`, {
     method: "POST",
     body: JSON.stringify({
@@ -2241,7 +2374,8 @@ async function sendHeartbeat() {
       networkOnline: Boolean(data.state.networkOnline),
       networkType: data.state.networkType || null,
       storageStatus: data.state.storageStatus || diagnostics.storage,
-      diagnostics
+      diagnostics,
+      events
     })
   });
   if (result.settings) applyRemoteSettingsPayload(result, "heartbeat");
@@ -2601,7 +2735,8 @@ async function handle(req, res) {
         includeServices,
         auditLimit: url.searchParams.get("auditLimit") || url.searchParams.get("limit"),
         deliveryLimit: url.searchParams.get("deliveryLimit") || url.searchParams.get("limit"),
-        releaseLimit: url.searchParams.get("releaseLimit") || url.searchParams.get("limit")
+        releaseLimit: url.searchParams.get("releaseLimit") || url.searchParams.get("limit"),
+        eventLimit: url.searchParams.get("eventLimit") || url.searchParams.get("limit")
       }));
     }
     if (req.method === "GET" && url.pathname === "/local/feed") {
@@ -2621,6 +2756,15 @@ async function handle(req, res) {
     }
     if (req.method === "GET" && url.pathname === "/local/release/history") {
       return sendJson(res, publicReleaseHistory(url.searchParams.get("limit")));
+    }
+    if (req.method === "GET" && url.pathname === "/local/events/export") {
+      return sendJson(res, publicDeviceEvents({
+        limit: url.searchParams.get("limit"),
+        commandLimit: url.searchParams.get("commandLimit"),
+        deliveryLimit: url.searchParams.get("deliveryLimit"),
+        releaseLimit: url.searchParams.get("releaseLimit"),
+        since: url.searchParams.get("since")
+      }));
     }
     const cacheAssetMatch = url.pathname.match(/^\/local\/cache\/assets\/([^/]+)\/(media|thumbnail)$/);
     if ((req.method === "GET" || req.method === "HEAD") && cacheAssetMatch) {
