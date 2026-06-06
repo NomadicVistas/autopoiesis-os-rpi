@@ -1075,7 +1075,7 @@ function renderSetup() {
             <div>
               <h2>Start the stream</h2>
               <p>The frame will open the fullscreen living display and keep local setup available at port 3030.</p>
-              <a class="button primary launch${launchDisabled ? " disabled" : ""}" href="${networkOnline && paired ? "/launch" : "#"}"${launchDisabled}>Launch stream</a>
+              <a class="button primary launch${launchDisabled ? " disabled" : ""}" href="${networkOnline && paired ? "/launch?completeOnboarding=1" : "#"}"${launchDisabled}>Launch stream</a>
             </div>
           </li>
         </ol>
@@ -1373,8 +1373,9 @@ async function remoteLaunchReachable(targetUrl) {
   }
 }
 
-async function renderLaunch(res) {
+async function renderLaunch(res, url = new URL("http://localhost/launch")) {
   const data = status();
+  const completingOnboarding = url.searchParams.get("completeOnboarding") === "1";
   if (data.state.remoteDisabled || data.device.remoteEnabled === false) {
     updateState({ currentMode: "disabled" });
     redirect(res, "/disabled");
@@ -1388,6 +1389,18 @@ async function renderLaunch(res) {
     updateState({ currentMode: "setup" });
     redirect(res, "/setup");
     return;
+  }
+  if (!data.device.onboardingComplete && !completingOnboarding) {
+    updateState({ currentMode: "setup" });
+    redirect(res, "/setup");
+    return;
+  }
+  if (completingOnboarding && !data.device.onboardingComplete) {
+    writeJson(paths.device, {
+      ...data.device,
+      onboardingComplete: true,
+      firstRunComplete: true
+    });
   }
   const launchUrl = data.device.framesUrl || "https://autopoiesis.art/display?shuffle=1";
   if (!(await remoteLaunchReachable(launchUrl))) {
@@ -1805,7 +1818,7 @@ async function handle(req, res) {
   const url = new URL(req.url, `http://${req.headers.host}`);
   try {
     if ((req.method === "GET" || req.method === "HEAD") && url.pathname === "/") return redirect(res, "/launch");
-    if ((req.method === "GET" || req.method === "HEAD") && url.pathname === "/launch") return renderLaunch(res);
+    if ((req.method === "GET" || req.method === "HEAD") && url.pathname === "/launch") return renderLaunch(res, url);
     if (req.method === "GET" && url.pathname === "/setup") return html(res, renderSetup());
     if (req.method === "GET" && url.pathname === "/network") return html(res, renderNetwork());
     if (req.method === "GET" && url.pathname === "/settings") return html(res, renderSettings());

@@ -390,6 +390,30 @@ Next step:
 
 Validate the sequence on the physical touchscreen and confirm the copy/buttons fit without scrolling friction.
 
+## 2026-06-06 - Onboarding launch gate
+
+Date: 2026-06-06
+
+Milestone: Appliance first-run UX
+
+Changed files:
+
+- `local-ui/server.js`
+- `docs/progress.md`
+
+Implemented:
+
+- Added explicit `device.onboardingComplete` gating to `/launch`.
+- Already-paired frames no longer skip the setup sequence after installing a new onboarding build.
+- The final Launch Stream button calls `/launch?completeOnboarding=1`, records onboarding completion, then proceeds to the display/offline decision.
+
+Verification:
+
+- `node --check local-ui/server.js` passed.
+- `bash -n install.sh update.sh factory-reset.sh uninstall-dev-tools.sh scripts/*.sh` passed.
+- `git diff --check` passed.
+- Temporary local UI smoke confirmed `/launch` redirects to `/setup` before onboarding completion, and `/launch?completeOnboarding=1` records `onboardingComplete: true`.
+
 ## 2026-06-06 - Online admin diagnostics health readout
 
 Date: 2026-06-06
