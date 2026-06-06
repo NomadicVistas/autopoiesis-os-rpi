@@ -1,5 +1,14 @@
 # Pulse Agent Notes
 
+## 2026-06-06 - Hosted stream contract verifier
+
+Date/time: 2026-06-06 15:15 UTC / 2026-06-06 17:15 Europe/Berlin
+Agent: Pulse
+Context: LEAD / INTEGRATION cron pass. Device-side stream playback and targeting gates are now stable, but backend implementation still needed one sharp response validator before physical Pi testing.
+What changed: Added `scripts/stream-contract-check.sh` to validate saved or live `GET /api/frames/device/{deviceId}/stream` responses for schema, timestamps, stream/settings shape, item identity/media/cache/priority/schedule/targeting fields, duplicate ids, and sensitive/local-only field redaction. Added `docs/agent-notes/backend-stream-contract-issue.md` as the GitHub-style backend issue note for implementing the durable `aos_` stream endpoint.
+What needs review: Run the contract check against the hosted endpoint once backend `/stream` is implemented from durable `aos_` content, broadcast, preference, subscription, and device rows.
+Next recommended action: Implement the hosted stream query, then run `scripts/stream-contract-check.sh`, `scripts/stream-playback-check.sh`, and `scripts/feed-targeting-check.sh` before physical paired-device validation.
+
 ## 2026-06-06 - System clock diagnostics gate
 
 Date/time: 2026-06-06 14:38 UTC / 2026-06-06 16:38 Europe/Berlin

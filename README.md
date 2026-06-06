@@ -195,6 +195,15 @@ Run the local stream/playback integration gate:
 
 This isolated check launches a temporary local UI against a mock Frames API on per-run loopback ports and validates preferred `/stream` sync, legacy `/feed` fallback, artist/category filtering, dashboard rendering, item timing, local like persistence, remote like forwarding, and delivery-log evidence.
 
+Validate a hosted stream response before physical Pi testing:
+
+```bash
+./scripts/stream-contract-check.sh /path/to/stream-response.json
+AUTOPOIESIS_STREAM_CONTRACT_TOKEN="$TOKEN" ./scripts/stream-contract-check.sh "https://autopoiesis.art/api/frames/device/$DEVICE_ID/stream"
+```
+
+The stream contract check validates the hosted `GET /api/frames/device/{deviceId}/stream` response before physical Pi testing. It checks schema version, generated timestamps, settings shape, item identity/media/cache/priority/schedule/targeting fields, duplicate ids, and redaction of local-only or sensitive fields.
+
 Check defensive feed targeting and cache eligibility:
 
 ```bash

@@ -1,5 +1,41 @@
 # Progress
 
+## 2026-06-06 - Hosted stream contract verifier
+
+Date: 2026-06-06
+
+Milestone: LEAD / INTEGRATION - backend stream handoff
+
+Changed files:
+
+- `scripts/stream-contract-check.sh`
+- `README.md`
+- `docs/api-contract.md`
+- `docs/database-schema.md`
+- `docs/agent-notes/backend-stream-contract-issue.md`
+- `docs/agent-notes/pulse.md`
+- `docs/progress.md`
+- `/data/.openclaw/workspace/autopoiesis-os-program/ROLLING-LOG.md`
+
+Implemented:
+
+- Added `scripts/stream-contract-check.sh`, a reusable saved-response or live-URL verifier for `GET /api/frames/device/{deviceId}/stream`.
+- The verifier checks schema version, generated timestamp, stream metadata, optional settings/preferences shape, unique item ids, item identity/media/cache/priority/schedule/targeting fields, displayability, and redaction of local-only or sensitive fields.
+- Added `docs/agent-notes/backend-stream-contract-issue.md`, a GitHub-style backend issue note specifying the durable `aos_` tables, response shape, acceptance checks, and open ownership/subscription/cursor questions for the hosted stream endpoint.
+- Documented the checker in the README, API contract, database schema notes, and Pulse handoff notes.
+
+Verification:
+
+- `node --check local-ui/server.js` passed.
+- `bash -n install.sh update.sh uninstall-dev-tools.sh factory-reset.sh scripts/*.sh` passed.
+- `git diff --check` passed.
+- `scripts/stream-contract-check.sh` passed against a representative fixture.
+- `scripts/security-smoke.sh` passed.
+
+Next step:
+
+Implement the hosted `/api/frames/device/{deviceId}/stream` query from durable `aos_` device, settings, preference, subscription, content, and broadcast rows, then run this contract check before stream playback and feed targeting gates.
+
 ## 2026-06-06 - Command acknowledgement retry gate
 
 Date: 2026-06-06

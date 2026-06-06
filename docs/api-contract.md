@@ -225,6 +225,8 @@ Content stream:
 
 Stream responses should include `schemaVersion`, `generatedAt`, `stream`, optional authoritative `settings`, and `items`. Supported query parameters are `limit`, `after`, `artist`, `artists`, `categories`, and `profile`. The backend should treat saved device settings as authoritative defaults, then apply explicit query filters when present.
 
+Use `scripts/stream-contract-check.sh` to validate a saved or live stream response before handing backend work to device validation. The check enforces schema version, generated timestamp, stream/settings shape, unique item ids, supported priorities, ISO schedule fields, recognized targeting keys, item playability/cache fields, and absence of local-only or sensitive values such as device API keys, pairing-code hashes, private tokens, or absolute appliance paths.
+
 Stream `settings` should mirror the device preferences that can be managed on both website and device: `displayMode`, `streamProfile`, `activeArtists`, `streamCategories`, `allowImages`, `allowVideos`, `allowSoundWorks`, `allowGenerativeWorks`, `autoplay`, `videoAutoplay`, `soundAutoplay`, `soundEnabled`, `volume`, `imageDuration`, `showArtworkInfoOnTap`, and `updatedAt`.
 
 Stream items should expose `id`, `type`, `title`, `artist`, `artistId`, `description` or `body`, `mediaUrl`, `thumbnailUrl`, `durationSeconds` when known, `cacheAllowed`, `priority`, scheduling fields, and remote links such as `url`, `infoUrl`, `blogUrl`, and `exhibitionUrl`. Video, audio, and generative works should be authored for direct autoplay, without activation buttons in the artwork payload.

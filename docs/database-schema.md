@@ -126,6 +126,12 @@ User-level defaults synced to all frames unless overridden.
 - createdAt
 - expiresAt
 
+Query notes:
+
+- `GET /api/frames/device/{deviceId}/stream` should derive its `items` array from durable content rows plus active broadcasts and any mapped artwork/blog/exhibition source rows.
+- Device, owner, subscription, tier, region, country, test-device, explicit exclusion, `startsAt`, and `expiresAt` targeting should be applied in the backend before returning the stream response.
+- `scripts/stream-contract-check.sh` is the backend response gate for the stream shape before physical Pi validation.
+
 ### Broadcast
 
 - id
