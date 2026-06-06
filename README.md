@@ -229,7 +229,7 @@ Validate the hosted Profile/Admin Frames contract before wiring UI or physical f
 AUTOPOIESIS_ONLINE_ADMIN_CONTRACT_TOKEN="$TOKEN" ./scripts/online-admin-contract-check.sh "https://autopoiesis.art/api/admin/frames/online-admin-bundle"
 ```
 
-The online admin contract check validates a saved or live bundle assembled from Profile > Frames and Admin > Frames endpoints. It checks user devices, pairing metadata, settings, active artists, liked artworks, cache preferences, users, subscribers, subscriptions, fleet devices, role-gated remote actions, and redaction of device keys, pairing hashes, private tokens, secrets, and local appliance paths.
+The online admin contract check validates a saved or live bundle assembled from Profile > Frames and Admin > Frames endpoints. It checks user devices, pairing metadata, settings, active artists, liked artworks, cache preferences, users, subscribers, subscriptions, fleet devices, role-gated remote actions, an explicit role/action matrix with denied-action reasons, and redaction of device keys, pairing hashes, private tokens, secrets, and local appliance paths.
 
 Validate the hosted pairing lifecycle before physical Pi/account testing:
 

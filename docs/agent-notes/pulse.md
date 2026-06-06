@@ -1,5 +1,14 @@
 # Pulse Agent Notes
 
+## 2026-06-06 - Online admin role matrix contract
+
+Date/time: 2026-06-06 19:05 UTC / 2026-06-06 21:05 Europe/Berlin
+Agent: Pulse
+Context: ONLINE ADMIN cron pass. The earlier online-admin bundle gate checked command policy rows, but Admin > Frames still needed explicit per-role allow/deny evidence so disabled controls and destructive-action prompts do not drift from backend authorization.
+What changed: Extended `scripts/online-admin-contract-check.sh` to require `show_broadcast` policy coverage and a `roleActionMatrix`/`roleMatrix`/`permissions` section with one explicit decision per accepted actor role and remote command. Allowed risky commands must expose authorization, audit-id, and local-confirmation requirements; denied commands must include a reason.
+What needs review: The hosted staging adapter should assemble this matrix from backend role/ownership/subscription authorization code, not from frontend constants.
+Next recommended action: Wire Admin > Frames action buttons and confirmation copy from the same role matrix used by the bundle, then run the checker against staging before enabling real fleet actions.
+
 ## 2026-06-06 - AOS migration contract gate
 
 Date/time: 2026-06-06 18:45 UTC / 2026-06-06 20:45 Europe/Berlin

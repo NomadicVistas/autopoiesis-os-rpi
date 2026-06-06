@@ -58,6 +58,7 @@ const expectedActions = new Set([
   "disable_device",
   "restart_device",
   "update_device",
+  "show_broadcast",
   "factory_reset_request"
 ]);
 const forbiddenPatterns = [
@@ -70,8 +71,8 @@ const forbiddenPatterns = [
   /apiKey/i,
   /secret/i,
   /password/i,
-  //var/lib/autopoiesis-os/i,
-  //opt/autopoiesis-os/i
+  /\/var\/lib\/autopoiesis-os/i,
+  /\/opt\/autopoiesis-os/i
 ];
 
 function fail(message) {
@@ -263,6 +264,110 @@ function validateRemoteActions(remoteActions, field) {
   for (const action of expectedActions) {
     if (!byType.has(action)) fail(field + " missing command policy for " + action);
   }
+  validateRoleActionMatrix(remoteActions, field, roles, byType);
+}
+
+function normalizeRoleActionRows(matrix, field) {
+  if (Array.isArray(matrix)) {
+    return matrix.map((row, index) => {
+      if (!isObject(row)) fail(field + ".roleActionMatrix[" + index + "] must be an object");
+      requiredString(row.role, field + ".roleActionMatrix[" + index + "].role");
+      return row;
+    });
+  }
+  if (isObject(matrix)) {
+    return Object.entries(matrix).map(([role, value]) => {
+      if (!isObject(value)) fail(field + ".roleActionMatrix." + role + " must be an object");
+      return { role, ...value };
+    });
+  }
+  fail(field + ".roleActionMatrix must be an array or object");
+}
+
+function actionDecisionFromRow(row, action, prefix) {
+  const actions = isObject(row.actions) ? row.actions : row;
+  if (Object.prototype.hasOwnProperty.call(actions, action)) {
+    const decision = actions[action];
+    if (typeof decision === "boolean") return { allowed: decision };
+    if (!isObject(decision)) fail(prefix + "." + action + " must be boolean or object");
+    const allowed =
+      decision.allowed !== undefined ? decision.allowed :
+      decision.permitted !== undefined ? decision.permitted :
+      decision.enabled;
+    if (typeof allowed !== "boolean") fail(prefix + "." + action + ".allowed must be boolean");
+    return { ...decision, allowed };
+  }
+
+  const allowed = optionalArray(row.allowedActions || row.allowed, prefix + ".allowedActions");
+  const denied = optionalArray(row.deniedActions || row.denied || row.blockedActions, prefix + ".deniedActions");
+  if (allowed.includes(action) && denied.includes(action)) fail(prefix + " lists " + action + " as both allowed and denied");
+  if (allowed.includes(action)) return { allowed: true };
+  if (denied.includes(action)) return { allowed: false, reason: row.deniedReasons && row.deniedReasons[action] };
+  fail(prefix + " must include an explicit decision for " + action);
+}
+
+function decisionReason(decision) {
+  return decision.reason || decision.deniedReason || decision.disabledReason || decision.message;
+}
+
+function optionalTrue(value, field) {
+  if (value === undefined || value === null) return;
+  if (value !== true) fail(field + " must be true when present");
+}
+
+function validateRoleActionMatrix(remoteActions, field, roles, commandPolicies) {
+  const matrix = remoteActions.roleActionMatrix || remoteActions.roleMatrix || remoteActions.permissions;
+  if (matrix === undefined || matrix === null) {
+    fail(field + ".roleActionMatrix is required");
+  }
+
+  const rows = normalizeRoleActionRows(matrix, field);
+  const byRole = new Map();
+  for (const [index, row] of rows.entries()) {
+    const prefix = field + ".roleActionMatrix[" + index + "]";
+    if (!allowedRoles.has(row.role)) fail(prefix + ".role is unsupported");
+    if (byRole.has(row.role)) fail(field + ".roleActionMatrix has duplicate role " + row.role);
+    byRole.set(row.role, { row, prefix });
+  }
+
+  let deniedCount = 0;
+  let criticalDeniedCount = 0;
+  for (const role of roles) {
+    const entry = byRole.get(role);
+    if (!entry) fail(field + ".roleActionMatrix missing role " + role);
+    for (const action of expectedActions) {
+      const command = commandPolicies.get(action);
+      const decision = actionDecisionFromRow(entry.row, action, entry.prefix);
+      if (decision.allowed) {
+        const commandRoles = optionalArray(command.acceptedActorRoles, field + ".commands." + action + ".acceptedActorRoles");
+        if (commandRoles.length && !commandRoles.includes(role)) {
+          fail(entry.prefix + "." + action + " allows a role not accepted by command policy");
+        }
+        optionalTrue(decision.requiresAuthorization || decision.authorizationRequired, entry.prefix + "." + action + ".requiresAuthorization");
+        optionalTrue(decision.requiresAuditId || decision.auditRequired, entry.prefix + "." + action + ".requiresAuditId");
+        optionalTrue(decision.requiresLocalConfirmation || decision.localConfirmationRequired, entry.prefix + "." + action + ".requiresLocalConfirmation");
+        if (command.requiresAuthorization && decision.requiresAuthorization !== true && decision.authorizationRequired !== true) {
+          fail(entry.prefix + "." + action + " must expose requiresAuthorization=true");
+        }
+        if (command.requiresAuditId && decision.requiresAuditId !== true && decision.auditRequired !== true) {
+          fail(entry.prefix + "." + action + " must expose requiresAuditId=true");
+        }
+        if (command.requiresLocalConfirmation && decision.requiresLocalConfirmation !== true && decision.localConfirmationRequired !== true) {
+          fail(entry.prefix + "." + action + " must expose requiresLocalConfirmation=true");
+        }
+      } else {
+        deniedCount += 1;
+        if (command.risk === "critical") criticalDeniedCount += 1;
+        const reason = decisionReason(decision);
+        if (typeof reason !== "string" || !reason.trim()) {
+          fail(entry.prefix + "." + action + " denied decisions must include a reason");
+        }
+      }
+    }
+  }
+
+  if (!deniedCount) fail(field + ".roleActionMatrix must include at least one denied action");
+  if (!criticalDeniedCount) fail(field + ".roleActionMatrix must deny at least one critical action");
 }
 
 function validateProfileFrames(profileFrames) {
@@ -378,6 +483,7 @@ validateAdminFrames(payload.adminFrames);
 const profileDeviceCount = payload.profileFrames.devices.length;
 const adminDeviceCount = (payload.adminFrames.devices || payload.adminFrames.deviceFleet).items.length;
 const commandCount = payload.adminFrames.remoteActions.commands.length;
+const roleMatrixCount = Object.keys(payload.adminFrames.remoteActions.roleActionMatrix || payload.adminFrames.remoteActions.roleMatrix || payload.adminFrames.remoteActions.permissions || {}).length;
 
 console.log([
   "Autopoiesis Frames online admin contract",
@@ -386,6 +492,7 @@ console.log([
   "users=" + payload.adminFrames.users.items.length,
   "subscribers=" + payload.adminFrames.subscribers.items.length,
   "subscriptions=" + payload.adminFrames.subscriptions.items.length,
-  "remoteActions=" + commandCount
+  "remoteActions=" + commandCount,
+  "roleMatrixRoles=" + roleMatrixCount
 ].join(" "));
 NODE

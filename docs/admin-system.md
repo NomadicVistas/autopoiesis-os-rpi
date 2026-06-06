@@ -55,7 +55,7 @@ The online backend now creates `aos_admin_command_audits` rows for admin-origina
 
 Heartbeat event ingestion stores the Pi's unified redacted event export in `aos_device_events` using `deviceId + eventKey` idempotency. Recognized command audit, display delivery, and release history events are projected into backend command audit, broadcast delivery, and release rollout rows. Admin device detail includes recent `deviceEvents` so support/UI can inspect device-side evidence without scraping local logs.
 
-`scripts/online-admin-contract-check.sh` is the hosted online-admin acceptance gate for the broader Admin > Frames surface. It validates a saved or live bundle containing users, subscribers, subscriptions, fleet devices, profile-owned devices, pairing metadata, preferences, active artists, liked artworks, cache preferences, and the role-gated remote action matrix. Use it before enabling real fleet actions in staging so UI controls, backend authorization metadata, and device-side policy stay aligned.
+`scripts/online-admin-contract-check.sh` is the hosted online-admin acceptance gate for the broader Admin > Frames surface. It validates a saved or live bundle containing users, subscribers, subscriptions, fleet devices, profile-owned devices, pairing metadata, preferences, active artists, liked artworks, cache preferences, and the role-gated remote action matrix. The matrix must state every accepted role's allow/deny decision for each remote command, expose authorization/audit/local-confirmation requirements for allowed risky commands, and include disabled-action reasons for denied commands. Use it before enabling real fleet actions in staging so UI controls, backend authorization metadata, and device-side policy stay aligned.
 
 ### Broadcasts
 

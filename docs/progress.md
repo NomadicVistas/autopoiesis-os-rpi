@@ -1,5 +1,45 @@
 # Progress
 
+## 2026-06-06 - Online admin role matrix contract
+
+Date: 2026-06-06
+
+Milestone: ONLINE ADMIN - role-gated fleet controls
+
+Changed files:
+
+- `scripts/online-admin-contract-check.sh`
+- `README.md`
+- `docs/api-contract.md`
+- `docs/admin-system.md`
+- `docs/online-frames-profile.md`
+- `docs/agent-notes/pulse.md`
+- `docs/progress.md`
+- `/data/.openclaw/workspace/autopoiesis-os-program/ROLLING-LOG.md`
+
+Implemented:
+
+- Extended the hosted online-admin bundle gate to require `show_broadcast` command policy coverage.
+- Added a required role/action authorization matrix to the online-admin contract.
+- The matrix accepts `roleActionMatrix`, `roleMatrix`, or `permissions`, with one explicit allow/deny decision per accepted actor role and remote command type.
+- Allowed risky commands must expose authorization, audit-id, and local-confirmation requirements so Admin > Frames controls can render prompts from contract data.
+- Denied commands must include a UI-facing reason, and the matrix must include at least one denied action plus one denied critical action before destructive fleet actions are considered staging-ready.
+
+Verification:
+
+- `node --check local-ui/server.js` passed.
+- `bash -n install.sh update.sh uninstall-dev-tools.sh factory-reset.sh scripts/*.sh` passed.
+- `git diff --check` passed.
+- `scripts/online-admin-contract-check.sh` passed against a representative Profile/Admin bundle fixture with admin/support role decisions.
+- `scripts/online-admin-contract-check.sh` rejected a bundle without a role/action matrix.
+- `scripts/online-admin-contract-check.sh` rejected a denied critical action without a UI-facing reason.
+- `scripts/online-admin-contract-check.sh` rejected a bundle leaking a local appliance path.
+- `scripts/security-smoke.sh` passed.
+
+Next step:
+
+Assemble the hosted role/action matrix from real backend authorization checks, then drive Admin > Frames action disabled states and confirmation copy from the same bundle before enabling destructive remote actions in staging.
+
 ## 2026-06-06 - AOS migration contract gate
 
 Date: 2026-06-06
