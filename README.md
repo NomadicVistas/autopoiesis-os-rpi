@@ -181,6 +181,14 @@ Run the local stream/playback integration gate:
 
 This isolated check launches a temporary local UI against a mock Frames API on per-run loopback ports and validates preferred `/stream` sync, legacy `/feed` fallback, artist/category filtering, dashboard rendering, item timing, local like persistence, remote like forwarding, and delivery-log evidence.
 
+Check defensive feed targeting and cache eligibility:
+
+```bash
+./scripts/feed-targeting-check.sh
+```
+
+This isolated check validates local stream targeting for device, owner, subscriber status, tier, and region shapes; expiry/start-time filtering; priority order; public targeting redaction; delivery evidence; and feed cache manifest eligibility.
+
 Collect a redacted local support bundle:
 
 ```bash

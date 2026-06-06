@@ -1,5 +1,14 @@
 # Pulse Agent Notes
 
+## 2026-06-06 - Defensive feed targeting gate
+
+Date/time: 2026-06-06 14:25 UTC / 2026-06-06 16:25 Europe/Berlin
+Agent: Pulse
+Context: BROADCAST / FEED cron pass. The local mixed stream already handled preferences, expiry, priority, cache eligibility, and playback, but normalized feed items only preserved targeting metadata; they did not defensively reject non-matching device/user/subscriber/tier/region targets if the hosted API ever returned them.
+What changed: Added recognized targeting filters in `local-ui/server.js`, redacted targeting metadata from public `/local/feed`, and added `scripts/feed-targeting-check.sh`. The check runs an isolated local UI against a mock Frames API and proves targeted broadcasts/items enter playback, wrong-device/wrong-user/wrong-subscriber/excluded/expired/future items stay out, priority is preserved, cache eligibility stays scoped to displayable items, and delivery evidence is recorded.
+What needs review: Backend stream targeting remains authoritative. The hosted `aos_` stream query should still avoid sending non-targeted content; the Pi guard is a last-mile safety net and regression check.
+Next recommended action: Build the hosted `/api/frames/device/{deviceId}/stream` query from durable content, broadcast, preference, subscriber, and device rows, then run this gate plus stream playback validation on physical paired hardware after a real sync.
+
 ## 2026-06-06 - Stream playback gate hardening
 
 Date/time: 2026-06-06 14:15 UTC / 2026-06-06 16:15 Europe/Berlin

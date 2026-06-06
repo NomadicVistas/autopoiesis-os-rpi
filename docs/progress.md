@@ -1,5 +1,44 @@
 # Progress
 
+## 2026-06-06 - Defensive feed targeting gate
+
+Date: 2026-06-06
+
+Milestone: BROADCAST / FEED - mixed stream targeting and cache eligibility
+
+Changed files:
+
+- `local-ui/server.js`
+- `scripts/feed-targeting-check.sh`
+- `scripts/milestone2-verify.sh`
+- `README.md`
+- `docs/api-contract.md`
+- `docs/broadcast-system.md`
+- `docs/progress.md`
+- `docs/agent-notes/pulse.md`
+- `/data/.openclaw/workspace/autopoiesis-os-program/ROLLING-LOG.md`
+
+Implemented:
+
+- Added defensive local feed targeting for recognized device, owner/user, subscriber status, subscription tier, region/country, test-device, and explicit exclusion target shapes.
+- Preserved backend targeting as the authoritative source, while making the Pi refuse obviously non-matching feed items or broadcasts before they enter `/local/feed`, `/local/frame-state`, cache manifests, or kiosk playback.
+- Redacted normalized targeting metadata from public `/local/feed` responses after eligibility evaluation, closing a small local privacy leak for target lists.
+- Added `scripts/feed-targeting-check.sh`, an isolated local UI + mock Frames API gate for targeting, expiry/start-time filtering, priority order, public redaction, delivery evidence, and cache eligibility.
+- Wired the targeting gate into `scripts/milestone2-verify.sh` after the stream playback integration gate.
+
+Verification:
+
+- `node --check local-ui/server.js` passed.
+- `bash -n install.sh update.sh uninstall-dev-tools.sh factory-reset.sh scripts/*.sh` passed.
+- `git diff --check` passed.
+- `scripts/security-smoke.sh` passed.
+- `scripts/feed-targeting-check.sh` passed.
+- `scripts/stream-playback-check.sh` passed.
+
+Next step:
+
+Implement the hosted `GET /api/frames/device/{deviceId}/stream` path so durable `aos_` rows emit the same targeting/cache/priority fields this device-side gate now validates, then run the gate on physical paired hardware after a live stream sync.
+
 ## 2026-06-06 - Stream playback gate hardening
 
 Date: 2026-06-06

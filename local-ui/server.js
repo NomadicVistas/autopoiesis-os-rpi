@@ -1017,6 +1017,115 @@ function normalizedList(value) {
   return [];
 }
 
+function normalizedTargetValues(value) {
+  if (value === null || value === undefined) return [];
+  if (Array.isArray(value)) return value.flatMap(item => normalizedTargetValues(item));
+  if (typeof value === "object") {
+    return normalizedTargetValues(
+      value.id ||
+        value.value ||
+        value.targetValue ||
+        value.deviceId ||
+        value.userId ||
+        value.ownerUserId ||
+        value.subscriptionStatus ||
+        value.subscriptionTier ||
+        value.tier ||
+        value.region ||
+        value.country ||
+        value.slug ||
+        value.name
+    );
+  }
+  return String(value)
+    .split(",")
+    .map(item => item.trim().toLowerCase())
+    .filter(Boolean);
+}
+
+function targetCandidates(...values) {
+  return normalizedTargetValues(values).filter(Boolean);
+}
+
+function targetMatches(values, candidates) {
+  const normalizedValues = normalizedTargetValues(values);
+  if (!normalizedValues.length) return false;
+  const normalizedCandidates = targetCandidates(candidates);
+  return normalizedValues.some(value => normalizedCandidates.includes(value));
+}
+
+function targetedByType(type, values, device = {}) {
+  const targetType = String(type || "").toLowerCase().replace(/[-_ ]+/g, "_");
+  if (!targetType || ["all", "everyone", "public", "fleet"].includes(targetType)) return true;
+  if (["device", "devices", "device_id", "specific_device"].includes(targetType)) {
+    return targetMatches(values, [device.deviceId, device.id]);
+  }
+  if (["user", "users", "owner", "owner_user", "owner_user_id", "account"].includes(targetType)) {
+    return targetMatches(values, [device.ownerUserId, device.userId]);
+  }
+  if (["subscriber", "subscribers", "subscription_status", "subscriber_status"].includes(targetType)) {
+    return targetMatches(values, [device.subscriptionStatus, device.subscriberStatus]);
+  }
+  if (["tier", "subscription_tier", "subscriber_tier"].includes(targetType)) {
+    return targetMatches(values, [device.subscriptionTier, device.tier, device.plan]);
+  }
+  if (["region", "country", "locale"].includes(targetType)) {
+    return targetMatches(values, [device.region, device.country, device.locale]);
+  }
+  if (["test", "test_device", "development", "development_device"].includes(targetType)) {
+    const truthy = Boolean(device.testDevice || device.isTest || device.developmentDevice || device.environment === "development");
+    return truthy === true;
+  }
+  return true;
+}
+
+function feedItemTargetAllowed(item = {}, device = readJson(paths.device, {})) {
+  const targeting = item.visibility || (item.raw || {}).targeting || (item.raw || {}).visibility || null;
+  if (!targeting) return true;
+
+  if (typeof targeting === "string") {
+    const value = targeting.trim().toLowerCase();
+    if (!value || ["all", "everyone", "public", "fleet", "active_subscribers", "subscribers"].includes(value)) return true;
+    return true;
+  }
+
+  if (Array.isArray(targeting)) {
+    const scopedTargets = targeting.filter(target => target && typeof target === "object");
+    if (!scopedTargets.length) return true;
+    return scopedTargets.some(target => feedItemTargetAllowed({ ...item, visibility: target }, device));
+  }
+
+  if (typeof targeting !== "object") return true;
+
+  const excluded = [
+    ["deviceIds", [targeting.excludeDeviceIds, targeting.excludedDeviceIds, targeting.blockedDeviceIds], [device.deviceId, device.id]],
+    ["userIds", [targeting.excludeUserIds, targeting.excludedUserIds, targeting.blockedUserIds], [device.ownerUserId, device.userId]]
+  ];
+  for (const [, values, candidates] of excluded) {
+    if (targetMatches(values, candidates)) return false;
+  }
+
+  const explicitTargetType = targeting.type || targeting.targetType || targeting.scope || targeting.kind;
+  if (explicitTargetType) {
+    return targetedByType(
+      explicitTargetType,
+      targeting.value || targeting.targetValue || targeting.values || targeting.ids || targeting.id,
+      device
+    );
+  }
+
+  const allowChecks = [
+    { values: [targeting.deviceId, targeting.deviceIds, targeting.devices, targeting.targetDeviceIds], candidates: [device.deviceId, device.id] },
+    { values: [targeting.userId, targeting.userIds, targeting.ownerUserId, targeting.ownerUserIds, targeting.users, targeting.owners, targeting.targetUserIds], candidates: [device.ownerUserId, device.userId] },
+    { values: [targeting.subscriptionStatus, targeting.subscriptionStatuses, targeting.subscriberStatus, targeting.subscriberStatuses], candidates: [device.subscriptionStatus, device.subscriberStatus] },
+    { values: [targeting.subscriptionTier, targeting.subscriptionTiers, targeting.tier, targeting.tiers], candidates: [device.subscriptionTier, device.tier, device.plan] },
+    { values: [targeting.region, targeting.regions, targeting.country, targeting.countries], candidates: [device.region, device.country, device.locale] }
+  ];
+  const explicitAllowChecks = allowChecks.filter(check => normalizedTargetValues(check.values).length > 0);
+  if (!explicitAllowChecks.length) return true;
+  return explicitAllowChecks.some(check => targetMatches(check.values, check.candidates));
+}
+
 function itemIdentityCandidates(item = {}) {
   const raw = item.raw || {};
   return [
@@ -1120,12 +1229,14 @@ function normalizeFeedPayload(payload = {}) {
 
 function eligibleFeedItems(feed = readJson(paths.feed, {}), preferences = readJson(paths.preferences, {})) {
   const now = Date.now();
+  const device = readJson(paths.device, {});
   return (feed.items || [])
     .filter(item => !isExpired(item.expiresAt, now))
     .filter(item => {
       const startsAt = parseTimestamp(item.startsAt);
       return startsAt === null || startsAt <= now;
     })
+    .filter(item => feedItemTargetAllowed(item, device))
     .filter(item => feedItemTypeAllowed(item, preferences))
     .filter(item => feedItemArtistAllowed(item, preferences))
     .filter(item => feedItemStreamAllowed(item, preferences))
@@ -1217,8 +1328,8 @@ function writeFeedState(feed) {
 function publicFeed() {
   const feed = readJson(paths.feed, { syncedAt: null, items: [] });
   const preferences = readJson(paths.preferences, {});
-  const items = eligibleFeedItems(feed, preferences).map(({ raw, ...item }) => item);
-  const displayQueue = mixedFeedQueue(feed, preferences).map(({ raw, ...item }) => item);
+  const items = eligibleFeedItems(feed, preferences).map(({ raw, visibility, ...item }) => item);
+  const displayQueue = mixedFeedQueue(feed, preferences).map(({ raw, visibility, ...item }) => item);
   const cache = readJson(paths.feedCache, { generatedAt: null, count: 0, items: [] });
   return {
     ok: true,
