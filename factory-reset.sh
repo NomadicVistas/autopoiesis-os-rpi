@@ -138,6 +138,7 @@ RUNTIME_FILES=(
   feed.json
   feed-cache.json
   cache-index.json
+  event-cursor.json
   release.json
   release-state.json
   release-rollback.json

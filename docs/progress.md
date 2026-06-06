@@ -1,5 +1,39 @@
 # Progress
 
+## 2026-06-06 - Heartbeat event ingestion cursor
+
+Date: 2026-06-06
+
+Milestone: API / database / sync ingestion readiness
+
+Changed files:
+
+- `local-ui/server.js`
+- `factory-reset.sh`
+- `docs/api-contract.md`
+- `docs/progress.md`
+- `docs/agent-notes/pulse.md`
+- `/data/.openclaw/workspace/autopoiesis-os-program/ROLLING-LOG.md`
+
+Implemented:
+
+- Added a redacted local `event-cursor.json` contract for backend heartbeat event ingestion acknowledgements.
+- Heartbeats now send the previous `eventIngestionCursor` when present, replay events from the accepted timestamp with a small overlap window, and persist compatible backend acknowledgements from `eventsAck`, `eventAck`, `deviceEventsAck`, or `eventIngestionCursor`.
+- Diagnostics, `/local/events/export`, and support bundles now expose a compact event-ingestion summary so Admin/support can see what event pointer the API last accepted.
+- Factory reset clears the event cursor with other local runtime/sync state.
+
+Verification:
+
+- `node --check local-ui/server.js` passed.
+- `bash -n install.sh update.sh uninstall-dev-tools.sh factory-reset.sh scripts/*.sh` passed.
+- `git diff --check` passed.
+- `scripts/security-smoke.sh` passed.
+- Targeted heartbeat mock passed for initial event export, backend `eventsAck` persistence, follow-up heartbeat replay using the stored cursor, diagnostics/support-bundle visibility, and device API key redaction.
+
+Next step:
+
+Implement backend heartbeat ingestion into durable `aos_` event tables and return `eventsAck` with the accepted event pointer so Pi devices can advance this cursor without losing idempotent replay safety.
+
 ## 2026-06-06 - Factory reset state hygiene
 
 Date: 2026-06-06

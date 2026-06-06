@@ -23,6 +23,7 @@ const DELIVERY_LOG_LIMIT = Number(process.env.AUTOPOIESIS_DELIVERY_LOG_LIMIT || 
 const RELEASE_LOG_LIMIT = Number(process.env.AUTOPOIESIS_RELEASE_LOG_LIMIT || 100);
 const HEARTBEAT_EVENT_LIMIT = Number(process.env.AUTOPOIESIS_HEARTBEAT_EVENT_LIMIT || 10);
 const FEED_QUEUE_LIMIT = Number(process.env.AUTOPOIESIS_FEED_QUEUE_LIMIT || 100);
+const EVENT_CURSOR_OVERLAP_MS = Number(process.env.AUTOPOIESIS_EVENT_CURSOR_OVERLAP_MS || 1000);
 
 const COMMAND_POLICIES = {
   sync_settings: { risk: "low", requiresAuthorization: false },
@@ -53,7 +54,8 @@ const paths = {
   diagnostics: path.join(DATA_DIR, "diagnostics.json"),
   commandAudit: path.join(DATA_DIR, "command-audit.json"),
   deliveryLog: path.join(DATA_DIR, "delivery-log.json"),
-  releaseLog: path.join(DATA_DIR, "release-log.json")
+  releaseLog: path.join(DATA_DIR, "release-log.json"),
+  eventCursor: path.join(DATA_DIR, "event-cursor.json")
 };
 
 const DIAGNOSTIC_SERVICES = [
@@ -745,7 +747,126 @@ function publicDeviceEvents(options = {}) {
       hasMore: Object.values(sourceCursors).some(cursorValue => cursorValue.hasMore)
     },
     sourceCursors,
+    ingestionCursor: eventIngestionSummary(),
     events
+  };
+}
+
+function eventIngestionCursor() {
+  const cursor = readJson(paths.eventCursor, null);
+  return cursor && typeof cursor === "object" ? cursor : null;
+}
+
+function eventCursorReplaySince(cursor = eventIngestionCursor()) {
+  if (!cursor) return null;
+  const acceptedThroughObservedAt = timestampString(
+    cursor.acceptedThroughObservedAt ||
+      cursor.latestObservedAt ||
+      (cursor.cursor || {}).latestObservedAt
+  );
+  const acceptedTimestamp = parseTimestamp(acceptedThroughObservedAt);
+  if (acceptedTimestamp === null) return null;
+  const overlap = Number.isFinite(EVENT_CURSOR_OVERLAP_MS) && EVENT_CURSOR_OVERLAP_MS >= 0
+    ? EVENT_CURSOR_OVERLAP_MS
+    : 1000;
+  return new Date(Math.max(0, acceptedTimestamp - overlap)).toISOString();
+}
+
+function normalizeEventIngestionAck(result = {}) {
+  const raw =
+    result.eventsAck ||
+    result.eventAck ||
+    result.deviceEventsAck ||
+    result.device_events_ack ||
+    result.eventIngestionCursor ||
+    result.ingestionCursor ||
+    null;
+  if (!raw || typeof raw !== "object") return null;
+  const cursor = raw.cursor && typeof raw.cursor === "object" ? raw.cursor : {};
+  const acceptedThroughObservedAt = timestampString(
+    raw.acceptedThroughObservedAt ||
+      raw.latestObservedAt ||
+      raw.observedAt ||
+      cursor.latestObservedAt ||
+      cursor.oldestObservedAt
+  );
+  const acceptedThroughEventKey =
+    raw.acceptedThroughEventKey ||
+    raw.latestEventKey ||
+    raw.eventKey ||
+    cursor.latestEventKey ||
+    cursor.oldestEventKey ||
+    null;
+  const acceptedAt = timestampString(raw.acceptedAt || raw.ingestedAt || raw.updatedAt) || new Date().toISOString();
+  const statusValue = raw.status || (acceptedThroughObservedAt || acceptedThroughEventKey ? "accepted" : "acknowledged");
+  if (!statusValue && !acceptedThroughObservedAt && !acceptedThroughEventKey) return null;
+  return {
+    status: String(statusValue),
+    acceptedAt,
+    acceptedThroughObservedAt,
+    acceptedThroughEventKey,
+    sourceCursors: raw.sourceCursors && typeof raw.sourceCursors === "object" ? raw.sourceCursors : null,
+    counts: raw.counts && typeof raw.counts === "object" ? raw.counts : null
+  };
+}
+
+function writeEventIngestionCursor(ack, exportedEvents = {}) {
+  if (!ack) return { applied: false, skipped: true, reason: "No event ingestion ack" };
+  const current = eventIngestionCursor();
+  const currentTimestamp = parseTimestamp(current && current.acceptedThroughObservedAt);
+  const nextTimestamp = parseTimestamp(ack.acceptedThroughObservedAt);
+  if (currentTimestamp !== null && nextTimestamp !== null && nextTimestamp < currentTimestamp) {
+    return {
+      applied: false,
+      conflict: true,
+      reason: "stale_event_ingestion_ack",
+      cursor: current
+    };
+  }
+
+  const now = new Date().toISOString();
+  const cursor = {
+    ok: true,
+    kind: "autopoiesis_frame_event_ingestion_cursor",
+    schemaVersion: 1,
+    redacted: true,
+    status: ack.status || "accepted",
+    updatedAt: now,
+    acceptedAt: ack.acceptedAt || now,
+    acceptedThroughObservedAt: ack.acceptedThroughObservedAt || null,
+    acceptedThroughEventKey: ack.acceptedThroughEventKey || null,
+    replaySince: eventCursorReplaySince(ack),
+    sourceCursors: ack.sourceCursors || null,
+    counts: ack.counts || null,
+    lastExport: {
+      generatedAt: exportedEvents.generatedAt || null,
+      exported: exportedEvents.counts ? exportedEvents.counts.exported || 0 : 0,
+      cursor: exportedEvents.cursor || null
+    }
+  };
+  writeJson(paths.eventCursor, cursor);
+  return { applied: true, cursor };
+}
+
+function eventIngestionSummary() {
+  const cursor = eventIngestionCursor();
+  if (!cursor) {
+    return {
+      status: "not_acknowledged",
+      acceptedThroughObservedAt: null,
+      acceptedThroughEventKey: null,
+      replaySince: null,
+      updatedAt: null
+    };
+  }
+  return {
+    status: cursor.status || "unknown",
+    acceptedAt: cursor.acceptedAt || null,
+    acceptedThroughObservedAt: cursor.acceptedThroughObservedAt || null,
+    acceptedThroughEventKey: cursor.acceptedThroughEventKey || null,
+    replaySince: eventCursorReplaySince(cursor),
+    updatedAt: cursor.updatedAt || null,
+    lastExported: cursor.lastExport ? cursor.lastExport.exported || 0 : 0
   };
 }
 
@@ -1454,6 +1575,7 @@ async function collectDiagnostics(options = {}) {
     commandAudit,
     displayDelivery,
     releaseHistory,
+    eventIngestion: eventIngestionSummary(),
     feed: {
       syncedAt: feed.syncedAt || null,
       totalItems: Array.isArray(feed.items) ? feed.items.length : 0,
@@ -1686,6 +1808,11 @@ async function supportBundle(options = {}) {
         lastStatus: diagnostics.releaseHistory ? diagnostics.releaseHistory.lastStatus || null : null,
         lastVersion: diagnostics.releaseHistory ? diagnostics.releaseHistory.lastVersion || null : null,
         recentFailures: diagnostics.releaseHistory ? diagnostics.releaseHistory.recentFailures || 0 : 0
+      },
+      eventIngestion: {
+        status: diagnostics.eventIngestion ? diagnostics.eventIngestion.status || null : null,
+        acceptedThroughObservedAt: diagnostics.eventIngestion ? diagnostics.eventIngestion.acceptedThroughObservedAt || null : null,
+        replaySince: diagnostics.eventIngestion ? diagnostics.eventIngestion.replaySince || null : null
       }
     },
     diagnostics,
@@ -2473,7 +2600,9 @@ async function sendHeartbeat() {
   const data = status();
   if (!data.device.deviceId || !data.device.paired) return { ok: false, skipped: true, reason: "Device is not paired" };
   const diagnostics = await collectDiagnostics();
-  const events = publicDeviceEvents({ limit: HEARTBEAT_EVENT_LIMIT });
+  const eventCursor = eventIngestionCursor();
+  const eventReplaySince = eventCursorReplaySince(eventCursor);
+  const events = publicDeviceEvents({ limit: HEARTBEAT_EVENT_LIMIT, since: eventReplaySince });
   const result = await apiRequest(`/frames/device/${encodeURIComponent(data.device.deviceId)}/heartbeat`, {
     method: "POST",
     body: JSON.stringify({
@@ -2484,9 +2613,30 @@ async function sendHeartbeat() {
       networkType: data.state.networkType || null,
       storageStatus: data.state.storageStatus || diagnostics.storage,
       diagnostics,
+      eventIngestionCursor: eventCursor
+        ? {
+            status: eventCursor.status || null,
+            acceptedAt: eventCursor.acceptedAt || null,
+            acceptedThroughObservedAt: eventCursor.acceptedThroughObservedAt || null,
+            acceptedThroughEventKey: eventCursor.acceptedThroughEventKey || null,
+            replaySince: eventReplaySince
+          }
+        : null,
       events
     })
   });
+  const eventAck = normalizeEventIngestionAck(result);
+  if (eventAck) {
+    const ackResult = writeEventIngestionCursor(eventAck, events);
+    const deviceAfterAck = readJson(paths.device, {});
+    writeJson(paths.device, {
+      ...deviceAfterAck,
+      lastEventIngestionAckAt: ackResult.cursor ? ackResult.cursor.updatedAt : new Date().toISOString(),
+      lastEventIngestionAckStatus: ackResult.applied && ackResult.cursor
+        ? ackResult.cursor.status
+        : ackResult.reason || "skipped"
+    });
+  }
   if (result.settings) applyRemoteSettingsPayload(result, "heartbeat");
   if (result.commands) writeJson(paths.commands, result.commands);
   if (result.feed || result.items || result.artworks || result.broadcasts) {

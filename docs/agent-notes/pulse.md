@@ -1,5 +1,14 @@
 # Pulse Agent Notes
 
+## 2026-06-06 - Heartbeat event ingestion cursor
+
+Date/time: 2026-06-06 06:45 UTC / 2026-06-06 08:45 Europe/Berlin
+Agent: Pulse
+Context: API / DATABASE / SYNC cron pass. Device event export had idempotent keys and per-source cursors, but the Pi did not remember which event pointer the backend had accepted, so every heartbeat could only resend a newest bounded window without any acknowledgement contract.
+What changed: Added redacted `event-cursor.json` persistence. Heartbeats now include the previous event ingestion cursor when available, replay from the accepted timestamp with a small overlap, accept compatible backend acknowledgement field names, and surface the cursor in diagnostics, event export, and support bundles. Factory reset clears the cursor as runtime/sync state.
+What needs review: Backend heartbeat ingestion should persist events idempotently with `deviceId + eventKey`, then return `eventsAck` with `acceptedThroughObservedAt` and `acceptedThroughEventKey`. Keep the small replay overlap; duplicate rows are cheaper than missing same-second events.
+Next recommended action: Add durable `aos_` event ingestion rows and acknowledgement metadata in the online Frames API, then confirm Admin > Frames can distinguish new, duplicated, and truncated device event submissions.
+
 ## 2026-06-06 - Factory reset state hygiene
 
 Date/time: 2026-06-06 06:38 UTC / 2026-06-06 08:38 Europe/Berlin
