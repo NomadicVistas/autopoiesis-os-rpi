@@ -361,6 +361,35 @@ Source:
 - Origin commit `72f41fb Validate Pi setup endpoints`.
 - Full local report on the validated Pi: `logs/2026-06-05-rpi-hardware-validation.md`. The `logs/*` path is gitignored, so this tracked summary is the portable report.
 
+## 2026-06-06 - Guided onboarding setup
+
+Date: 2026-06-06
+
+Milestone: Appliance first-run UX
+
+Changed files:
+
+- `local-ui/server.js`
+- `docs/progress.md`
+
+Implemented:
+
+- Replaced the generic `/setup` utility panel with a guided onboarding sequence.
+- The sequence now leads users through four steps: connect internet, pair account, choose basic display settings, and launch stream.
+- Kept the existing network, Wi-Fi, pairing, settings, and launch endpoints underneath the flow.
+- Launch remains disabled until local state has both network and pairing readiness.
+
+Verification:
+
+- `node --check local-ui/server.js` passed.
+- `bash -n install.sh update.sh factory-reset.sh uninstall-dev-tools.sh scripts/*.sh` passed.
+- `git diff --check` passed.
+- Temporary local UI smoke confirmed `/setup` renders the onboarding steps and `/launch` redirects to `/setup` when unready.
+
+Next step:
+
+Validate the sequence on the physical touchscreen and confirm the copy/buttons fit without scrolling friction.
+
 ## 2026-06-06 - Online admin diagnostics health readout
 
 Date: 2026-06-06

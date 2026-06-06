@@ -1005,44 +1005,120 @@ function networkStatus(callback) {
 
 function renderSetup() {
   const data = status();
-  const paired = data.device.paired ? "Paired" : "Not paired";
   const network = data.network || {};
   const pairing = data.pairing || {};
+  const networkOnline = Boolean(network.online);
+  const paired = Boolean(data.device.paired);
+  const settingsReady = Boolean(data.preferences && Number.isFinite(Number(data.preferences.imageDuration)));
   const networkLabel = network.online
     ? `${network.primary || "network"} online`
     : "Offline";
   const pairingDetail = pairing.pairingCode
     ? `${pairing.pairingCode}${pairing.mock ? " (local fallback)" : ""}`
-    : paired;
+    : (paired ? "Paired" : "Waiting");
+  const launchDisabled = !networkOnline || !paired ? " disabled aria-disabled=\"true\"" : "";
   return page(
-    "Autopoiesis Setup",
+    "Autopoiesis Onboarding",
     `<main class="screen">
-      <section class="panel">
+      <section class="panel wide onboarding">
         <p class="kicker">Autopoiesis Frame</p>
-        <h1>Setup</h1>
-        <p class="muted">Prepare this frame for network, pairing, and display mode.</p>
-        <dl class="status">
-          <div><dt>Device</dt><dd>${escapeHtml(data.device.deviceId)}</dd></div>
-          <div><dt>Network</dt><dd>${escapeHtml(networkLabel)}</dd></div>
-          <div><dt>Pairing</dt><dd>${escapeHtml(pairingDetail)}</dd></div>
-          <div><dt>Mode</dt><dd>${escapeHtml(data.state.currentMode || "setup")}</dd></div>
-        </dl>
-        <div class="actions">
-          <a class="button" href="/settings">Settings</a>
-          <a class="button" href="/network">Network</a>
-          <button data-start-pairing>Start pairing</button>
-          <button data-check-pairing>Check pairing</button>
-          <a class="button primary" href="/launch">Launch frame</a>
-        </div>
-        <p class="note">Online pairing is used when the Frames API is reachable; local fallback remains available for offline setup.</p>
+        <h1>Set up your frame</h1>
+        <p class="muted">Connect this device, pair it to your account, choose the basic display behavior, then start the living stream.</p>
+
+        <ol class="steps">
+          <li class="step ${networkOnline ? "done" : "active"}">
+            <div class="step-index">1</div>
+            <div>
+              <h2>Connect to the internet</h2>
+              <p>${escapeHtml(networkOnline ? `Connected through ${network.primary || "network"}.` : "Use Ethernet or Wi-Fi before pairing.")}</p>
+              <dl class="status compact">
+                <div><dt>Status</dt><dd id="network-state">${escapeHtml(networkLabel)}</dd></div>
+              </dl>
+              <div class="actions">
+                <button data-refresh-network>Check connection</button>
+                <button data-connect-lan>Use Ethernet</button>
+                <a class="button" href="/local/wifi/scan">Choose Wi-Fi</a>
+              </div>
+            </div>
+          </li>
+
+          <li class="step ${paired ? "done" : networkOnline ? "active" : ""}">
+            <div class="step-index">2</div>
+            <div>
+              <h2>Pair with your account</h2>
+              <p>${paired ? "This frame is paired." : "Start pairing, then enter this code on autopoiesis.art/profile/frames."}</p>
+              <div class="pairing-code">${escapeHtml(pairingDetail)}</div>
+              <div class="actions">
+                <button data-start-pairing ${networkOnline ? "" : "disabled"}>${pairing.pairingCode && !paired ? "Refresh pairing code" : "Start pairing"}</button>
+                <button data-check-pairing ${networkOnline ? "" : "disabled"}>I paired it</button>
+              </div>
+            </div>
+          </li>
+
+          <li class="step ${settingsReady && paired ? "done" : paired ? "active" : ""}">
+            <div class="step-index">3</div>
+            <div>
+              <h2>Choose display settings</h2>
+              <form id="settings-form" class="grid compact-form">
+                <label>Device name <input name="deviceName" value="${escapeHtml(data.device.deviceName || "")}"></label>
+                <label>Image duration <input name="imageDuration" type="number" min="15" max="300" step="15" value="${escapeHtml(data.preferences.imageDuration ?? 60)}"></label>
+                <label>Volume <input name="volume" type="number" min="0" max="100" step="5" value="${escapeHtml(data.preferences.volume ?? 50)}"></label>
+                <label class="check"><input name="soundEnabled" type="checkbox" ${data.preferences.soundEnabled ? "checked" : ""}> Sound enabled</label>
+                <label class="check"><input name="nightMode" type="checkbox" ${data.preferences.nightMode ? "checked" : ""}> Night mode</label>
+                <button class="primary" type="submit" ${paired ? "" : "disabled"}>Save settings</button>
+              </form>
+            </div>
+          </li>
+
+          <li class="step ${networkOnline && paired ? "active" : ""}">
+            <div class="step-index">4</div>
+            <div>
+              <h2>Start the stream</h2>
+              <p>The frame will open the fullscreen living display and keep local setup available at port 3030.</p>
+              <a class="button primary launch${launchDisabled ? " disabled" : ""}" href="${networkOnline && paired ? "/launch" : "#"}"${launchDisabled}>Launch stream</a>
+            </div>
+          </li>
+        </ol>
+
+        <p class="note">Device: ${escapeHtml(data.device.deviceId || "unknown")} · Mode: ${escapeHtml(data.state.currentMode || "setup")}</p>
       </section>
     </main>`,
-    `document.querySelector("[data-start-pairing]").addEventListener("click", async () => {
+    `async function refreshNetwork() {
+      const response = await fetch("/local/network/status");
+      const data = await response.json();
+      const network = data.network || {};
+      document.getElementById("network-state").textContent = network.online ? ((network.primary || "network") + " online") : "Offline";
+      if (network.online) location.reload();
+    }
+    document.querySelector("[data-refresh-network]").addEventListener("click", refreshNetwork);
+    document.querySelector("[data-connect-lan]").addEventListener("click", async () => {
+      await fetch("/local/lan/connect", { method: "POST" });
+      await refreshNetwork();
+    });
+    document.querySelector("[data-start-pairing]").addEventListener("click", async () => {
       await fetch("/local/pairing/start", { method: "POST" });
       location.reload();
     });
     document.querySelector("[data-check-pairing]").addEventListener("click", async () => {
       await fetch("/local/pairing/check", { method: "POST" });
+      location.reload();
+    });
+    document.getElementById("settings-form").addEventListener("submit", async (event) => {
+      event.preventDefault();
+      const form = new FormData(event.currentTarget);
+      await fetch("/local/settings", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          device: { deviceName: form.get("deviceName") },
+          preferences: {
+            volume: Number(form.get("volume")),
+            imageDuration: Number(form.get("imageDuration")),
+            soundEnabled: form.has("soundEnabled"),
+            nightMode: form.has("nightMode")
+          }
+        })
+      });
       location.reload();
     });`
   );
@@ -1862,15 +1938,29 @@ p { font-size: 22px; line-height: 1.35; }
 .muted, .note { color: #c8c6bb; }
 .status { display: grid; gap: 12px; margin: 28px 0; }
 .status div { display: grid; grid-template-columns: 130px 1fr; gap: 18px; padding: 14px 0; border-top: 1px solid #343d39; }
+.status.compact { margin: 16px 0; }
 dt { color: #9ad0bb; }
 dd { margin: 0; overflow-wrap: anywhere; }
 .actions, .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); gap: 14px; }
 button, .button, input { min-height: 56px; border-radius: 8px; border: 1px solid #607069; background: #202b27; color: #f4f1e8; font: inherit; font-size: 18px; padding: 14px 16px; }
 .button { display: inline-grid; place-items: center; text-decoration: none; text-align: center; }
 .primary { background: #d8f3dc; color: #122018; border-color: #d8f3dc; }
+button:disabled, .button.disabled { opacity: 0.45; pointer-events: none; }
 label { display: grid; gap: 8px; color: #c8c6bb; font-size: 18px; }
 .check { display: flex; align-items: center; gap: 12px; }
 .check input { min-height: auto; width: 24px; height: 24px; }
+.onboarding h1 { font-size: clamp(38px, 7vw, 78px); }
+.onboarding h2 { margin: 0 0 8px; font-size: clamp(24px, 4vw, 38px); letter-spacing: 0; }
+.onboarding p { margin: 0 0 14px; }
+.steps { list-style: none; display: grid; gap: 18px; margin: 30px 0; padding: 0; }
+.step { display: grid; grid-template-columns: 64px 1fr; gap: 18px; padding: 22px; border: 1px solid #343d39; border-radius: 8px; background: #141b18; }
+.step.active { border-color: #9ad0bb; background: #18231f; }
+.step.done { border-color: #6fae82; }
+.step-index { width: 48px; height: 48px; display: grid; place-items: center; border-radius: 999px; border: 1px solid #607069; color: #9ad0bb; font-size: 22px; }
+.step.done .step-index { background: #d8f3dc; border-color: #d8f3dc; color: #122018; }
+.pairing-code { margin: 14px 0; padding: 18px; border: 1px solid #607069; border-radius: 8px; background: #101412; color: #d8f3dc; font-size: clamp(28px, 6vw, 56px); letter-spacing: 0.08em; text-align: center; overflow-wrap: anywhere; }
+.compact-form { grid-template-columns: repeat(auto-fit, minmax(210px, 1fr)); }
+.launch { min-height: 70px; font-size: 22px; }
 .network-list { display: grid; gap: 10px; margin: 24px 0; }
 .network-row { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; text-align: left; width: 100%; }
 .network-row span { overflow-wrap: anywhere; }
