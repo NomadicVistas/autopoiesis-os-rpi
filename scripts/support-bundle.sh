@@ -24,6 +24,7 @@ const issues = Array.isArray(summary.issueCodes) && summary.issueCodes.length
 const blockers = Array.isArray(summary.blockers) && summary.blockers.length
   ? summary.blockers.map(item => item.phase + ":" + item.status).join(",")
   : "none";
+const release = summary.releaseHistory || {};
 
 console.error([
   "Autopoiesis Frame support bundle",
@@ -33,6 +34,7 @@ console.error([
   "readiness=" + (summary.readinessStatus || "unknown"),
   "issues=" + issues,
   "blockers=" + blockers,
+  "release=" + (release.lastStatus || "none") + ":" + (release.lastVersion || "unknown"),
   "offlinePlayable=" + (summary.offlinePlayableItems || 0)
 ].join(" "));
 

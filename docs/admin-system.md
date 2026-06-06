@@ -63,6 +63,8 @@ The Pi also keeps a bounded local command audit trail for support and reconcilia
 - Assign update channels.
 - Trigger safe update command.
 - Track rollback refs.
+- Ingest device-side release history events (`release_checked`, `release_apply_started`, `release_apply_completed`, `release_apply_failed`, `release_skipped`) into durable `aos_` rollout rows.
+- Surface per-device rollout status from heartbeat diagnostics/support bundles without relying on raw Pi log files.
 
 ## Security Rules
 

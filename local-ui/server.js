@@ -20,6 +20,7 @@ const UPDATE_SCRIPT =
 const REMOTE_AUTH_WINDOW_MS = Number(process.env.AUTOPOIESIS_REMOTE_AUTH_WINDOW_MS || 24 * 60 * 60 * 1000);
 const COMMAND_AUDIT_LIMIT = Number(process.env.AUTOPOIESIS_COMMAND_AUDIT_LIMIT || 100);
 const DELIVERY_LOG_LIMIT = Number(process.env.AUTOPOIESIS_DELIVERY_LOG_LIMIT || 200);
+const RELEASE_LOG_LIMIT = Number(process.env.AUTOPOIESIS_RELEASE_LOG_LIMIT || 100);
 
 const COMMAND_POLICIES = {
   sync_settings: { risk: "low", requiresAuthorization: false },
@@ -49,7 +50,8 @@ const paths = {
   broadcast: path.join(DATA_DIR, "current-broadcast.json"),
   diagnostics: path.join(DATA_DIR, "diagnostics.json"),
   commandAudit: path.join(DATA_DIR, "command-audit.json"),
-  deliveryLog: path.join(DATA_DIR, "delivery-log.json")
+  deliveryLog: path.join(DATA_DIR, "delivery-log.json"),
+  releaseLog: path.join(DATA_DIR, "release-log.json")
 };
 
 const DIAGNOSTIC_SERVICES = [
@@ -466,6 +468,63 @@ function deliverySummary() {
     lastObservedAt: last ? last.observedAt || null : null,
     recentBroadcastEvents: recent.filter(entry => String(entry.eventType || "").startsWith("broadcast_")).length,
     recentFeedEvents: recent.filter(entry => String(entry.eventType || "").startsWith("feed_")).length
+  };
+}
+
+function releaseEntries() {
+  const log = readJson(paths.releaseLog, []);
+  if (Array.isArray(log)) return log;
+  if (Array.isArray(log.entries)) return log.entries;
+  return [];
+}
+
+function releaseSubject(release = {}) {
+  return {
+    releaseId: release.id || release.releaseId || null,
+    version: release.version || release.targetVersion || null,
+    channel: release.channel || release.updateChannel || release.update_channel || null,
+    rolloutId: release.rolloutId || release.rollout_id || null
+  };
+}
+
+function appendReleaseEvent(entry) {
+  const entries = releaseEntries();
+  const observedAt = new Date().toISOString();
+  const cleanEntry = {
+    eventId: observedAt + "-" + String(entries.length + 1),
+    observedAt,
+    ...entry
+  };
+  if (cleanEntry.error) cleanEntry.error = String(cleanEntry.error).slice(0, 500);
+  entries.push(cleanEntry);
+  const limit = Number.isFinite(RELEASE_LOG_LIMIT) && RELEASE_LOG_LIMIT > 0 ? RELEASE_LOG_LIMIT : 100;
+  writeJson(paths.releaseLog, entries.slice(-limit));
+}
+
+function publicReleaseHistory(limit = 25) {
+  const entries = releaseEntries();
+  const safeLimit = Math.max(1, Math.min(Number(limit) || 25, 100));
+  return {
+    ok: true,
+    count: entries.length,
+    limit: safeLimit,
+    entries: entries.slice(-safeLimit).reverse()
+  };
+}
+
+function releaseHistorySummary() {
+  const entries = releaseEntries();
+  const last = entries[entries.length - 1] || null;
+  const recent = entries.slice(-10);
+  const failureStatuses = new Set(["error", "failed"]);
+  return {
+    totalEntries: entries.length,
+    lastEventId: last ? last.eventId || null : null,
+    lastEventType: last ? last.eventType || null : null,
+    lastStatus: last ? last.status || null : null,
+    lastVersion: last ? last.version || null : null,
+    lastObservedAt: last ? last.observedAt || null : null,
+    recentFailures: recent.filter(entry => failureStatuses.has(entry.status) || String(entry.eventType || "").includes("failed")).length
   };
 }
 
@@ -1036,6 +1095,7 @@ async function collectDiagnostics(options = {}) {
   const cacheIndex = readJson(paths.cacheIndex, { generatedAt: null, cachedCount: 0, failedCount: 0, items: [] });
   const commandAudit = commandAuditSummary();
   const displayDelivery = deliverySummary();
+  const releaseHistory = releaseHistorySummary();
   const disk = await diskStatus(DATA_DIR);
   const diagnostics = {
     collectedAt: new Date().toISOString(),
@@ -1093,6 +1153,7 @@ async function collectDiagnostics(options = {}) {
     pendingCommands: Array.isArray(commands) ? commands.length : 0,
     commandAudit,
     displayDelivery,
+    releaseHistory,
     feed: {
       syncedAt: feed.syncedAt || null,
       totalItems: Array.isArray(feed.items) ? feed.items.length : 0,
@@ -1211,7 +1272,7 @@ function readinessSummary(diagnostics) {
         : release && release.status === "in_progress"
           ? "A release/update attempt is in progress."
           : "No release blocker is recorded.",
-      { release }
+      { release, releaseHistory: diagnostics.releaseHistory || null }
     )
   };
 
@@ -1262,6 +1323,7 @@ function healthSummary(diagnostics) {
           releaseId: diagnostics.release.releaseId || null
         }
       : null,
+    releaseHistory: diagnostics.releaseHistory || null,
     pendingCommands: diagnostics.pendingCommands || 0,
     commandAudit: diagnostics.commandAudit || null,
     displayDelivery: diagnostics.displayDelivery || null,
@@ -1279,6 +1341,7 @@ async function supportBundle(options = {}) {
   const offlineCache = publicOfflineCache();
   const commandAudit = publicCommandAudit(options.auditLimit);
   const deliveryLog = publicDeliveryLog(options.deliveryLimit);
+  const releaseHistory = publicReleaseHistory(options.releaseLimit);
   const issueCodes = ((health.health || {}).issues || []).map(issue => issue.code).filter(Boolean);
   const blockers = Array.isArray(readiness.blockers) ? readiness.blockers : [];
 
@@ -1309,6 +1372,12 @@ async function supportBundle(options = {}) {
         totalEntries: deliveryLog.count || 0,
         lastEventType: diagnostics.displayDelivery ? diagnostics.displayDelivery.lastEventType || null : null,
         recentBroadcastEvents: diagnostics.displayDelivery ? diagnostics.displayDelivery.recentBroadcastEvents || 0 : 0
+      },
+      releaseHistory: {
+        totalEntries: releaseHistory.count || 0,
+        lastStatus: diagnostics.releaseHistory ? diagnostics.releaseHistory.lastStatus || null : null,
+        lastVersion: diagnostics.releaseHistory ? diagnostics.releaseHistory.lastVersion || null : null,
+        recentFailures: diagnostics.releaseHistory ? diagnostics.releaseHistory.recentFailures || 0 : 0
       }
     },
     diagnostics,
@@ -1317,7 +1386,8 @@ async function supportBundle(options = {}) {
     feed,
     offlineCache,
     commandAudit,
-    deliveryLog
+    deliveryLog,
+    releaseHistory
   };
 }
 
@@ -2123,6 +2193,13 @@ async function checkRelease() {
     checkedAt: new Date().toISOString(),
     release
   });
+  appendReleaseEvent({
+    eventType: "release_checked",
+    status: release ? "available" : "current",
+    currentVersion: version(),
+    updateAvailable: Boolean(release),
+    ...releaseSubject(release || {})
+  });
   return { ok: true, release, currentVersion: version() };
 }
 
@@ -2130,14 +2207,31 @@ async function applyRelease(release) {
   if (!release) return { ok: false, skipped: true, reason: "No release available" };
   const targetVersion = release.version;
   if (!targetVersion) return { ok: false, error: "Release has no version" };
-  if (targetVersion === version()) return { ok: true, skipped: true, reason: "Already on target version", version: targetVersion };
+  if (targetVersion === version()) {
+    appendReleaseEvent({
+      eventType: "release_skipped",
+      status: "current",
+      reason: "Already on target version",
+      currentVersion: version(),
+      ...releaseSubject(release)
+    });
+    return { ok: true, skipped: true, reason: "Already on target version", version: targetVersion };
+  }
   writeJson(paths.release, { checkedAt: new Date().toISOString(), release });
+  const startedAt = new Date().toISOString();
   writeJson(paths.releaseState, {
     status: "in_progress",
     targetVersion,
     releaseId: release.id || null,
-    startedAt: new Date().toISOString(),
+    startedAt,
     previousVersion: version()
+  });
+  appendReleaseEvent({
+    eventType: "release_apply_started",
+    status: "in_progress",
+    previousVersion: version(),
+    startedAt,
+    ...releaseSubject(release)
   });
   try {
     const execution = await execFilePromise(UPDATE_SCRIPT, [paths.release], {
@@ -2163,6 +2257,13 @@ async function applyRelease(release) {
       stderr: execution.stderr.trim()
     };
     writeJson(paths.releaseState, stateValue);
+    appendReleaseEvent({
+      eventType: "release_apply_completed",
+      status: "completed",
+      previousVersion: stateValue.previousVersion || null,
+      completedAt: stateValue.completedAt,
+      ...releaseSubject(release)
+    });
     return { ok: true, release, version: version(), update: stateValue };
   } catch (error) {
     const stateValue = {
@@ -2174,6 +2275,14 @@ async function applyRelease(release) {
       error: error.stderr || error.message
     };
     writeJson(paths.releaseState, stateValue);
+    appendReleaseEvent({
+      eventType: "release_apply_failed",
+      status: "error",
+      previousVersion: stateValue.previousVersion || null,
+      failedAt: stateValue.failedAt,
+      error: stateValue.error,
+      ...releaseSubject(release)
+    });
     return { ok: false, release, error: stateValue.error, update: stateValue };
   }
 }
@@ -2422,7 +2531,8 @@ async function handle(req, res) {
       return sendJson(res, await supportBundle({
         includeServices,
         auditLimit: url.searchParams.get("auditLimit") || url.searchParams.get("limit"),
-        deliveryLimit: url.searchParams.get("deliveryLimit") || url.searchParams.get("limit")
+        deliveryLimit: url.searchParams.get("deliveryLimit") || url.searchParams.get("limit"),
+        releaseLimit: url.searchParams.get("releaseLimit") || url.searchParams.get("limit")
       }));
     }
     if (req.method === "GET" && url.pathname === "/local/feed") {
@@ -2436,6 +2546,9 @@ async function handle(req, res) {
     }
     if (req.method === "GET" && url.pathname === "/local/delivery-log") {
       return sendJson(res, publicDeliveryLog(url.searchParams.get("limit")));
+    }
+    if (req.method === "GET" && url.pathname === "/local/release/history") {
+      return sendJson(res, publicReleaseHistory(url.searchParams.get("limit")));
     }
     const cacheAssetMatch = url.pathname.match(/^\/local\/cache\/assets\/([^/]+)\/(media|thumbnail)$/);
     if ((req.method === "GET" || req.method === "HEAD") && cacheAssetMatch) {

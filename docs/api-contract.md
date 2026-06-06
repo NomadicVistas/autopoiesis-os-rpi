@@ -51,6 +51,7 @@ GET  /local/feed
 GET  /local/offline-cache
 GET  /local/commands/audit
 GET  /local/delivery-log
+GET  /local/release/history
 GET  /local/network/status
 POST /local/lan/connect
 GET  /local/wifi/scan
@@ -121,7 +122,7 @@ Diagnostics fields are intentionally compact and safe for admin/profile/support 
 
 `GET /local/readiness` returns a redacted, phase-level rollout snapshot derived from diagnostics. It includes setup/local UI, network, pairing, settings sync, content/feed, cache, command executor, and release phases. Add `?services=0` to skip local systemd service checks when running outside an installed Pi environment.
 
-`GET /local/support-bundle` returns a redacted one-shot support object for hardware validation, admin adapters, and handoff reports. It aggregates diagnostics, compact health, readiness, active feed counts/items, offline-cache inventory, recent command audit entries, and recent display delivery events. Add `?services=0` to skip systemd service checks, `?auditLimit=50` to tune recent command audit entries, and `?deliveryLimit=50` to tune recent delivery events. The bundle intentionally reuses existing redacted endpoint shapes instead of exposing raw command payloads, local cache paths, or stored device API keys.
+`GET /local/support-bundle` returns a redacted one-shot support object for hardware validation, admin adapters, and handoff reports. It aggregates diagnostics, compact health, readiness, active feed counts/items, offline-cache inventory, recent command audit entries, recent display delivery events, and recent release history events. Add `?services=0` to skip systemd service checks, `?auditLimit=50` to tune recent command audit entries, `?deliveryLimit=50` to tune recent delivery events, and `?releaseLimit=50` to tune recent release history entries. The bundle intentionally reuses existing redacted endpoint shapes instead of exposing raw command payloads, local cache paths, release artifact URLs, checksums, or stored device API keys.
 
 Example:
 
@@ -171,6 +172,8 @@ Current issue codes include `device_unpaired`, `device_key_missing`, `network_of
 Cache-aware diagnostics add feed cache index fields: `cacheIndexGeneratedAt`, `cacheIndexedItems`, `cacheCachedItems`, `cacheFailedItems`, and `offlinePlayableItems`.
 
 Display delivery diagnostics add a compact `displayDelivery` summary with total entries, the last event type/item/timestamp, and recent feed/broadcast event counts.
+
+Release rollout diagnostics add a compact `releaseHistory` summary with total entries, last event type/status/version/timestamp, and recent failure count.
 
 Settings sync:
 
@@ -263,6 +266,14 @@ Local command acknowledgement retry:
 - If command execution finishes but the final `completed` or `error` acknowledgement fails, the command is retained with a final-ack retry state and is not executed again on the next processing pass.
 - Final-ack retry state is local-only metadata. It is not part of the online command payload contract and should not be interpreted by the backend.
 - Command audit may include `ack_failed` or `ack_retry_failed` statuses when API acknowledgement delivery fails.
+
+Release history:
+
+- `POST /local/release/check` appends a metadata-only `release_checked` event to `release-log.json` with current version, update availability, release id, target version, channel, and rollout id when supplied by the API.
+- `POST /local/release/apply`, `POST /local/system/update-now`, and `update_device` commands append `release_apply_started`, `release_apply_completed`, `release_apply_failed`, or `release_skipped` events.
+- `GET /local/release/history?limit=25` returns newest entries first. Entries intentionally omit artifact URLs, checksums, local file paths, stdout/stderr, command payloads, and stored device API keys.
+- Heartbeat diagnostics, compact health, readiness, and `/local/support-bundle` include a compact release-history summary for admin rollout adapters.
+- Backend `aos_` release rows should treat repeated device reports as idempotent and persist per-device rollout progress from these event names.
 
 ## Admin API
 

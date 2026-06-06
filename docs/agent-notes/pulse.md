@@ -179,3 +179,12 @@ Context: API / DATABASE / SYNC cron pass. The command executor had durable local
 What changed: Added local-only ack retry metadata. Initial acknowledgement failures retain the command without executing it; final acknowledgement failures retain only the final ack state and do not re-run the command on the next executor pass.
 What needs review: The online backend should make command ack transitions idempotent and store last ack failure/last ack timestamp in durable `aos_` command rows.
 Next recommended action: Add backend/admin command audit persistence and ensure duplicate final `completed`/`error` acknowledgements are harmless.
+
+## 2026-06-06 - Local release history contract
+
+Date/time: 2026-06-06 03:15 UTC / 2026-06-06 05:15 Europe/Berlin
+Agent: Pulse
+Context: LEAD / INTEGRATION cron pass. The Pi had release check/apply endpoints and release-state, but rollout/admin still lacked a bounded device-side history of what happened during update checks and applies.
+What changed: Added metadata-only release history persistence, `GET /local/release/history`, diagnostics/readiness/health/support-bundle summaries, support-bundle CLI release summary, and security-smoke redaction coverage.
+What needs review: Backend/admin should ingest these event names into durable `aos_` rollout rows and treat repeated device reports as idempotent.
+Next recommended action: Build Admin > Frames rollout progress from heartbeat diagnostics/support-bundle ingestion rather than raw Pi logs.

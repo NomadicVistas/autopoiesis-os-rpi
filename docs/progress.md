@@ -925,3 +925,42 @@ Verification:
 Next step:
 
 Mirror this expectation in backend `aos_` command rows: command status transitions should be idempotent, preserve last ack error, and tolerate devices retrying the same final acknowledgement after local execution.
+
+## 2026-06-06 - Local release history contract
+
+Date: 2026-06-06
+
+Milestone: MVP 0.5 - Managed Device Fleet rollout evidence
+
+Changed files:
+
+- `local-ui/server.js`
+- `scripts/support-bundle.sh`
+- `scripts/security-smoke.sh`
+- `README.md`
+- `docs/api-contract.md`
+- `docs/admin-system.md`
+- `docs/troubleshooting.md`
+- `docs/agent-notes/pulse.md`
+- `docs/progress.md`
+- `/data/.openclaw/workspace/autopoiesis-os-program/ROLLING-LOG.md`
+
+Implemented:
+
+- Added bounded local `release-log.json` persistence for release check/apply lifecycle events.
+- `/local/release/check` records `release_checked`; release apply paths record `release_apply_started`, `release_apply_completed`, `release_apply_failed`, or `release_skipped`.
+- Added redacted `GET /local/release/history` for support, hardware validation, and admin rollout adapters.
+- Diagnostics, `/local/health`, `/local/readiness`, and `/local/support-bundle` now include compact release-history summaries.
+- Extended the support-bundle CLI summary and security smoke gate to cover release history.
+
+Verification:
+
+- `node --check local-ui/server.js` passed.
+- `bash -n install.sh update.sh uninstall-dev-tools.sh factory-reset.sh scripts/*.sh` passed.
+- `git diff --check` passed.
+- `scripts/security-smoke.sh` passed with `/local/release/history` included in device-key redaction coverage.
+- Targeted release-history smoke passed for mock API release check, already-current release apply skip, history events, support-bundle summary, and artifact/checksum/key redaction.
+
+Next step:
+
+Mirror these device-side release events into durable backend `aos_` rollout rows and make Admin > Frames show per-device release progress from heartbeat/support-bundle ingestion.
