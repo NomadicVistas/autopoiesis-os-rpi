@@ -48,6 +48,7 @@ GET  /local/readiness
 GET  /local/support-bundle
 GET  /local/diagnostics
 GET  /local/feed
+GET  /local/frame-state
 GET  /local/offline-cache
 GET  /local/commands/audit
 GET  /local/admin/capabilities
@@ -209,6 +210,8 @@ Local feed behavior:
 - Heartbeat responses may also carry feed, items, artworks, or broadcasts; the local UI normalizes those into the same feed state.
 - GET /local/feed returns active, display-eligible items only. Expired items, future scheduled items, and preference-disabled media types are filtered out.
 - GET /local/feed also returns `displayQueue`, a priority-preserving mixed-content queue. The device keeps emergency/critical/high/normal/low priority bands intact, then round-robins categories inside each band across broadcast, curatorial, artwork, blog, news, and general content items so personalized streams do not collapse into a single content class.
+- GET /local/frame-state returns the browser-safe local playback contract derived from `displayQueue`, including media role, cached-vs-remote source, playable counts, cached playable counts, display category, and display position. It never exposes absolute cache paths or stored device API keys.
+- `/frame` renders that local playback queue for the kiosk and prefers cached media URLs when `cache-index.json` has a usable asset. `/launch?local=1` or `preferences.displayMode=local-feed` routes to `/frame` while the default `/launch` path can remain hosted-display first.
 - Feed diagnostics include `displayQueueItems` and category counts so Admin > Frames and support bundles can see whether a device has a usable mixed stream.
 - The local UI also writes a feed cache manifest for items with cacheAllowed !== false and a media or thumbnail URL. `scripts/cache-artworks.sh` downloads those eligible assets into the local runtime cache and writes `cache-index.json` with cached/failed asset status.
 - GET /local/offline-cache returns the redacted playable cache inventory. It reports counts and browser-safe local asset URLs without exposing absolute filesystem paths.

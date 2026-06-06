@@ -1,5 +1,15 @@
 # Pulse Agent Notes
 
+## 2026-06-06 - Local frame playback surface
+
+Date/time: 2026-06-06 08:15 UTC / 2026-06-06 10:15 Europe/Berlin
+Agent: Pulse
+Context: LEAD / INTEGRATION cron pass. The RPi could normalize mixed feeds, build a balanced `displayQueue`, and cache eligible media, but the kiosk path still depended on the hosted display unless the remote launch failed into `/offline`.
+What changed: Added `/local/frame-state` as the browser-safe playback contract and `/frame` as a local kiosk surface. The frame state derives from `displayQueue`, prefers cached media URLs from `cache-index.json`, preserves display category/position, and supports image/video/audio/text items. `/launch?local=1` and `preferences.displayMode=local-feed` now route to this local surface while the default `/launch` path remains hosted-display first.
+What needs review: Physical Pi validation should point Chromium at `/launch?local=1` after a real feed sync and cache pass, then confirm media rotation, video playback, text-only items, and touchscreen recovery work under the installed `frame` user.
+Next recommended action: Decide whether local-first should become the default for staged devices once backend feed content is rich enough, or remain an explicit mode until the hosted display and local queue can be compared on hardware.
+
+
 ## 2026-06-06 - Heartbeat event ingestion cursor
 
 Date/time: 2026-06-06 06:45 UTC / 2026-06-06 08:45 Europe/Berlin

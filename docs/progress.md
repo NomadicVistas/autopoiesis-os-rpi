@@ -1,5 +1,43 @@
 # Progress
 
+## 2026-06-06 - Local frame playback surface
+
+Date: 2026-06-06
+
+Milestone: LEAD / integration - local-first kiosk playback
+
+Changed files:
+
+- `local-ui/server.js`
+- `scripts/milestone2-verify.sh`
+- `scripts/security-smoke.sh`
+- `README.md`
+- `docs/api-contract.md`
+- `docs/troubleshooting.md`
+- `docs/progress.md`
+- `docs/agent-notes/pulse.md`
+- `/data/.openclaw/workspace/autopoiesis-os-program/ROLLING-LOG.md`
+
+Implemented:
+
+- Added `GET /local/frame-state`, a browser-safe playback contract derived from the mixed `displayQueue` plus local cache index state.
+- Added `/frame`, a local kiosk playback surface that rotates through the balanced queue, supports image/video/audio/text items, and prefers cached asset URLs when available.
+- Added explicit local launch routing through `/launch?local=1` and `preferences.displayMode=local-feed` while preserving the hosted-display-first default launch path.
+- Added local frame route and frame-state checks to Milestone 2 validation and security-smoke redaction coverage.
+
+Verification:
+
+- `node --check local-ui/server.js` passed.
+- `bash -n install.sh update.sh uninstall-dev-tools.sh factory-reset.sh scripts/*.sh` passed.
+- `git diff --check` passed.
+- `scripts/security-smoke.sh` passed.
+- Targeted temporary-state local frame smoke passed for `/local/frame-state`, cached media preference, `/frame`, cached asset serving, and `/launch?local=1` redirect.
+
+Next step:
+
+Point a staged kiosk at `/launch?local=1` or set `displayMode=local-feed` after a real backend feed sync, then verify on physical Pi hardware that Chromium rotates cached and remote items correctly across image/video/text content.
+
+
 ## 2026-06-06 - Backend heartbeat event ingestion
 
 Date: 2026-06-06

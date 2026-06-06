@@ -18,17 +18,19 @@ This repository is not a custom Linux distribution. It is an appliance layer for
 Milestone 2 is scaffolded for physical Pi validation. The local UI can:
 
 - create/read device, preference, and state JSON files
-- show setup, settings, offline, disabled, and launch routes
+- show setup, settings, local frame, offline, disabled, and launch routes
 - show network status for LAN and Wi-Fi through nmcli
 - connect Ethernet/LAN through DHCP when available
 - scan and connect Wi-Fi through nmcli
 - start a mock pairing flow
-- redirect `/launch` to setup, disabled, offline fallback, or the live display route depending on local state and remote reachability
+- redirect `/launch` to setup, disabled, offline fallback, local frame playback, or the live display route depending on local state and remote reachability
 - build a local cache index from eligible feed media through the hourly cache timer
+- play the local mixed feed queue at `/frame`, preferring cached assets when available
 - show cached feed media on `/offline` when the live display is unreachable
 - expose a compact `/local/health` probe for support, admin adapters, and hardware acceptance checks
 - expose a phase-level `/local/readiness` probe for setup, pairing, sync, content, cache, commands, and release rollout checks
 - expose a redacted `/local/support-bundle` for one-step hardware/support handoff collection
+- expose `/local/frame-state` so QA, support, and future admin adapters can inspect the browser-safe local playback queue
 - expose a metadata-only `/local/commands/audit` trail for recent remote command attempts
 - expose `/local/admin/capabilities` so Admin > Frames can discover role-gated remote action policy
 - expose `/local/events/export` so backend/admin adapters can ingest command, delivery, and release lifecycle evidence through one redacted contract
@@ -97,6 +99,12 @@ Check the unified command/delivery/release event export contract:
 
 ```bash
 ./scripts/events-export-check.sh
+```
+
+Inspect the local frame playback queue:
+
+```bash
+curl -fsS http://127.0.0.1:3030/local/frame-state
 ```
 
 Collect a redacted local support bundle:

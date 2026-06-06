@@ -1223,6 +1223,65 @@ function publicOfflineCache() {
   };
 }
 
+function mediaRoleForUrl(item = {}, url = "") {
+  if (!url) return null;
+  const type = String(item.type || "").toLowerCase();
+  if (type.includes("audio") || /\.(mp3|wav|ogg|m4a)(\?|$)/i.test(url)) return "audio";
+  if (type.includes("video") || /\.(mp4|webm|mov)(\?|$)/i.test(url)) return "video";
+  if (/\.(jpg|jpeg|png|gif|webp|svg|avif)(\?|$)/i.test(url)) return "image";
+  return "image";
+}
+
+function publicFrameState() {
+  const feed = readJson(paths.feed, { syncedAt: null, items: [] });
+  const preferences = readJson(paths.preferences, {});
+  const cacheItems = new Map(cachedOfflineItems().map(item => [String(item.id), item]));
+  const displayQueue = mixedFeedQueue(feed, preferences).map(({ raw, ...item }) => item);
+  const items = displayQueue.map(item => {
+    const cached = cacheItems.get(String(item.id));
+    const cachedMedia = cached && cached.media && cached.media.available ? cached.media : null;
+    const cachedThumbnail = cached && cached.thumbnail && cached.thumbnail.available ? cached.thumbnail : null;
+    const localAsset = cachedMedia || cachedThumbnail;
+    const remoteUrl = item.mediaUrl || item.thumbnailUrl || null;
+    const mediaUrl = localAsset ? localAsset.url : remoteUrl;
+    return {
+      id: item.id,
+      source: item.source || null,
+      type: item.type || null,
+      title: item.title || null,
+      artist: item.artist || null,
+      body: item.body || null,
+      url: item.url || null,
+      priority: item.priority || "normal",
+      displayCategory: item.displayCategory || feedItemCategory(item),
+      displayPosition: item.displayPosition || null,
+      duration: item.duration || null,
+      soundRequired: Boolean(item.soundRequired),
+      expiresAt: item.expiresAt || null,
+      media: {
+        url: mediaUrl,
+        role: mediaRoleForUrl(item, mediaUrl),
+        cached: Boolean(localAsset),
+        source: localAsset ? "cache" : (remoteUrl ? "remote" : null)
+      }
+    };
+  });
+  const playableItems = items.filter(item => item.media.url || item.title || item.body);
+  return {
+    ok: true,
+    kind: "autopoiesis_frame_state",
+    schemaVersion: 1,
+    generatedAt: new Date().toISOString(),
+    syncedAt: feed.syncedAt || null,
+    totalItems: Array.isArray(feed.items) ? feed.items.length : 0,
+    displayQueueItems: displayQueue.length,
+    playableItems: playableItems.length,
+    cachedPlayableItems: playableItems.filter(item => item.media.cached).length,
+    categories: feedCategoryCounts(displayQueue),
+    items: playableItems
+  };
+}
+
 function cachedAssetPath(id, role) {
   const cacheIndex = readJson(paths.cacheIndex, { items: [] });
   const item = (cacheIndex.items || []).find(candidate => String(candidate.id) === String(id));
@@ -2262,6 +2321,83 @@ function renderOffline() {
   );
 }
 
+function renderFrame() {
+  const data = status();
+  const frame = publicFrameState();
+  const durationSeconds = Number(data.preferences.imageDuration || 60);
+  const rotationSeconds = Number.isFinite(durationSeconds) && durationSeconds > 0
+    ? Math.min(Math.max(durationSeconds, 8), 300)
+    : 60;
+  updateState({
+    currentMode: "frame",
+    localFrameActive: true,
+    lastLocalFrameAt: new Date().toISOString()
+  });
+  const hasItems = frame.playableItems > 0;
+  const frameBody = hasItems
+    ? '<div id="frame-stage" class="frame-stage" aria-live="polite"></div>'
+    : [
+        "<h1>Waiting for the living stream.</h1>",
+        "<p>The local display queue is empty. The frame will try to sync feed items and check again.</p>",
+        '<dl class="status compact">',
+        "<div><dt>Synced</dt><dd>" + escapeHtml(frame.syncedAt || "never") + "</dd></div>",
+        "<div><dt>Device</dt><dd>" + escapeHtml(data.device.deviceId || "unknown") + "</dd></div>",
+        "</dl>"
+      ].join("");
+  return page(
+    "Autopoiesis Frame",
+    `<main class="screen frame-screen">
+      <section class="${hasItems ? "frame-gallery" : "frame-empty"}">
+        <div class="frame-topline">
+          <p class="kicker">Autopoiesis Frame</p>
+          <p class="frame-count">${escapeHtml(frame.playableItems)} items</p>
+        </div>
+        ${frameBody}
+      </section>
+    </main>`,
+    `const frameItems = ${scriptJson(frame.items)};
+    const rotationMs = ${Math.round(rotationSeconds * 1000)};
+    let frameIndex = 0;
+    const stage = document.getElementById("frame-stage");
+    function escapeText(value) {
+      return String(value || "").replace(/[&<>"]/g, char => {
+        if (char === "&") return "&amp;";
+        if (char === "<") return "&lt;";
+        if (char === ">") return "&gt;";
+        return "&quot;";
+      });
+    }
+    function mediaMarkup(item) {
+      const media = item.media || {};
+      const url = media.url || "";
+      if (!url) return "";
+      if (media.role === "video") return "<video src=\\"" + escapeText(url) + "\\" autoplay muted loop playsinline></video>";
+      if (media.role === "audio") return "<audio src=\\"" + escapeText(url) + "\\" autoplay loop controls></audio>";
+      return "<img src=\\"" + escapeText(url) + "\\" alt=\\"\\">";
+    }
+    function renderFrameItem() {
+      if (!stage || !frameItems.length) {
+        if (!frameItems.length) {
+          fetch("/local/feed/sync", { method: "POST" }).finally(() => {
+            setTimeout(() => { location.reload(); }, Math.max(rotationMs, 15000));
+          });
+        }
+        return;
+      }
+      const item = frameItems[frameIndex % frameItems.length];
+      const meta = [item.artist, item.displayCategory, item.media && item.media.cached ? "cached" : ""].filter(Boolean).map(escapeText).join(" / ");
+      const body = item.body ? "<p>" + escapeText(item.body) + "</p>" : "";
+      const media = mediaMarkup(item);
+      stage.innerHTML = (media ? "<figure class=\\"frame-media\\">" + media + "</figure>" : "") +
+        "<div class=\\"frame-caption\\"><div><strong>" + escapeText(item.title || item.id) + "</strong>" + body + "</div>" +
+        (meta ? "<span>" + meta + "</span>" : "") + "</div>";
+      frameIndex += 1;
+    }
+    renderFrameItem();
+    setInterval(renderFrameItem, rotationMs);`
+  );
+}
+
 function renderDisabled() {
   return page(
     "Autopoiesis Inactive",
@@ -2346,6 +2482,10 @@ async function remoteLaunchReachable(targetUrl) {
 async function renderLaunch(res, url = new URL("http://localhost/launch")) {
   const data = status();
   const completingOnboarding = url.searchParams.get("completeOnboarding") === "1";
+  const localFrameRequested =
+    url.searchParams.get("local") === "1" ||
+    data.preferences.displayMode === "local-feed" ||
+    data.preferences.displayMode === "local_frame";
   if (data.state.remoteDisabled || data.device.remoteEnabled === false) {
     updateState({ currentMode: "disabled" });
     redirect(res, "/disabled");
@@ -2371,6 +2511,15 @@ async function renderLaunch(res, url = new URL("http://localhost/launch")) {
       onboardingComplete: true,
       firstRunComplete: true
     });
+  }
+  if (localFrameRequested) {
+    updateState({
+      currentMode: "frame",
+      localFrameActive: true,
+      lastLaunchAt: new Date().toISOString()
+    });
+    redirect(res, "/frame");
+    return;
   }
   const launchUrl = data.device.framesUrl || "https://autopoiesis.art/display?shuffle=1";
   if (!(await remoteLaunchReachable(launchUrl))) {
@@ -2970,6 +3119,7 @@ async function handle(req, res) {
     if (req.method === "GET" && url.pathname === "/setup") return html(res, renderSetup());
     if (req.method === "GET" && url.pathname === "/network") return html(res, renderNetwork());
     if (req.method === "GET" && url.pathname === "/settings") return html(res, renderSettings());
+    if (req.method === "GET" && url.pathname === "/frame") return html(res, renderFrame());
     if (req.method === "GET" && url.pathname === "/offline") return html(res, renderOffline());
     if (req.method === "GET" && url.pathname === "/broadcast") return html(res, renderBroadcast());
     if (req.method === "GET" && url.pathname === "/disabled") return html(res, renderDisabled());
@@ -3000,6 +3150,9 @@ async function handle(req, res) {
     }
     if (req.method === "GET" && url.pathname === "/local/feed") {
       return sendJson(res, publicFeed());
+    }
+    if (req.method === "GET" && url.pathname === "/local/frame-state") {
+      return sendJson(res, publicFrameState());
     }
     if (req.method === "GET" && url.pathname === "/local/offline-cache") {
       return sendJson(res, publicOfflineCache());
@@ -3168,6 +3321,18 @@ label { display: grid; gap: 8px; color: #c8c6bb; font-size: 18px; }
 .broadcast-panel h1 { font-size: clamp(42px, 7vw, 110px); }
 .broadcast-media { margin: 26px 0; }
 .broadcast-media img { display: block; width: 100%; max-height: 55vh; object-fit: contain; border-radius: 8px; }
+.frame-screen { align-items: stretch; justify-items: stretch; padding: 3vw; background: #0d1110; }
+.frame-gallery, .frame-empty { width: min(1280px, 100%); margin: auto; }
+.frame-topline { display: flex; justify-content: space-between; align-items: center; gap: 18px; color: #9ad0bb; }
+.frame-count { margin: 0; color: #c8c6bb; font-size: 18px; }
+.frame-stage { display: grid; gap: 18px; }
+.frame-media { margin: 0; display: grid; place-items: center; min-height: 68vh; background: #101412; border: 1px solid #2d3834; border-radius: 8px; overflow: hidden; }
+.frame-media img, .frame-media video { display: block; width: 100%; height: 68vh; object-fit: contain; background: #0d1110; }
+.frame-media audio { width: min(720px, 90%); }
+.frame-caption { display: flex; justify-content: space-between; align-items: flex-start; gap: 20px; color: #c8c6bb; font-size: 18px; }
+.frame-caption strong { display: block; color: #f4f1e8; font-size: clamp(24px, 4vw, 44px); overflow-wrap: anywhere; }
+.frame-caption p { max-width: 820px; margin: 8px 0 0; color: #c8c6bb; font-size: 20px; }
+.frame-caption span { text-align: right; overflow-wrap: anywhere; }
 .offline-screen { align-items: stretch; justify-items: stretch; padding: 4vw; }
 .offline-gallery, .offline-empty { width: min(1180px, 100%); margin: auto; }
 .offline-gallery h1, .offline-empty h1 { font-size: clamp(42px, 7vw, 96px); }

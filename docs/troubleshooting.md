@@ -92,6 +92,16 @@ curl -fsSI http://127.0.0.1:3030/local/cache/assets/<item-id>/media
 
 When `/launch` cannot reach the remote Frames display, `/offline` uses this cache inventory to rotate local media. If the inventory is empty, it falls back to the static offline status screen and keeps retrying `/launch`.
 
+For local-first playback testing, inspect the browser-safe queue and open the local frame route:
+
+```bash
+curl -fsS http://127.0.0.1:3030/local/frame-state
+curl -fsS http://127.0.0.1:3030/frame >/dev/null
+curl -fsSI 'http://127.0.0.1:3030/launch?local=1'
+```
+
+`/local/frame-state` is derived from `/local/feed` and `cache-index.json`. Cached assets are preferred, but remote media URLs remain available for online local playback. Use `preferences.displayMode=local-feed` or `/launch?local=1` when the kiosk should use the device-local frame surface instead of the hosted display first.
+
 ## Diagnostics
 
 ```bash

@@ -3,6 +3,7 @@ set -euo pipefail
 
 URL="${AUTOPOIESIS_LAUNCH_URL:-http://localhost:3030/launch}"
 SETUP_URL="${AUTOPOIESIS_SETUP_URL:-http://localhost:3030/setup}"
+LOCAL_BASE_URL="${AUTOPOIESIS_LOCAL_BASE_URL:-http://localhost:3030}"
 
 echo "Autopoiesis OS Milestone 2 verification"
 echo "Date: $(date -Is)"
@@ -27,6 +28,10 @@ curl -fsS "$SETUP_URL" >/dev/null
 echo "   setup UI responds at $SETUP_URL"
 curl -fsSI "$URL" >/dev/null
 echo "   launch route responds at $URL"
+curl -fsS "$LOCAL_BASE_URL/local/frame-state" >/dev/null
+echo "   local frame-state responds at $LOCAL_BASE_URL/local/frame-state"
+curl -fsS "$LOCAL_BASE_URL/frame" >/dev/null
+echo "   local frame route responds at $LOCAL_BASE_URL/frame"
 
 echo
 echo "3. Network status"
