@@ -34,6 +34,7 @@ Milestone 2 is scaffolded for physical Pi validation. The local UI can:
 - expose `/local/frame-state` so QA, support, and future admin adapters can inspect the browser-safe local playback queue
 - expose a metadata-only `/local/commands/audit` trail for recent remote command attempts
 - expose `/local/admin/capabilities` so Admin > Frames can discover role-gated remote action policy
+- verify the local admin capabilities contract so remote action controls do not drift from device policy
 - expose `/local/events/export` so backend/admin adapters can ingest command, delivery, and release lifecycle evidence through one redacted contract
 - expose a metadata-only `/local/release/history` trail for local release check/apply outcomes
 - verify the unified local event export contract for backend/admin ingestion readiness
@@ -101,6 +102,13 @@ Check rollout readiness across the local integration phases:
 
 ```bash
 ./scripts/readiness-check.sh
+```
+
+Check the role-gated Admin > Frames remote-action policy contract:
+
+```bash
+./scripts/admin-capabilities-check.sh
+AUTOPOIESIS_REQUIRE_REMOTE_ADMIN_READY=1 ./scripts/admin-capabilities-check.sh
 ```
 
 Check the unified command/delivery/release event export contract:

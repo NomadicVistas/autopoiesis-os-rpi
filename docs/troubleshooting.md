@@ -143,6 +143,16 @@ curl -fsS http://127.0.0.1:3030/local/support-bundle
 
 The bundle combines diagnostics, compact health, rollout readiness, touchscreen/input summary, active feed state, local frame playback state, offline-cache inventory, recent command audit entries, recent delivery events, recent release history, and the unified device event export. It is intended for hardware validation notes and admin support adapters, and it should stay free of stored device API keys, raw command payloads, release artifact URLs, checksums, and absolute cache asset paths.
 
+For Admin > Frames remote-action policy checks:
+
+```bash
+/opt/autopoiesis-os/app/scripts/admin-capabilities-check.sh
+AUTOPOIESIS_REQUIRE_REMOTE_ADMIN_READY=1 /opt/autopoiesis-os/app/scripts/admin-capabilities-check.sh
+curl -fsS http://127.0.0.1:3030/local/admin/capabilities
+```
+
+The default check validates the redacted capability payload, accepted actor roles, command risk levels, audit-id requirements, restart runtime opt-in state, and factory-reset local-confirmation gate. The required form is for paired staged devices where remote admin actions must be available.
+
 For backend/admin ingestion checks, fetch the same redacted event stream directly:
 
 ```bash
@@ -189,4 +199,4 @@ for a support handoff.
 /opt/autopoiesis-os/app/scripts/security-smoke.sh
 ```
 
-Run this before production imaging and after changing local JSON endpoints. It verifies that local status, pairing status, diagnostics, health, readiness, support-bundle, frame-state, offline-cache, command audit, delivery log, release history, and event export responses redact the stored device API key while still reporting safe key-presence, input-diagnostics, and playback-readiness flags for support.
+Run this before production imaging and after changing local JSON endpoints. It verifies that local status, pairing status, diagnostics, health, readiness, support-bundle, frame-state, offline-cache, command audit, admin capabilities, delivery log, release history, and event export responses redact the stored device API key while still reporting safe key-presence, input-diagnostics, and playback-readiness flags for support.

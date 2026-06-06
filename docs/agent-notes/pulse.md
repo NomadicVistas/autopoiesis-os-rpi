@@ -1,5 +1,14 @@
 # Pulse Agent Notes
 
+## 2026-06-06 - Admin capabilities acceptance check
+
+Date/time: 2026-06-06 10:05 UTC / 2026-06-06 12:05 Europe/Berlin
+Agent: Pulse
+Context: ONLINE ADMIN cron pass. Admin > Frames has a local capabilities endpoint for role-gated remote actions, but physical acceptance still needed a dedicated gate that proves the policy matrix is stable and redacted.
+What changed: Added `scripts/admin-capabilities-check.sh` and wired it into Milestone 2 verification. The check validates accepted actor roles, command risk levels, authorization requirements, high/critical audit-id requirements, restart runtime opt-in state, factory-reset local-confirmation blocking, pending-command shape, and no device-key leakage. It also has `AUTOPOIESIS_REQUIRE_REMOTE_ADMIN_READY=1` for paired staged devices.
+What needs review: Run the required mode on physical Pi hardware after live pairing. If it fails on paired/keyed state, capture `/local/admin/capabilities`, `/local/status`, and the latest heartbeat command response before changing Admin > Frames controls.
+Next recommended action: Have Admin > Frames consume this capability contract for action-button disabled states, confirmation copy, and audit-required labels instead of duplicating command policy in frontend code.
+
 ## 2026-06-06 - Frame playback readiness signal
 
 Date/time: 2026-06-06 09:15 UTC / 2026-06-06 11:15 Europe/Berlin

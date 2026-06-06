@@ -1,5 +1,41 @@
 # Progress
 
+## 2026-06-06 - Admin capabilities acceptance check
+
+Date: 2026-06-06
+
+Milestone: ONLINE ADMIN - remote action policy acceptance
+
+Changed files:
+
+- `scripts/admin-capabilities-check.sh`
+- `scripts/milestone2-verify.sh`
+- `README.md`
+- `docs/admin-system.md`
+- `docs/troubleshooting.md`
+- `docs/progress.md`
+- `docs/agent-notes/pulse.md`
+- `/data/.openclaw/workspace/autopoiesis-os-program/ROLLING-LOG.md`
+
+Implemented:
+
+- Added `scripts/admin-capabilities-check.sh` to validate the redacted `GET /local/admin/capabilities` contract for Admin > Frames remote-action controls.
+- The check verifies accepted actor roles, command risk levels, authorization requirements, high/critical audit-id requirements, restart runtime opt-in state, factory-reset local-confirmation blocking, pending-command count shape, and device API key redaction.
+- Added optional `AUTOPOIESIS_REQUIRE_REMOTE_ADMIN_READY=1` mode for staged paired devices, requiring paired state, stored device key, and `remoteEnabled=true`.
+- Wired the check into `scripts/milestone2-verify.sh` so physical Pi acceptance catches drift between device policy and online admin controls.
+
+Verification:
+
+- `node --check local-ui/server.js` passed.
+- `bash -n install.sh update.sh uninstall-dev-tools.sh factory-reset.sh scripts/*.sh` passed.
+- `git diff --check` passed.
+- `scripts/security-smoke.sh` passed.
+- Targeted temporary local UI smoke passed for `scripts/admin-capabilities-check.sh` normal mode and strict `AUTOPOIESIS_REQUIRE_REMOTE_ADMIN_READY=1` rejection before pairing.
+
+Next step:
+
+After pairing a physical Pi to an online Frames profile, run `AUTOPOIESIS_REQUIRE_REMOTE_ADMIN_READY=1 /opt/autopoiesis-os/app/scripts/admin-capabilities-check.sh` and confirm Admin > Frames maps disabled/confirm/audit-required buttons from the same capability payload.
+
 ## 2026-06-06 - Frame playback readiness signal
 
 Date: 2026-06-06

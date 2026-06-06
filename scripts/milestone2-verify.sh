@@ -78,7 +78,11 @@ echo "7. Local readiness probe"
 "$(dirname "$0")/readiness-check.sh"
 
 echo
-echo "8. Local event export contract"
+echo "8. Local admin capabilities contract"
+"$(dirname "$0")/admin-capabilities-check.sh"
+
+echo
+echo "9. Local event export contract"
 "$(dirname "$0")/events-export-check.sh"
 
 echo
