@@ -29,7 +29,7 @@ Milestone 2 is scaffolded for physical Pi validation. The local UI can:
 - show cached feed media on `/offline` when the live display is unreachable
 - expose a compact `/local/health` probe for support, admin adapters, and hardware acceptance checks
 - expose touchscreen/input diagnostics through health/readiness/support surfaces
-- expose a phase-level `/local/readiness` probe for setup, input, pairing, sync, content, cache, commands, and release rollout checks
+- expose a phase-level `/local/readiness` probe for setup, input, pairing, sync, content, local playback, cache, commands, and release rollout checks
 - expose a redacted `/local/support-bundle` for one-step hardware/support handoff collection
 - expose `/local/frame-state` so QA, support, and future admin adapters can inspect the browser-safe local playback queue
 - expose a metadata-only `/local/commands/audit` trail for recent remote command attempts
@@ -113,6 +113,8 @@ Inspect the local frame playback queue:
 
 ```bash
 curl -fsS http://127.0.0.1:3030/local/frame-state
+./scripts/frame-state-check.sh
+AUTOPOIESIS_REQUIRE_FRAME_ITEMS=1 ./scripts/frame-state-check.sh
 ```
 
 Collect a redacted local support bundle:

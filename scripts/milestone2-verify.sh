@@ -30,6 +30,7 @@ curl -fsSI "$URL" >/dev/null
 echo "   launch route responds at $URL"
 curl -fsS "$LOCAL_BASE_URL/local/frame-state" >/dev/null
 echo "   local frame-state responds at $LOCAL_BASE_URL/local/frame-state"
+"$(dirname "$0")/frame-state-check.sh"
 curl -fsS "$LOCAL_BASE_URL/frame" >/dev/null
 echo "   local frame route responds at $LOCAL_BASE_URL/frame"
 

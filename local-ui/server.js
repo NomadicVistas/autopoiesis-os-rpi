@@ -1268,7 +1268,7 @@ function publicFrameState() {
     };
   });
   const playableItems = items.filter(item => item.media.url || item.title || item.body);
-  return {
+  const frame = {
     ok: true,
     kind: "autopoiesis_frame_state",
     schemaVersion: 1,
@@ -1280,6 +1280,55 @@ function publicFrameState() {
     cachedPlayableItems: playableItems.filter(item => item.media.cached).length,
     categories: feedCategoryCounts(displayQueue),
     items: playableItems
+  };
+  frame.playback = framePlaybackSummary(frame);
+  return frame;
+}
+
+function framePlaybackSummary(frame = {}, state = readJson(paths.state, {})) {
+  const totalItems = Number(frame.totalItems || 0);
+  const displayQueueItems = Number(frame.displayQueueItems || 0);
+  const playableItems = Number(frame.playableItems || 0);
+  const cachedPlayableItems = Number(frame.cachedPlayableItems || 0);
+  let statusValue = "waiting_for_feed";
+  let summary = "No local feed sync has completed yet.";
+
+  if (playableItems > 0) {
+    statusValue = cachedPlayableItems > 0 ? "ready_with_cache" : "ready_remote";
+    summary = cachedPlayableItems > 0
+      ? "The local frame queue has playable items and at least one cached asset."
+      : "The local frame queue has playable items using remote media or text.";
+  } else if (frame.syncedAt && displayQueueItems > 0) {
+    statusValue = "no_playable_items";
+    summary = "The local display queue exists, but no item has media, title, or body content to render.";
+  } else if (frame.syncedAt || totalItems > 0) {
+    statusValue = "empty_queue";
+    summary = "Feed data exists, but no item is currently eligible for local frame playback.";
+  }
+
+  const firstItem = Array.isArray(frame.items) && frame.items.length
+    ? {
+        id: frame.items[0].id || null,
+        type: frame.items[0].type || null,
+        displayCategory: frame.items[0].displayCategory || null,
+        mediaRole: frame.items[0].media ? frame.items[0].media.role || null : null,
+        cached: frame.items[0].media ? Boolean(frame.items[0].media.cached) : false
+      }
+    : null;
+
+  return {
+    ready: playableItems > 0,
+    status: statusValue,
+    summary,
+    syncedAt: frame.syncedAt || null,
+    totalItems,
+    displayQueueItems,
+    playableItems,
+    cachedPlayableItems,
+    categories: frame.categories || {},
+    firstItem,
+    localFrameActive: Boolean(state.localFrameActive),
+    lastLocalFrameAt: state.lastLocalFrameAt || null
   };
 }
 
@@ -1608,6 +1657,14 @@ function diagnosticsHealth(diagnostics, data) {
     }
   }
 
+  if (diagnostics.framePlayback) {
+    if (diagnostics.framePlayback.status === "no_playable_items") {
+      add("warning", "frame_no_playable_items", "The local frame queue exists, but no item has renderable media or text.");
+    } else if (diagnostics.framePlayback.status === "empty_queue" && diagnostics.framePlayback.totalItems > 0) {
+      add("warning", "frame_queue_empty", "Feed data exists, but no item is eligible for local frame playback.");
+    }
+  }
+
   if (diagnostics.services) {
     for (const [serviceName, serviceStatus] of Object.entries(diagnostics.services)) {
       if (serviceStatus === "failed") {
@@ -1639,6 +1696,7 @@ async function collectDiagnostics(options = {}) {
   const commandAudit = commandAuditSummary();
   const displayDelivery = deliverySummary();
   const releaseHistory = releaseHistorySummary();
+  const frameState = publicFrameState();
   const disk = await diskStatus(DATA_DIR);
   const diagnostics = {
     collectedAt: new Date().toISOString(),
@@ -1699,6 +1757,7 @@ async function collectDiagnostics(options = {}) {
     displayDelivery,
     releaseHistory,
     eventIngestion: eventIngestionSummary(),
+    framePlayback: frameState.playback,
     feed: {
       syncedAt: feed.syncedAt || null,
       totalItems: Array.isArray(feed.items) ? feed.items.length : 0,
@@ -1744,6 +1803,7 @@ function readinessSummary(diagnostics) {
   const paired = Boolean(health.paired);
   const deviceKeyPresent = Boolean(health.deviceKeyPresent);
   const feed = diagnostics.feed || {};
+  const framePlayback = diagnostics.framePlayback || {};
   const release = diagnostics.release || null;
   const services = diagnostics.services || null;
   const commandAudit = diagnostics.commandAudit || {};
@@ -1806,6 +1866,12 @@ function readinessSummary(diagnostics) {
       feed.syncedAt ? "ready" : "waiting_for_feed",
       feed.syncedAt ? "A feed has been synced locally." : "No local feed sync has completed yet.",
       { feed }
+    ),
+    playback: phase(
+      Boolean(framePlayback.ready),
+      framePlayback.status || "unknown",
+      framePlayback.summary || "Local frame playback status is unavailable.",
+      { framePlayback }
     ),
     cache: phase(
       feed.cacheEligibleItems === 0 || feed.cacheCachedItems > 0,
@@ -1899,6 +1965,7 @@ function healthSummary(diagnostics) {
     pendingCommands: diagnostics.pendingCommands || 0,
     commandAudit: diagnostics.commandAudit || null,
     displayDelivery: diagnostics.displayDelivery || null,
+    framePlayback: diagnostics.framePlayback || null,
     feed: diagnostics.feed || null,
     broadcast: diagnostics.broadcast || null,
     collectedAt: diagnostics.collectedAt || null
@@ -1910,6 +1977,7 @@ async function supportBundle(options = {}) {
   const health = healthSummary(diagnostics);
   const readiness = readinessSummary(diagnostics);
   const feed = publicFeed();
+  const frameState = publicFrameState();
   const offlineCache = publicOfflineCache();
   const commandAudit = publicCommandAudit(options.auditLimit);
   const deliveryLog = publicDeliveryLog(options.deliveryLimit);
@@ -1947,6 +2015,7 @@ async function supportBundle(options = {}) {
         totalDevices: diagnostics.input ? diagnostics.input.totalDevices || 0 : 0
       },
       pendingCommands: health.pendingCommands || 0,
+      framePlayback: diagnostics.framePlayback || null,
       offlinePlayableItems: offlineCache.playableItems || 0,
       commandAudit: {
         totalEntries: commandAudit.count || 0,
@@ -1974,6 +2043,7 @@ async function supportBundle(options = {}) {
     health,
     readiness,
     feed,
+    frameState,
     offlineCache,
     commandAudit,
     deliveryLog,

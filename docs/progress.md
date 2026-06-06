@@ -1,5 +1,45 @@
 # Progress
 
+## 2026-06-06 - Frame playback readiness signal
+
+Date: 2026-06-06
+
+Milestone: LEAD / integration - rollout playback observability
+
+Changed files:
+
+- `local-ui/server.js`
+- `scripts/frame-state-check.sh`
+- `scripts/milestone2-verify.sh`
+- `scripts/security-smoke.sh`
+- `README.md`
+- `docs/api-contract.md`
+- `docs/troubleshooting.md`
+- `docs/progress.md`
+- `docs/agent-notes/pulse.md`
+- `/data/.openclaw/workspace/autopoiesis-os-program/ROLLING-LOG.md`
+
+Implemented:
+
+- Added a compact `playback` summary to `GET /local/frame-state`, distinguishing `waiting_for_feed`, `empty_queue`, `no_playable_items`, `ready_remote`, and `ready_with_cache`.
+- Mirrored that summary as `framePlayback` in diagnostics, compact health, readiness, and support bundles so admin/support consumers can tell whether a synced feed is actually renderable by the kiosk.
+- Added stable health issue codes `frame_no_playable_items` and `frame_queue_empty` for feed/playback mismatch cases.
+- Added `scripts/frame-state-check.sh` to validate the local playback contract and optionally fail when no playable frame items exist with `AUTOPOIESIS_REQUIRE_FRAME_ITEMS=1`.
+- Wired the frame-state check into Milestone 2 validation without requiring items by default, preserving fresh setup validation while giving staged rollout a stricter switch.
+
+Verification:
+
+- `node --check local-ui/server.js` passed.
+- `bash -n install.sh update.sh uninstall-dev-tools.sh factory-reset.sh scripts/*.sh` passed.
+- `git diff --check` passed.
+- `scripts/security-smoke.sh` passed.
+- Targeted temporary-state local playback smoke passed for `AUTOPOIESIS_REQUIRE_FRAME_ITEMS=1 scripts/frame-state-check.sh`, `ready_with_cache`, diagnostics/health/readiness/support `framePlayback` visibility, support-bundle `frameState`, and device-key redaction.
+
+Next step:
+
+After a live backend feed sync and cache pass on the physical Pi, run `AUTOPOIESIS_REQUIRE_FRAME_ITEMS=1 /opt/autopoiesis-os/app/scripts/frame-state-check.sh` and then `sudo /opt/autopoiesis-os/app/scripts/milestone2-verify.sh` to confirm the local queue is renderable under Chromium.
+
+
 ## 2026-06-06 - Touchscreen input diagnostics
 
 Date: 2026-06-06

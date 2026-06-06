@@ -118,6 +118,7 @@ Diagnostics fields are intentionally compact and safe for admin/profile/support 
 - release
 - pendingCommands
 - commandAudit
+- framePlayback
 - broadcast
 - health
 
@@ -125,9 +126,9 @@ Diagnostics fields are intentionally compact and safe for admin/profile/support 
 
 `GET /local/health` returns a compact, redacted summary derived from diagnostics. It is intended for admin fleet scans, support scripts, and hardware acceptance checks that do not need the full telemetry payload. Add `?services=1` to include local systemd checks before deriving the health summary.
 
-`GET /local/readiness` returns a redacted, phase-level rollout snapshot derived from diagnostics. It includes setup/local UI, touchscreen/input, network, pairing, settings sync, content/feed, cache, command executor, and release phases. Add `?services=0` to skip local systemd service checks when running outside an installed Pi environment.
+`GET /local/readiness` returns a redacted, phase-level rollout snapshot derived from diagnostics. It includes setup/local UI, touchscreen/input, network, pairing, settings sync, content/feed, local playback, cache, command executor, and release phases. Add `?services=0` to skip local systemd service checks when running outside an installed Pi environment.
 
-`GET /local/support-bundle` returns a redacted one-shot support object for hardware validation, admin adapters, and handoff reports. It aggregates diagnostics, compact health, readiness, touchscreen/input summary, active feed counts/items, offline-cache inventory, recent command audit entries, local admin capability policy, recent display delivery events, recent release history events, and the unified device event export. Add `?services=0` to skip systemd service checks, `?auditLimit=50` to tune recent command audit entries, `?deliveryLimit=50` to tune recent delivery events, `?releaseLimit=50` to tune recent release history entries, and `?eventLimit=50` to tune the unified event export. The bundle intentionally reuses existing redacted endpoint shapes instead of exposing raw command payloads, local cache paths, release artifact URLs, checksums, or stored device API keys.
+`GET /local/support-bundle` returns a redacted one-shot support object for hardware validation, admin adapters, and handoff reports. It aggregates diagnostics, compact health, readiness, touchscreen/input summary, active feed counts/items, local frame state, offline-cache inventory, recent command audit entries, local admin capability policy, recent display delivery events, recent release history events, and the unified device event export. Add `?services=0` to skip systemd service checks, `?auditLimit=50` to tune recent command audit entries, `?deliveryLimit=50` to tune recent delivery events, `?releaseLimit=50` to tune recent release history entries, and `?eventLimit=50` to tune the unified device event export. The bundle intentionally reuses existing redacted endpoint shapes instead of exposing raw command payloads, local cache paths, release artifact URLs, checksums, or stored device API keys.
 
 Example:
 
@@ -172,7 +173,7 @@ Diagnostics health summary:
 }
 ```
 
-Current issue codes include `device_unpaired`, `device_key_missing`, `network_offline`, `offline_fallback`, `storage_critical`, `storage_high`, `storage_low`, `storage_unknown`, `memory_low`, `temperature_critical`, `temperature_high`, `input_unknown`, `input_missing`, `touchscreen_missing`, `release_error`, `release_in_progress`, `settings_conflict`, `commands_pending`, `cache_failures`, `cache_empty`, and `service_failed`.
+Current issue codes include `device_unpaired`, `device_key_missing`, `network_offline`, `offline_fallback`, `storage_critical`, `storage_high`, `storage_low`, `storage_unknown`, `memory_low`, `temperature_critical`, `temperature_high`, `input_unknown`, `input_missing`, `touchscreen_missing`, `release_error`, `release_in_progress`, `settings_conflict`, `commands_pending`, `cache_failures`, `cache_empty`, `frame_no_playable_items`, `frame_queue_empty`, and `service_failed`.
 
 Input diagnostics read Linux input metadata from `/proc/bus/input/devices` by default and report `status`, `touchscreenPresent`, `pointerPresent`, `keyboardPresent`, `totalDevices`, and a bounded device list. Set `AUTOPOIESIS_INPUT_DEVICES_PATH` for tests. The physical Pi milestone uses `AUTOPOIESIS_REQUIRE_TOUCHSCREEN=1 scripts/touchscreen-check.sh` so staged hardware fails verification when no touchscreen-class input is visible.
 
@@ -213,9 +214,9 @@ Local feed behavior:
 - Heartbeat responses may also carry feed, items, artworks, or broadcasts; the local UI normalizes those into the same feed state.
 - GET /local/feed returns active, display-eligible items only. Expired items, future scheduled items, and preference-disabled media types are filtered out.
 - GET /local/feed also returns `displayQueue`, a priority-preserving mixed-content queue. The device keeps emergency/critical/high/normal/low priority bands intact, then round-robins categories inside each band across broadcast, curatorial, artwork, blog, news, and general content items so personalized streams do not collapse into a single content class.
-- GET /local/frame-state returns the browser-safe local playback contract derived from `displayQueue`, including media role, cached-vs-remote source, playable counts, cached playable counts, display category, and display position. It never exposes absolute cache paths or stored device API keys.
+- GET /local/frame-state returns the browser-safe local playback contract derived from `displayQueue`, including media role, cached-vs-remote source, playable counts, cached playable counts, display category, display position, and a compact `playback` readiness summary. It never exposes absolute cache paths or stored device API keys.
 - `/frame` renders that local playback queue for the kiosk and prefers cached media URLs when `cache-index.json` has a usable asset. `/launch?local=1` or `preferences.displayMode=local-feed` routes to `/frame` while the default `/launch` path can remain hosted-display first.
-- Feed diagnostics include `displayQueueItems` and category counts so Admin > Frames and support bundles can see whether a device has a usable mixed stream.
+- Feed diagnostics include `displayQueueItems` and category counts, while diagnostics/readiness/health/support bundles include `framePlayback` so Admin > Frames and support tooling can distinguish synced feed data from a queue the kiosk can actually render.
 - The local UI also writes a feed cache manifest for items with cacheAllowed !== false and a media or thumbnail URL. `scripts/cache-artworks.sh` downloads those eligible assets into the local runtime cache and writes `cache-index.json` with cached/failed asset status.
 - GET /local/offline-cache returns the redacted playable cache inventory. It reports counts and browser-safe local asset URLs without exposing absolute filesystem paths.
 - GET /local/cache/assets/{itemId}/media and GET /local/cache/assets/{itemId}/thumbnail serve cached files only when the indexed path resolves under the configured cache directory.

@@ -96,11 +96,14 @@ For local-first playback testing, inspect the browser-safe queue and open the lo
 
 ```bash
 curl -fsS http://127.0.0.1:3030/local/frame-state
+./scripts/frame-state-check.sh
 curl -fsS http://127.0.0.1:3030/frame >/dev/null
 curl -fsSI 'http://127.0.0.1:3030/launch?local=1'
 ```
 
-`/local/frame-state` is derived from `/local/feed` and `cache-index.json`. Cached assets are preferred, but remote media URLs remain available for online local playback. Use `preferences.displayMode=local-feed` or `/launch?local=1` when the kiosk should use the device-local frame surface instead of the hosted display first.
+`/local/frame-state` is derived from `/local/feed` and `cache-index.json`. Cached assets are preferred, but remote media URLs remain available for online local playback. The response includes a compact `playback` summary, and diagnostics/readiness/support bundles mirror it as `framePlayback`. Use `AUTOPOIESIS_REQUIRE_FRAME_ITEMS=1 ./scripts/frame-state-check.sh` after a real feed sync when physical validation should fail on an empty playable queue.
+
+Use `preferences.displayMode=local-feed` or `/launch?local=1` when the kiosk should use the device-local frame surface instead of the hosted display first.
 
 ## Diagnostics
 
@@ -138,7 +141,7 @@ For one-step support handoff, collect the redacted support bundle:
 curl -fsS http://127.0.0.1:3030/local/support-bundle
 ```
 
-The bundle combines diagnostics, compact health, rollout readiness, touchscreen/input summary, active feed state, offline-cache inventory, recent command audit entries, recent delivery events, recent release history, and the unified device event export. It is intended for hardware validation notes and admin support adapters, and it should stay free of stored device API keys, raw command payloads, release artifact URLs, checksums, and absolute cache asset paths.
+The bundle combines diagnostics, compact health, rollout readiness, touchscreen/input summary, active feed state, local frame playback state, offline-cache inventory, recent command audit entries, recent delivery events, recent release history, and the unified device event export. It is intended for hardware validation notes and admin support adapters, and it should stay free of stored device API keys, raw command payloads, release artifact URLs, checksums, and absolute cache asset paths.
 
 For backend/admin ingestion checks, fetch the same redacted event stream directly:
 
@@ -186,4 +189,4 @@ for a support handoff.
 /opt/autopoiesis-os/app/scripts/security-smoke.sh
 ```
 
-Run this before production imaging and after changing local JSON endpoints. It verifies that local status, pairing status, diagnostics, health, readiness, support-bundle, offline-cache, command audit, delivery log, release history, and event export responses redact the stored device API key while still reporting safe key-presence and input-diagnostics flags for support.
+Run this before production imaging and after changing local JSON endpoints. It verifies that local status, pairing status, diagnostics, health, readiness, support-bundle, frame-state, offline-cache, command audit, delivery log, release history, and event export responses redact the stored device API key while still reporting safe key-presence, input-diagnostics, and playback-readiness flags for support.

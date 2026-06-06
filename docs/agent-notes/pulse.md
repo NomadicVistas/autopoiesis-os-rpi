@@ -1,5 +1,15 @@
 # Pulse Agent Notes
 
+## 2026-06-06 - Frame playback readiness signal
+
+Date/time: 2026-06-06 09:15 UTC / 2026-06-06 11:15 Europe/Berlin
+Agent: Pulse
+Context: LEAD / INTEGRATION cron pass. Local frame playback existed, but rollout/support consumers still had to infer renderability from separate feed, cache, and frame-state counts.
+What changed: Added a compact playback readiness summary to `/local/frame-state` and mirrored it into diagnostics, health, readiness, and support bundles as `framePlayback`. Added `scripts/frame-state-check.sh` with an optional `AUTOPOIESIS_REQUIRE_FRAME_ITEMS=1` hard gate, and wired the default contract validation into Milestone 2.
+What needs review: Physical Pi validation should run the strict frame-state check after a real feed/cache cycle. If it reports `empty_queue` or `no_playable_items`, capture `/local/feed`, `/local/frame-state`, and cache worker output before tuning the backend feed contract.
+Next recommended action: Feed Admin > Frames device detail from `framePlayback` so support can see whether a frame is blocked by pairing/network, feed sync, cache, or actual local playback.
+
+
 ## 2026-06-06 - Touchscreen input diagnostics
 
 Date/time: 2026-06-06 08:35 UTC / 2026-06-06 10:35 Europe/Berlin
