@@ -1,5 +1,42 @@
 # Progress
 
+## 2026-06-06 - Rollout acceptance contract
+
+Date: 2026-06-06
+
+Milestone: LEAD / integration - managed rollout gate
+
+Changed files:
+
+- `local-ui/server.js`
+- `scripts/rollout-acceptance-check.sh`
+- `scripts/security-smoke.sh`
+- `README.md`
+- `docs/api-contract.md`
+- `docs/progress.md`
+- `docs/agent-notes/pulse.md`
+- `/data/.openclaw/workspace/autopoiesis-os-program/ROLLING-LOG.md`
+
+Implemented:
+
+- Added `GET /local/rollout/acceptance`, a redacted fleet rollout gate derived from health, readiness, Admin capabilities, and unified event export.
+- Added setup, staged, and production profiles so fresh setup validation, managed staged devices, and strict production candidates can use the same contract with different required checks.
+- Added `strictContent=1` for staged devices that must prove synced content, local playback, and cache state before rollout.
+- Added `scripts/rollout-acceptance-check.sh` as the CLI gate for Pi validation, Admin adapter smoke tests, and rollout handoff reports.
+- Extended the security smoke test to cover rollout acceptance redaction and remote-admin readiness evaluation.
+
+Verification:
+
+- `node --check local-ui/server.js` passed.
+- `bash -n install.sh update.sh uninstall-dev-tools.sh factory-reset.sh scripts/*.sh` passed.
+- `git diff --check` passed.
+- `scripts/security-smoke.sh` passed.
+- Targeted temporary local UI smoke passed for staged rollout warning mode, strict staged cache blocking, production cache blocking, event export presence, remote-admin readiness, and device-key redaction.
+
+Next step:
+
+Run `AUTOPOIESIS_ROLLOUT_PROFILE=staged /opt/autopoiesis-os/app/scripts/rollout-acceptance-check.sh` on the paired physical Pi after heartbeat/feed/cache cycles; use `AUTOPOIESIS_ROLLOUT_STRICT_CONTENT=1` when promoting a device from staged to production.
+
 ## 2026-06-06 - Admin capabilities acceptance check
 
 Date: 2026-06-06

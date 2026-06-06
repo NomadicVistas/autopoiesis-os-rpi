@@ -1934,6 +1934,215 @@ function readinessSummary(diagnostics) {
   };
 }
 
+function boolOption(value) {
+  return value === true || value === "1" || value === "true" || value === "yes";
+}
+
+function rolloutProfileName(value) {
+  const profile = String(value || "staged").toLowerCase();
+  return ["setup", "staged", "production"].includes(profile) ? profile : "staged";
+}
+
+function rolloutAcceptance(diagnostics, options = {}) {
+  const profile = rolloutProfileName(options.profile);
+  const strictContent = boolOption(options.strictContent) || profile === "production";
+  const readiness = readinessSummary(diagnostics);
+  const health = healthSummary(diagnostics);
+  const adminCapabilities = publicAdminCapabilities();
+  const events = publicDeviceEvents({ limit: options.eventLimit || 10 });
+  const phases = readiness.phases || {};
+  const framePlayback = diagnostics.framePlayback || {};
+  const input = diagnostics.input || {};
+
+  const checks = [];
+  function addCheck(id, label, passed, required, summary, details = {}) {
+    checks.push({
+      id,
+      label,
+      passed: Boolean(passed),
+      required: Boolean(required),
+      summary,
+      ...details
+    });
+  }
+
+  const profileRequiresManagedDevice = profile !== "setup";
+  const requireTouchscreen = profile !== "setup";
+  const requireNoWarnings = profile === "production";
+  const contentRequired = strictContent;
+
+  addCheck(
+    "health",
+    "Health has no blocking errors",
+    health.status !== "error" && (!requireNoWarnings || health.status === "ok"),
+    true,
+    requireNoWarnings
+      ? "Production rollout requires an all-clear compact health status."
+      : "Rollout acceptance blocks on compact health errors.",
+    { status: health.status }
+  );
+  addCheck(
+    "local_ui",
+    "Local UI readiness",
+    Boolean((phases.localUi || {}).ready),
+    true,
+    (phases.localUi || {}).summary || "Local UI must respond with diagnostics.",
+    { status: (phases.localUi || {}).status || "unknown" }
+  );
+  addCheck(
+    "input",
+    requireTouchscreen ? "Touchscreen detected" : "Pointer input detected",
+    requireTouchscreen ? Boolean(input.touchscreenPresent) : Boolean(input.pointerPresent),
+    true,
+    requireTouchscreen
+      ? "Staged and production frames require touchscreen-class input."
+      : "Setup acceptance requires at least pointer input.",
+    {
+      status: input.status || "unknown",
+      touchscreenPresent: Boolean(input.touchscreenPresent),
+      pointerPresent: Boolean(input.pointerPresent)
+    }
+  );
+  addCheck(
+    "network",
+    "Network online",
+    Boolean((phases.network || {}).ready),
+    profileRequiresManagedDevice,
+    (phases.network || {}).summary || "Managed rollout requires LAN or Wi-Fi.",
+    { status: (phases.network || {}).status || "unknown" }
+  );
+  addCheck(
+    "pairing",
+    "Paired with device key",
+    Boolean((phases.pairing || {}).ready),
+    profileRequiresManagedDevice,
+    (phases.pairing || {}).summary || "Managed rollout requires online pairing and a stored device API key.",
+    { status: (phases.pairing || {}).status || "unknown" }
+  );
+  addCheck(
+    "settings_sync",
+    "Settings sync available",
+    Boolean((phases.sync || {}).ready),
+    profileRequiresManagedDevice,
+    (phases.sync || {}).summary || "Settings sync must be ready for managed rollout.",
+    { status: (phases.sync || {}).status || "unknown" }
+  );
+  addCheck(
+    "remote_admin",
+    "Remote admin actions can be authorized",
+    Boolean(
+      adminCapabilities.device &&
+        adminCapabilities.device.paired &&
+        adminCapabilities.device.deviceKeyPresent &&
+        adminCapabilities.device.remoteEnabled
+    ),
+    profileRequiresManagedDevice,
+    "Admin command queueing requires pairing, a stored device key, and remoteEnabled=true.",
+    {
+      remoteEnabled: Boolean(adminCapabilities.device && adminCapabilities.device.remoteEnabled),
+      pendingCommands: adminCapabilities.pendingCommands || 0
+    }
+  );
+  addCheck(
+    "commands",
+    "Command queue clear",
+    Boolean((phases.commands || {}).ready),
+    profileRequiresManagedDevice,
+    (phases.commands || {}).summary || "Remote command handling must not have stale pending commands.",
+    { status: (phases.commands || {}).status || "unknown" }
+  );
+  addCheck(
+    "release",
+    "Release state not failed",
+    Boolean((phases.release || {}).ready),
+    true,
+    (phases.release || {}).summary || "Last release/update attempt must not be failed.",
+    { status: (phases.release || {}).status || "unknown" }
+  );
+  addCheck(
+    "content",
+    "Feed content synced",
+    Boolean((phases.content || {}).ready),
+    contentRequired,
+    (phases.content || {}).summary || "Content is optional for setup but required for strict rollout acceptance.",
+    { status: (phases.content || {}).status || "unknown" }
+  );
+  addCheck(
+    "playback",
+    "Local playback renderable",
+    Boolean((phases.playback || {}).ready),
+    contentRequired,
+    (phases.playback || {}).summary || "Strict rollout acceptance requires a renderable local queue.",
+    {
+      status: (phases.playback || {}).status || "unknown",
+      playableItems: framePlayback.playableItems || 0,
+      cachedPlayableItems: framePlayback.cachedPlayableItems || 0
+    }
+  );
+  addCheck(
+    "cache",
+    "Offline cache acceptable",
+    Boolean((phases.cache || {}).ready),
+    profile === "production" || strictContent,
+    (phases.cache || {}).summary || "Strict rollout acceptance requires cache state to be ready or unnecessary.",
+    { status: (phases.cache || {}).status || "unknown" }
+  );
+  addCheck(
+    "event_export",
+    "Device event export contract",
+    Boolean(events.ok && events.kind === "autopoiesis_frame_event_export"),
+    true,
+    "The device must expose the unified redacted event export for backend ingestion.",
+    { exportedEvents: (events.counts || {}).exported || 0, hasMore: Boolean((events.cursor || {}).hasMore) }
+  );
+
+  const blockers = checks.filter(check => check.required && !check.passed);
+  const warnings = checks.filter(check => !check.required && !check.passed);
+  const statusValue = blockers.length ? "blocked" : warnings.length ? "warning" : "accepted";
+
+  return {
+    ok: statusValue !== "blocked",
+    kind: "autopoiesis_frame_rollout_acceptance",
+    schemaVersion: 1,
+    redacted: true,
+    generatedAt: new Date().toISOString(),
+    profile,
+    strictContent,
+    status: statusValue,
+    device: health.device,
+    healthStatus: health.status || "unknown",
+    readinessStatus: readiness.status || "unknown",
+    checks,
+    blockers,
+    warnings,
+    summary: {
+      requiredPassed: checks.filter(check => check.required && check.passed).length,
+      requiredTotal: checks.filter(check => check.required).length,
+      optionalWarnings: warnings.length,
+      issueCodes: ((health.health || {}).issues || []).map(issue => issue.code).filter(Boolean),
+      readinessBlockers: readiness.blockers || [],
+      remoteAdminReady: Boolean(
+        adminCapabilities.device &&
+          adminCapabilities.device.paired &&
+          adminCapabilities.device.deviceKeyPresent &&
+          adminCapabilities.device.remoteEnabled
+      ),
+      exportedEvents: (events.counts || {}).exported || 0
+    },
+    readiness,
+    adminCapabilities,
+    eventExport: {
+      kind: events.kind,
+      schemaVersion: events.schemaVersion,
+      redacted: events.redacted,
+      generatedAt: events.generatedAt,
+      counts: events.counts,
+      cursor: events.cursor,
+      sourceCursors: events.sourceCursors
+    }
+  };
+}
+
 function healthSummary(diagnostics) {
   const health = diagnostics.health || {};
   return {
@@ -3303,6 +3512,14 @@ async function handle(req, res) {
     if (req.method === "GET" && url.pathname === "/local/readiness") {
       const includeServices = url.searchParams.get("services") !== "0";
       return sendJson(res, readinessSummary(await collectDiagnostics({ includeServices })));
+    }
+    if (req.method === "GET" && url.pathname === "/local/rollout/acceptance") {
+      const includeServices = url.searchParams.get("services") !== "0";
+      return sendJson(res, rolloutAcceptance(await collectDiagnostics({ includeServices }), {
+        profile: url.searchParams.get("profile"),
+        strictContent: url.searchParams.get("strictContent"),
+        eventLimit: url.searchParams.get("eventLimit") || url.searchParams.get("limit")
+      }));
     }
     if (req.method === "GET" && url.pathname === "/local/support-bundle") {
       const includeServices = url.searchParams.get("services") !== "0";

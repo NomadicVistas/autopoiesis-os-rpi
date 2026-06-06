@@ -1,5 +1,14 @@
 # Pulse Agent Notes
 
+## 2026-06-06 - Rollout acceptance contract
+
+Date/time: 2026-06-06 10:15 UTC / 2026-06-06 12:15 Europe/Berlin
+Agent: Pulse
+Context: LEAD / INTEGRATION cron pass. The Pi now exposes many correct local signals, but rollout/admin still needed one redacted pass/fail contract that explains whether a device is acceptable for setup, staged, or production use.
+What changed: Added `GET /local/rollout/acceptance` and `scripts/rollout-acceptance-check.sh`. The contract derives checks from health, readiness phases, Admin capabilities, and unified event export, with stricter gates for staged/production profiles and optional strict content playback validation.
+What needs review: Run the staged profile on physical paired hardware. If it blocks, use the reported check ids and summaries as the rollout issue note instead of manually stitching together health/readiness/admin outputs.
+Next recommended action: Let Admin > Frames consume this endpoint or its backend-stored equivalent for rollout badges, promotion gating, and support handoff summaries.
+
 ## 2026-06-06 - Admin capabilities acceptance check
 
 Date/time: 2026-06-06 10:05 UTC / 2026-06-06 12:05 Europe/Berlin

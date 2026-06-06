@@ -30,6 +30,7 @@ Milestone 2 is scaffolded for physical Pi validation. The local UI can:
 - expose a compact `/local/health` probe for support, admin adapters, and hardware acceptance checks
 - expose touchscreen/input diagnostics through health/readiness/support surfaces
 - expose a phase-level `/local/readiness` probe for setup, input, pairing, sync, content, local playback, cache, commands, and release rollout checks
+- expose `/local/rollout/acceptance` as a redacted setup/staged/production rollout gate for QA, Admin > Frames, and physical device handoffs
 - expose a redacted `/local/support-bundle` for one-step hardware/support handoff collection
 - expose `/local/frame-state` so QA, support, and future admin adapters can inspect the browser-safe local playback queue
 - expose a metadata-only `/local/commands/audit` trail for recent remote command attempts
@@ -102,6 +103,14 @@ Check rollout readiness across the local integration phases:
 
 ```bash
 ./scripts/readiness-check.sh
+```
+
+Check whether a managed device is acceptable for rollout:
+
+```bash
+./scripts/rollout-acceptance-check.sh
+AUTOPOIESIS_ROLLOUT_PROFILE=setup ./scripts/rollout-acceptance-check.sh
+AUTOPOIESIS_ROLLOUT_PROFILE=production AUTOPOIESIS_ROLLOUT_STRICT_CONTENT=1 ./scripts/rollout-acceptance-check.sh
 ```
 
 Check the role-gated Admin > Frames remote-action policy contract:
