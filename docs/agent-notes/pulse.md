@@ -267,3 +267,12 @@ Context: LEAD / INTEGRATION cron pass. The Pi had separate local command audit, 
 What changed: Added `GET /local/events/export`, included the same bounded export in heartbeat payloads under `events`, and added `deviceEvents` to support bundles. Events carry `source`, stable `eventKey`, and `observedAt` so the backend can persist durable `aos_` rows idempotently.
 What needs review: Backend ingestion must decide the final table mapping, but should treat `deviceId + eventKey` as the idempotency key and ignore repeated heartbeat reports.
 Next recommended action: Add backend heartbeat event ingestion for command audit, broadcast delivery, and release rollout progress, then surface those durable rows in Admin > Frames.
+
+## 2026-06-06 - Backend admin command authorization audit
+
+Date/time: 2026-06-06 07:05 UTC / 2026-06-06 09:05 Europe/Berlin
+Agent: Pulse
+Context: ONLINE ADMIN cron pass. The Pi now enforces remote command authorization metadata, but the online backend still queued admin, broadcast, and release commands without the authorization object the device requires.
+What changed: Updated the main gallery backend Frames API to create `aos_admin_command_audits` rows before queueing authorized remote commands. Direct device commands, broadcast display commands, and release update commands now carry `payload.authorization` with approved actor/action/role/timestamp/audit metadata; command acknowledgements update the durable audit status. Admin device detail now returns recent command audit rows.
+What needs review: The main `autopoiesis` checkout is still too dirty for a clean scoped commit from this run, so the backend change is verified but uncommitted there. Review/stage only `app/backend/production.py` once that repo's unrelated backlog is under control.
+Next recommended action: Add backend heartbeat `events` ingestion into durable delivery/release/device-event rows using `deviceId + eventKey` idempotency, then wire Admin > Frames to render those rows.

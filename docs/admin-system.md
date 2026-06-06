@@ -51,6 +51,8 @@ Admin/support adapters can call `GET /local/admin/capabilities` or read the same
 
 The Pi also keeps a bounded local command audit trail for support and reconciliation. `GET /local/commands/audit` exposes newest metadata-only entries, and diagnostics/readiness include a compact command-audit summary. The local trail is not a substitute for backend `aos_` audit rows; it is the device-side evidence that a queued command was attempted, completed, denied, or failed. Backend/admin adapters should prefer the unified `GET /local/events/export` shape, or the heartbeat `events` copy, when ingesting command audit, broadcast delivery, and release rollout evidence into durable `aos_` rows.
 
+The online backend now creates `aos_admin_command_audits` rows for admin-originated medium/high/critical commands before queueing them. Direct device commands, broadcast display commands, and release update commands embed the matching `payload.authorization` object so the Pi executor can validate actor role, action, timestamp, and audit id before execution. Command acknowledgements update the backend audit status; heartbeat event ingestion for richer delivery/release evidence remains a separate backend follow-up.
+
 ### Broadcasts
 
 - Compose broadcasts.

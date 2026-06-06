@@ -245,15 +245,16 @@ Remote command rows returned by heartbeat or `GET /commands` use:
 {
   "id": "cmd_123",
   "commandType": "disable_device",
-  "payload": {},
-  "authorization": {
-    "approved": true,
-    "action": "disable_device",
-    "actorId": "admin-user-id",
-    "actorRole": "admin",
-    "authorizedAt": "2026-06-06T01:05:00.000Z",
-    "auditId": "audit_123",
-    "reason": "Support action requested by subscriber."
+  "payload": {
+    "reason": "Support action requested by subscriber.",
+    "authorization": {
+      "approved": true,
+      "action": "disable_device",
+      "actorId": "admin-user-id",
+      "actorRole": "admin",
+      "authorizedAt": "2026-06-06T01:05:00.000Z",
+      "auditId": "aud_123"
+    }
   }
 }
 ```
@@ -268,6 +269,14 @@ Device-side command policy:
 Authorization roles accepted by the Pi executor are `admin`, `owner`, `support`, `ops`, `maintainer`, and `super_admin`. Authorization timestamps expire after 24 hours by default. The device cannot prove server-side role truth; the online admin API must authenticate the actor, check role/ownership, create an audit row, and then queue the command with this metadata.
 
 `GET /local/admin/capabilities` returns the device-side remote action capability contract for Admin > Frames, local support tools, and backend adapters. It is redacted and includes device pairing/key presence, accepted actor roles, authorization window seconds, supported command types, each command's risk, whether authorization/audit metadata is required, local confirmation requirements, runtime opt-in requirements such as `AUTOPOIESIS_ALLOW_REBOOT=1`, pending command count, and compact command-audit summary. The endpoint is descriptive only; online admin must still authenticate the actor, enforce role/ownership, persist an `aos_` audit row, and queue authorization metadata before the Pi will execute medium/high/critical commands.
+
+Online admin backend behavior:
+
+- The backend persists admin-originated remote actions in `aos_admin_command_audits` before queueing commands that require authorization.
+- The queued command payload includes `payload.authorization` with `approved`, `action`, `actorId`, `actorRole`, `authorizedAt`, and `auditId` for medium/high/critical commands.
+- `show_broadcast` and `update_device` commands created by admin broadcast/release endpoints use the same authorization/audit path as direct device commands.
+- Device acknowledgement updates the matching backend audit row status so Admin > Frames can show queued/acknowledged/completed/error state from durable `aos_` data.
+- Heartbeat `events` ingestion into broadcast delivery and release rollout rows remains a separate follow-up from command queue authorization.
 
 Local command audit:
 

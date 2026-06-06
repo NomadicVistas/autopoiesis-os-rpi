@@ -1280,3 +1280,43 @@ Verification:
 Next step:
 
 Implement backend heartbeat event ingestion into durable `aos_` command audit, broadcast delivery, and release rollout rows, treating repeated `deviceId + eventKey` reports as idempotent.
+
+## 2026-06-06 - Backend admin command authorization audit
+
+Date: 2026-06-06
+
+Milestone: MVP 0.5 - Managed Device Fleet role-gated actions
+
+Changed files:
+
+- `/data/.openclaw/workspace/autopoiesis/app/backend/production.py`
+- `docs/api-contract.md`
+- `docs/admin-system.md`
+- `docs/agent-notes/pulse.md`
+- `docs/progress.md`
+- `/data/.openclaw/workspace/autopoiesis-os-program/ROLLING-LOG.md`
+
+Implemented:
+
+- Added backend `aos_admin_command_audits` persistence for admin-originated remote frame commands.
+- Direct Admin > Frames device commands now create an audit row before queueing medium/high/critical commands and embed approved `payload.authorization` metadata for the Pi executor.
+- Admin broadcast and release enqueue paths now use the same authorization/audit path for `show_broadcast` and `update_device` commands.
+- Device command acknowledgements now update the matching backend audit row status.
+- Admin device detail responses now include recent command audit rows for UI/support consumption.
+
+Verification:
+
+- `python3 -m py_compile app/backend/production.py` passed in the main `autopoiesis` repo.
+- Focused Flask test-client smoke passed against a temporary SQLite database for high-risk command authorization payloads, audit status updates, and disallowed actor-role rejection.
+- `node --check local-ui/server.js` passed.
+- `bash -n install.sh update.sh uninstall-dev-tools.sh factory-reset.sh scripts/*.sh` passed.
+- `git diff --check` passed in both touched repos.
+
+Commit status:
+
+- RPi documentation was committed locally.
+- The main `autopoiesis` backend code was not committed because that checkout already contains a very large unrelated dirty backlog, including pre-existing modifications in `app/backend/production.py`.
+
+Next step:
+
+Ingest heartbeat `events` into durable backend broadcast delivery, release rollout, and device event rows using `deviceId + eventKey` idempotency, then show those rows in Admin > Frames.
