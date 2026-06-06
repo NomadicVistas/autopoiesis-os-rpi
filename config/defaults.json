@@ -21,6 +21,14 @@
   "preferences": {
     "language": "en",
     "displayMode": "living-stream",
+    "streamProfile": "living-stream",
+    "streamCategories": [
+      "artwork",
+      "broadcast",
+      "curatorial",
+      "blog",
+      "news"
+    ],
     "activeArtists": [],
     "allowImages": true,
     "allowVideos": true,
@@ -31,7 +39,8 @@
     "autoplay": true,
     "imageDuration": 60,
     "videoAutoplay": true,
-    "soundAutoplay": false,
+    "soundAutoplay": true,
+    "showArtworkInfoOnTap": true,
     "nightMode": false,
     "nightModeStart": "22:00",
     "nightModeEnd": "08:00",

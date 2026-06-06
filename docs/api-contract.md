@@ -36,6 +36,7 @@ POST /api/frames/device/{deviceId}/heartbeat
 ## Artwork Feed
 
 ```txt
+GET /api/frames/device/{deviceId}/stream
 GET /api/frames/device/{deviceId}/artwork-feed
 ```
 
@@ -49,6 +50,7 @@ GET  /local/support-bundle
 GET  /local/diagnostics
 GET  /local/feed
 GET  /local/frame-state
+GET  /dashboard
 GET  /local/offline-cache
 GET  /local/commands/audit
 GET  /local/admin/capabilities
@@ -68,6 +70,7 @@ POST /local/settings/sync
 POST /local/heartbeat
 POST /local/feed/sync
 POST /local/frame/display
+POST /local/frame/like
 POST /local/broadcast/dismiss
 POST /local/commands/process
 POST /local/release/check
@@ -210,19 +213,32 @@ Device settings conflict behavior:
 
 Content stream:
 
+- GET /api/frames/device/{deviceId}/stream
 - GET /api/frames/device/{deviceId}/feed
 - GET /api/frames/device/{deviceId}/broadcasts
 - POST /api/frames/artworks/{artworkId}/like
 - DELETE /api/frames/artworks/{artworkId}/like
 
+`GET /api/frames/device/{deviceId}/stream` is the preferred scalable Autopoiesis OS endpoint. The Pi calls it before falling back to legacy `/feed`. It should return one merged playback contract for artworks, broadcasts, curatorial notes, blogs, exhibitions, and system news.
+
+Stream responses should include `schemaVersion`, `generatedAt`, `stream`, optional authoritative `settings`, and `items`. Supported query parameters are `limit`, `after`, `artist`, `artists`, `categories`, and `profile`. The backend should treat saved device settings as authoritative defaults, then apply explicit query filters when present.
+
+Stream `settings` should mirror the device preferences that can be managed on both website and device: `displayMode`, `streamProfile`, `activeArtists`, `streamCategories`, `allowImages`, `allowVideos`, `allowSoundWorks`, `allowGenerativeWorks`, `autoplay`, `videoAutoplay`, `soundAutoplay`, `soundEnabled`, `volume`, `imageDuration`, `showArtworkInfoOnTap`, and `updatedAt`.
+
+Stream items should expose `id`, `type`, `title`, `artist`, `artistId`, `description` or `body`, `mediaUrl`, `thumbnailUrl`, `durationSeconds` when known, `cacheAllowed`, `priority`, scheduling fields, and remote links such as `url`, `infoUrl`, `blogUrl`, and `exhibitionUrl`. Video, audio, and generative works should be authored for direct autoplay, without activation buttons in the artwork payload.
+
 Local feed behavior:
 
-- POST /local/feed/sync fetches GET /api/frames/device/{deviceId}/feed and stores a normalized local feed.
+- POST /local/feed/sync fetches GET /api/frames/device/{deviceId}/stream first, falls back to GET /api/frames/device/{deviceId}/feed, and stores a normalized local feed.
 - Heartbeat responses may also carry feed, items, artworks, or broadcasts; the local UI normalizes those into the same feed state.
-- GET /local/feed returns active, display-eligible items only. Expired items, future scheduled items, and preference-disabled media types are filtered out.
+- GET /local/feed returns active, display-eligible items only. Expired items, future scheduled items, preference-disabled media types, disabled stream categories, and non-selected artists are filtered out.
 - GET /local/feed also returns `displayQueue`, a priority-preserving mixed-content queue. The device keeps emergency/critical/high/normal/low priority bands intact, then round-robins categories inside each band across broadcast, curatorial, artwork, blog, news, and general content items so personalized streams do not collapse into a single content class.
 - GET /local/frame-state returns the browser-safe local playback contract derived from `displayQueue`, including media role, cached-vs-remote source, playable counts, cached playable counts, display category, display position, and a compact `playback` readiness summary. It never exposes absolute cache paths or stored device API keys.
 - `/frame` renders that local playback queue for the kiosk and prefers cached media URLs when `cache-index.json` has a usable asset. `/launch?local=1` or `preferences.displayMode=local-feed` routes to `/frame` while the default `/launch` path can remain hosted-display first.
+- The frame player is time-based. Static images use `preferences.imageDuration`; video/audio items use item `durationSeconds` when present and otherwise advance when media fires `ended` or when the safe fallback timer expires. Video, audio, and generative works render without artist-authored activation buttons or browser controls.
+- Tapping `/frame` opens a local artwork overlay when `showArtworkInfoOnTap` is enabled. The overlay includes artwork metadata, like, settings, dashboard, and remote artwork/blog/exhibition links when supplied.
+- `POST /local/frame/like` records a local `feed_item_liked` delivery event, updates local liked state, and best-effort forwards `POST /api/frames/artworks/{artworkId}/like` for paired devices.
+- `/dashboard` is the local Autopoiesis OS gateway. It summarizes stream readiness, cache, network, settings sync, current mode/profile, selected artists, and links to the frame, settings, blogs, exhibitions, and gallery.
 - `/frame` posts `POST /local/frame/display` when it renders a queue item. The endpoint only records ids that are still present in the current `/local/frame-state` playable queue, appends a metadata-only `feed_item_shown` delivery event, and updates local state with `currentFeedItemId`, `currentArtworkId` for artwork-category items, and `lastFrameItemShownAt`.
 - Feed diagnostics include `displayQueueItems` and category counts, while diagnostics/readiness/health/support bundles include `framePlayback` so Admin > Frames and support tooling can distinguish synced feed data from a queue the kiosk can actually render.
 - The local UI also writes a feed cache manifest for items with cacheAllowed !== false and a media or thumbnail URL. `scripts/cache-artworks.sh` downloads those eligible assets into the local runtime cache and writes `cache-index.json` with cached/failed asset status.

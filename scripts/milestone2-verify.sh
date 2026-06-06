@@ -33,6 +33,7 @@ echo "   local frame-state responds at $LOCAL_BASE_URL/local/frame-state"
 "$(dirname "$0")/frame-state-check.sh"
 curl -fsS "$LOCAL_BASE_URL/frame" >/dev/null
 echo "   local frame route responds at $LOCAL_BASE_URL/frame"
+"$(dirname "$0")/stream-playback-check.sh"
 
 echo
 echo "3. Network status"

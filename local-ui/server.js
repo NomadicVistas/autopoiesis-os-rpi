@@ -1007,6 +1007,53 @@ function feedItemCategory(item = {}) {
   return "content";
 }
 
+function normalizedList(value) {
+  if (Array.isArray(value)) {
+    return value.map(item => String(item || "").trim().toLowerCase()).filter(Boolean);
+  }
+  if (typeof value === "string") {
+    return value.split(",").map(item => item.trim().toLowerCase()).filter(Boolean);
+  }
+  return [];
+}
+
+function itemIdentityCandidates(item = {}) {
+  const raw = item.raw || {};
+  return [
+    item.artistId,
+    item.artist_id,
+    item.agentId,
+    item.agent_id,
+    item.artist,
+    raw.artistId,
+    raw.artist_id,
+    raw.agentId,
+    raw.agent_id,
+    raw.artist,
+    raw.artistName,
+    raw.artist_name
+  ].filter(Boolean).map(value => String(value).toLowerCase());
+}
+
+function feedItemArtistAllowed(item, preferences = {}) {
+  const selectedArtists = normalizedList(preferences.activeArtists);
+  if (!selectedArtists.length) return true;
+  const candidates = itemIdentityCandidates(item);
+  return selectedArtists.some(selected =>
+    candidates.includes(selected) ||
+    candidates.some(candidate => candidate.includes(selected) || selected.includes(candidate))
+  );
+}
+
+function feedItemStreamAllowed(item, preferences = {}) {
+  const selectedStreams = normalizedList(preferences.streamCategories || preferences.activeStreams || preferences.streams);
+  if (!selectedStreams.length || selectedStreams.includes("all") || selectedStreams.includes("living-stream")) return true;
+  const category = feedItemCategory(item);
+  const type = String(item.type || "").toLowerCase();
+  const source = String(item.source || "").toLowerCase();
+  return selectedStreams.includes(category) || selectedStreams.includes(type) || selectedStreams.includes(source);
+}
+
 function feedCategoryCounts(items = []) {
   return items.reduce((counts, item) => {
     const category = feedItemCategory(item);
@@ -1026,8 +1073,14 @@ function normalizeFeedItem(raw, source, index = 0) {
     type,
     title: raw.title || raw.name || null,
     artist: raw.artist || raw.artistName || raw.artist_name || null,
+    artistId: raw.artistId || raw.artist_id || raw.agentId || raw.agent_id || null,
     body: raw.body || raw.description || raw.message || null,
     url: raw.url || raw.href || null,
+    infoUrl: raw.infoUrl || raw.info_url || raw.artworkUrl || raw.artwork_url || raw.url || raw.href || null,
+    dashboardUrl: raw.dashboardUrl || raw.dashboard_url || null,
+    exhibitionUrl: raw.exhibitionUrl || raw.exhibition_url || null,
+    blogUrl: raw.blogUrl || raw.blog_url || null,
+    likeUrl: raw.likeUrl || raw.like_url || null,
     mediaUrl: raw.mediaUrl || raw.media_url || raw.imageUrl || raw.videoUrl || raw.audioUrl || null,
     thumbnailUrl: raw.thumbnailUrl || raw.thumbnail_url || null,
     duration: Number(raw.duration || raw.durationSeconds || raw.duration_seconds || 0) || null,
@@ -1074,6 +1127,8 @@ function eligibleFeedItems(feed = readJson(paths.feed, {}), preferences = readJs
       return startsAt === null || startsAt <= now;
     })
     .filter(item => feedItemTypeAllowed(item, preferences))
+    .filter(item => feedItemArtistAllowed(item, preferences))
+    .filter(item => feedItemStreamAllowed(item, preferences))
     .sort((a, b) => {
       const priorityDelta = priorityRank(b.priority) - priorityRank(a.priority);
       if (priorityDelta !== 0) return priorityDelta;
@@ -1128,7 +1183,8 @@ function mixedFeedQueue(feed = readJson(paths.feed, {}), preferences = readJson(
 
 function writeFeedState(feed) {
   writeJson(paths.feed, feed);
-  const displayQueue = mixedFeedQueue(feed);
+  const preferences = readJson(paths.preferences, {});
+  const displayQueue = mixedFeedQueue(feed, preferences);
   const cacheItems = displayQueue
     .filter(item => item.cacheAllowed && (item.mediaUrl || item.thumbnailUrl))
     .map(item => ({
@@ -1160,8 +1216,9 @@ function writeFeedState(feed) {
 
 function publicFeed() {
   const feed = readJson(paths.feed, { syncedAt: null, items: [] });
-  const items = eligibleFeedItems(feed).map(({ raw, ...item }) => item);
-  const displayQueue = mixedFeedQueue(feed).map(({ raw, ...item }) => item);
+  const preferences = readJson(paths.preferences, {});
+  const items = eligibleFeedItems(feed, preferences).map(({ raw, ...item }) => item);
+  const displayQueue = mixedFeedQueue(feed, preferences).map(({ raw, ...item }) => item);
   const cache = readJson(paths.feedCache, { generatedAt: null, count: 0, items: [] });
   return {
     ok: true,
@@ -1187,7 +1244,8 @@ function cacheAssetUsable(asset) {
 
 function cachedOfflineItems() {
   const feed = readJson(paths.feed, { syncedAt: null, items: [] });
-  const feedById = new Map(eligibleFeedItems(feed).map(item => [String(item.id), item]));
+  const preferences = readJson(paths.preferences, {});
+  const feedById = new Map(eligibleFeedItems(feed, preferences).map(item => [String(item.id), item]));
   const cacheIndex = readJson(paths.cacheIndex, { generatedAt: null, cachedCount: 0, failedCount: 0, items: [] });
   const now = Date.now();
   return (cacheIndex.items || [])
@@ -1241,9 +1299,24 @@ function mediaRoleForUrl(item = {}, url = "") {
   return "image";
 }
 
+function frameItemDisplayMs(item = {}, preferences = {}) {
+  const role = item.media ? item.media.role : mediaRoleForUrl(item, item.mediaUrl || item.thumbnailUrl || "");
+  const duration = Number(item.duration || item.durationSeconds || 0);
+  if ((role === "video" || role === "audio") && Number.isFinite(duration) && duration > 0) {
+    return Math.round(Math.min(Math.max(duration, 2), 86400) * 1000);
+  }
+  const imageSeconds = Number(preferences.imageDuration || preferences.staticDuration || 60);
+  const safeSeconds = Number.isFinite(imageSeconds) && imageSeconds > 0
+    ? Math.min(Math.max(imageSeconds, 5), 3600)
+    : 60;
+  return Math.round(safeSeconds * 1000);
+}
+
 function publicFrameState() {
   const feed = readJson(paths.feed, { syncedAt: null, items: [] });
   const preferences = readJson(paths.preferences, {});
+  const localState = readJson(paths.state, {});
+  const likedArtworkIds = new Set((localState.likedArtworkIds || []).map(id => String(id)));
   const cacheItems = new Map(cachedOfflineItems().map(item => [String(item.id), item]));
   const displayQueue = mixedFeedQueue(feed, preferences).map(({ raw, ...item }) => item);
   const items = displayQueue.map(item => {
@@ -1253,27 +1326,37 @@ function publicFrameState() {
     const localAsset = cachedMedia || cachedThumbnail;
     const remoteUrl = item.mediaUrl || item.thumbnailUrl || null;
     const mediaUrl = localAsset ? localAsset.url : remoteUrl;
-    return {
+    const publicItem = {
       id: item.id,
       source: item.source || null,
       type: item.type || null,
       title: item.title || null,
       artist: item.artist || null,
+      artistId: item.artistId || null,
       body: item.body || null,
       url: item.url || null,
+      infoUrl: item.infoUrl || item.url || null,
+      dashboardUrl: item.dashboardUrl || null,
+      exhibitionUrl: item.exhibitionUrl || null,
+      blogUrl: item.blogUrl || null,
+      likeUrl: item.likeUrl || null,
       priority: item.priority || "normal",
       displayCategory: item.displayCategory || feedItemCategory(item),
       displayPosition: item.displayPosition || null,
       duration: item.duration || null,
       soundRequired: Boolean(item.soundRequired),
       expiresAt: item.expiresAt || null,
+      liked: likedArtworkIds.has(String(item.id)),
       media: {
         url: mediaUrl,
         role: mediaRoleForUrl(item, mediaUrl),
         cached: Boolean(localAsset),
         source: localAsset ? "cache" : (remoteUrl ? "remote" : null)
-      }
+      },
+      displayMs: 0
     };
+    publicItem.displayMs = frameItemDisplayMs(publicItem, preferences);
+    return publicItem;
   });
   const playableItems = items.filter(item => item.media.url || item.title || item.body);
   const frame = {
@@ -1325,6 +1408,60 @@ function recordFrameItemDisplay(body = {}) {
     displayCategory: item.displayCategory || null,
     displayPosition: item.displayPosition || null,
     observedAt
+  };
+}
+
+async function likeFrameItem(body = {}) {
+  const itemId = body.itemId || body.id;
+  if (!itemId) return { ok: false, error: "Missing frame item id" };
+  const item = publicFrameState().items.find(candidate => String(candidate.id) === String(itemId));
+  if (!item) return { ok: false, error: "Frame item is not currently display eligible", itemId: String(itemId) };
+
+  const observedAt = new Date().toISOString();
+  const stateValue = readJson(paths.state, {});
+  const likedArtworkIds = Array.from(new Set([...(stateValue.likedArtworkIds || []).map(id => String(id)), String(item.id)]));
+  writeJson(paths.state, {
+    ...stateValue,
+    likedArtworkIds,
+    lastLikedArtworkId: item.id,
+    lastLikedAt: observedAt
+  });
+
+  appendDeliveryEvent({
+    eventType: "feed_item_liked",
+    itemId: item.id,
+    source: item.source || "feed",
+    type: item.type || null,
+    title: item.title || null,
+    displayCategory: item.displayCategory || null,
+    mediaRole: item.media ? item.media.role || null : null,
+    status: "liked",
+    observedAt
+  });
+
+  let remote = { ok: false, skipped: true };
+  const device = readJson(paths.device, {});
+  if (device.deviceId && device.paired) {
+    try {
+      remote = await apiRequest("/frames/artworks/" + encodeURIComponent(String(item.id)) + "/like", {
+        method: "POST",
+        body: JSON.stringify({
+          deviceId: device.deviceId,
+          source: "autopoiesis-os",
+          observedAt
+        })
+      });
+    } catch (error) {
+      remote = { ok: false, error: error.message };
+    }
+  }
+
+  return {
+    ok: true,
+    itemId: item.id,
+    liked: true,
+    observedAt,
+    remote
   };
 }
 
@@ -1407,15 +1544,29 @@ function contentTypeForPath(filePath) {
 async function syncFeedFromRemote() {
   const device = readJson(paths.device, {});
   if (!device.deviceId || !device.paired) return { ok: false, skipped: true, reason: "Device is not paired" };
-  const result = await apiRequest("/frames/device/" + encodeURIComponent(device.deviceId) + "/feed");
-  const feed = normalizeFeedPayload(result);
+  const preferences = readJson(paths.preferences, {});
+  const encodedDeviceId = encodeURIComponent(device.deviceId);
+  let result;
+  let endpoint = "stream";
+  let fallbackReason = null;
+  try {
+    result = await apiRequest("/frames/device/" + encodedDeviceId + "/stream");
+  } catch (error) {
+    endpoint = "feed";
+    fallbackReason = error.message;
+    result = await apiRequest("/frames/device/" + encodedDeviceId + "/feed");
+  }
+  if (result.settings || result.preferences) applyRemoteSettingsPayload(result, "stream_sync");
+  const feed = normalizeFeedPayload({ ...result, source: result.source || endpoint });
   writeFeedState(feed);
   writeJson(paths.device, { ...device, lastFeedSyncAt: feed.syncedAt });
   return {
     ok: true,
+    endpoint,
+    fallbackReason,
     syncedAt: feed.syncedAt,
     totalItems: feed.items.length,
-    eligibleItems: eligibleFeedItems(feed).length
+    eligibleItems: eligibleFeedItems(feed, preferences).length
   };
 }
 
@@ -2640,6 +2791,38 @@ function renderSetup() {
 
 function renderSettings() {
   const data = status();
+  const feed = readJson(paths.feed, { items: [] });
+  const knownArtists = [
+    ["sandman", "Sandman"],
+    ["vessel", "Vessel"],
+    ["jessy", "Jessy"],
+    ["kinema", "Kinema"],
+    ["spool", "Spool"],
+    ["link", "Link"],
+    ["typo", "Typo"]
+  ];
+  const feedArtists = Array.from(new Set((feed.items || [])
+    .map(item => item.artistId || item.artist || item.raw && (item.raw.artistId || item.raw.artist || item.raw.artistName))
+    .filter(Boolean)
+    .map(value => String(value))));
+  for (const artist of feedArtists) {
+    const key = artist.toLowerCase();
+    if (!knownArtists.some(([id]) => id === key)) knownArtists.push([key, artist]);
+  }
+  const activeArtists = new Set(normalizedList(data.preferences.activeArtists));
+  const streamCategories = new Set(normalizedList(data.preferences.streamCategories || ["artwork", "broadcast", "curatorial", "blog", "news"]));
+  const artistControls = knownArtists.map(([id, label]) =>
+    '<label class="check"><input name="activeArtists" type="checkbox" value="' + escapeHtml(id) + '" ' + (activeArtists.has(id) ? "checked" : "") + '> ' + escapeHtml(label) + '</label>'
+  ).join("");
+  const categoryControls = [
+    ["artwork", "Artworks"],
+    ["broadcast", "Broadcasts"],
+    ["curatorial", "Curatorial notes"],
+    ["blog", "Blogs"],
+    ["news", "System news"]
+  ].map(([id, label]) =>
+    '<label class="check"><input name="streamCategories" type="checkbox" value="' + escapeHtml(id) + '" ' + (streamCategories.has(id) ? "checked" : "") + '> ' + escapeHtml(label) + '</label>'
+  ).join("");
   return page(
     "Autopoiesis Settings",
     `<main class="screen">
@@ -2648,12 +2831,50 @@ function renderSettings() {
         <h1>Frame preferences</h1>
         <form id="settings-form" class="grid">
           <label>Device name <input name="deviceName" value="${escapeHtml(data.device.deviceName || "")}"></label>
+          <label>Display mode
+            <select name="displayMode">
+              <option value="living-stream" ${data.preferences.displayMode === "living-stream" ? "selected" : ""}>Living stream</option>
+              <option value="local-feed" ${data.preferences.displayMode === "local-feed" ? "selected" : ""}>Local device stream</option>
+              <option value="dashboard" ${data.preferences.displayMode === "dashboard" ? "selected" : ""}>Dashboard</option>
+            </select>
+          </label>
+          <label>Stream profile
+            <select name="streamProfile">
+              <option value="living-stream" ${data.preferences.streamProfile === "living-stream" ? "selected" : ""}>Living stream</option>
+              <option value="artist-focus" ${data.preferences.streamProfile === "artist-focus" ? "selected" : ""}>Artist focus</option>
+              <option value="exhibition" ${data.preferences.streamProfile === "exhibition" ? "selected" : ""}>Exhibition gateway</option>
+              <option value="system-dashboard" ${data.preferences.streamProfile === "system-dashboard" ? "selected" : ""}>System dashboard</option>
+            </select>
+          </label>
           <label>Volume <input name="volume" type="number" min="0" max="100" value="${escapeHtml(data.preferences.volume ?? 50)}"></label>
           <label>Image duration <input name="imageDuration" type="number" min="5" max="3600" value="${escapeHtml(data.preferences.imageDuration ?? 60)}"></label>
+          <fieldset class="setting-group">
+            <legend>Artists</legend>
+            <p class="note">Leave all artists off to use the full ecosystem stream.</p>
+            <div class="check-grid">${artistControls}</div>
+          </fieldset>
+          <fieldset class="setting-group">
+            <legend>Stream content</legend>
+            <div class="check-grid">${categoryControls}</div>
+          </fieldset>
+          <fieldset class="setting-group">
+            <legend>Media behavior</legend>
+            <div class="check-grid">
+              <label class="check"><input name="allowImages" type="checkbox" ${data.preferences.allowImages !== false ? "checked" : ""}> Images</label>
+              <label class="check"><input name="allowVideos" type="checkbox" ${data.preferences.allowVideos !== false ? "checked" : ""}> Videos</label>
+              <label class="check"><input name="allowSoundWorks" type="checkbox" ${data.preferences.allowSoundWorks !== false ? "checked" : ""}> Sound works</label>
+              <label class="check"><input name="allowGenerativeWorks" type="checkbox" ${data.preferences.allowGenerativeWorks !== false ? "checked" : ""}> Generative works</label>
+              <label class="check"><input name="autoplay" type="checkbox" ${data.preferences.autoplay !== false ? "checked" : ""}> Autoplay stream</label>
+              <label class="check"><input name="videoAutoplay" type="checkbox" ${data.preferences.videoAutoplay !== false ? "checked" : ""}> Autoplay video</label>
+              <label class="check"><input name="soundAutoplay" type="checkbox" ${data.preferences.soundAutoplay ? "checked" : ""}> Autoplay sound</label>
+              <label class="check"><input name="showArtworkInfoOnTap" type="checkbox" ${data.preferences.showArtworkInfoOnTap !== false ? "checked" : ""}> Tap for artwork info</label>
+            </div>
+          </fieldset>
           <label class="check"><input name="soundEnabled" type="checkbox" ${data.preferences.soundEnabled ? "checked" : ""}> Sound enabled</label>
           <label class="check"><input name="nightMode" type="checkbox" ${data.preferences.nightMode ? "checked" : ""}> Night mode</label>
           <button class="primary" type="submit">Save</button>
-          <a class="button" href="/setup">Back</a>
+          <a class="button" href="/dashboard">Dashboard</a>
+          <a class="button" href="/frame">Frame</a>
         </form>
       </section>
     </main>`,
@@ -2666,15 +2887,67 @@ function renderSettings() {
         body: JSON.stringify({
           device: { deviceName: form.get("deviceName") },
           preferences: {
+            displayMode: form.get("displayMode"),
+            streamProfile: form.get("streamProfile"),
+            activeArtists: form.getAll("activeArtists"),
+            streamCategories: form.getAll("streamCategories"),
             volume: Number(form.get("volume")),
             imageDuration: Number(form.get("imageDuration")),
+            allowImages: form.has("allowImages"),
+            allowVideos: form.has("allowVideos"),
+            allowSoundWorks: form.has("allowSoundWorks"),
+            allowGenerativeWorks: form.has("allowGenerativeWorks"),
+            autoplay: form.has("autoplay"),
+            videoAutoplay: form.has("videoAutoplay"),
+            soundAutoplay: form.has("soundAutoplay"),
+            showArtworkInfoOnTap: form.has("showArtworkInfoOnTap"),
             soundEnabled: form.has("soundEnabled"),
             nightMode: form.has("nightMode")
           }
         })
       });
-      location.href = "/setup";
+      location.href = "/dashboard";
     });`
+  );
+}
+
+function renderDashboard() {
+  const data = status();
+  const frame = publicFrameState();
+  const cache = publicOfflineCache();
+  const playback = frame.playback || {};
+  const sync = data.device.settingsSync || {};
+  const serverUrl = String(data.device.serverUrl || "https://autopoiesis.art").replace(/\/$/, "");
+  return page(
+    "Autopoiesis Dashboard",
+    `<main class="screen dashboard-screen">
+      <section class="panel wide dashboard-panel">
+        <p class="kicker">Autopoiesis OS</p>
+        <h1>Dashboard</h1>
+        <p class="muted">A local gateway into the ecosystem: display state, device health, stream progress, exhibitions, and writing.</p>
+        <div class="dashboard-grid">
+          <article class="dash-tile"><strong>${escapeHtml(frame.playableItems)}</strong><span>Playable stream items</span></article>
+          <article class="dash-tile"><strong>${escapeHtml(cache.playableItems)}</strong><span>Cached works available offline</span></article>
+          <article class="dash-tile"><strong>${escapeHtml(data.network && data.network.online ? "online" : "offline")}</strong><span>Network</span></article>
+          <article class="dash-tile"><strong>${escapeHtml(playback.status || "unknown")}</strong><span>Playback readiness</span></article>
+        </div>
+        <dl class="status compact">
+          <div><dt>Device</dt><dd>${escapeHtml(data.device.deviceName || data.device.deviceId || "unknown")}</dd></div>
+          <div><dt>Mode</dt><dd>${escapeHtml(data.preferences.displayMode || data.state.currentMode || "living-stream")}</dd></div>
+          <div><dt>Stream</dt><dd>${escapeHtml(data.preferences.streamProfile || "living-stream")}</dd></div>
+          <div><dt>Artists</dt><dd>${escapeHtml((data.preferences.activeArtists || []).length ? data.preferences.activeArtists.join(", ") : "All artists")}</dd></div>
+          <div><dt>Feed sync</dt><dd>${escapeHtml(frame.syncedAt || "never")}</dd></div>
+          <div><dt>Settings sync</dt><dd>${escapeHtml(sync.status || "local")}</dd></div>
+        </dl>
+        <div class="actions gateway-actions">
+          <a class="button primary" href="/frame">Open frame</a>
+          <a class="button" href="/settings">Settings</a>
+          <a class="button" href="${escapeHtml(serverUrl)}/blog">Blogs</a>
+          <a class="button" href="${escapeHtml(serverUrl)}/exhibitions">Exhibitions</a>
+          <a class="button" href="${escapeHtml(serverUrl)}">Gallery</a>
+        </div>
+      </section>
+    </main>`
   );
 }
 
@@ -2844,10 +3117,8 @@ function renderOffline() {
 function renderFrame() {
   const data = status();
   const frame = publicFrameState();
-  const durationSeconds = Number(data.preferences.imageDuration || 60);
-  const rotationSeconds = Number.isFinite(durationSeconds) && durationSeconds > 0
-    ? Math.min(Math.max(durationSeconds, 8), 300)
-    : 60;
+  const preferences = data.preferences || {};
+  const imageDurationMs = frameItemDisplayMs({}, preferences);
   updateState({
     currentMode: "frame",
     localFrameActive: true,
@@ -2874,11 +3145,22 @@ function renderFrame() {
         </div>
         ${frameBody}
       </section>
+      <aside id="frame-overlay" class="frame-overlay" hidden></aside>
     </main>`,
     `const frameItems = ${scriptJson(frame.items)};
-    const rotationMs = ${Math.round(rotationSeconds * 1000)};
+    const frameSettings = ${scriptJson({
+      soundEnabled: Boolean(preferences.soundEnabled),
+      autoplay: preferences.autoplay !== false,
+      videoAutoplay: preferences.videoAutoplay !== false,
+      soundAutoplay: Boolean(preferences.soundAutoplay),
+      showArtworkInfoOnTap: preferences.showArtworkInfoOnTap !== false,
+      imageDurationMs
+    })};
     let frameIndex = 0;
+    let currentItem = null;
+    let frameTimer = null;
     const stage = document.getElementById("frame-stage");
+    const overlay = document.getElementById("frame-overlay");
     function escapeText(value) {
       return String(value || "").replace(/[&<>"]/g, char => {
         if (char === "&") return "&amp;";
@@ -2887,39 +3169,108 @@ function renderFrame() {
         return "&quot;";
       });
     }
+    function escapeAttr(value) {
+      return escapeText(value).replace(/'/g, "&#39;");
+    }
+    function itemDisplayMs(item) {
+      const value = Number(item && item.displayMs);
+      return Number.isFinite(value) && value > 0 ? Math.min(Math.max(value, 2000), 86400000) : frameSettings.imageDurationMs;
+    }
     function mediaMarkup(item) {
       const media = item.media || {};
       const url = media.url || "";
       if (!url) return "";
-      if (media.role === "video") return "<video src=\\"" + escapeText(url) + "\\" autoplay muted loop playsinline></video>";
-      if (media.role === "audio") return "<audio src=\\"" + escapeText(url) + "\\" autoplay loop controls></audio>";
-      return "<img src=\\"" + escapeText(url) + "\\" alt=\\"\\">";
+      if (media.role === "video") {
+        const muted = frameSettings.soundEnabled ? "" : " muted";
+        const autoplay = frameSettings.autoplay && frameSettings.videoAutoplay ? " autoplay" : "";
+        return "<video src=\\\"" + escapeAttr(url) + "\\\"" + autoplay + muted + " playsinline></video>";
+      }
+      if (media.role === "audio") {
+        const muted = frameSettings.soundEnabled ? "" : " muted";
+        const autoplay = frameSettings.autoplay && frameSettings.soundAutoplay ? " autoplay" : "";
+        return "<div class=\\\"frame-audio-work\\\"><audio src=\\\"" + escapeAttr(url) + "\\\"" + autoplay + muted + " playsinline></audio><strong>" + escapeText(item.title || "Sound work") + "</strong><span>" + escapeText(item.artist || "Autopoiesis") + "</span></div>";
+      }
+      return "<img src=\\\"" + escapeAttr(url) + "\\\" alt=\\\"\\\">";
+    }
+    function linkButton(url, label) {
+      return url ? "<a class=\\\"button\\\" href=\\\"" + escapeAttr(url) + "\\\">" + escapeText(label) + "</a>" : "";
+    }
+    function renderOverlay(item, liked) {
+      if (!overlay || !item) return;
+      const meta = [item.artist, item.displayCategory, item.media && item.media.cached ? "cached" : ""].filter(Boolean).map(escapeText).join(" / ");
+      overlay.innerHTML =
+        "<div class=\\\"overlay-card\\\">" +
+        "<button class=\\\"overlay-close\\\" type=\\\"button\\\" data-close-overlay>Close</button>" +
+        "<p class=\\\"kicker\\\">" + (meta || "Autopoiesis artwork") + "</p>" +
+        "<h2>" + escapeText(item.title || item.id) + "</h2>" +
+        (item.body ? "<p>" + escapeText(item.body) + "</p>" : "") +
+        "<div class=\\\"actions overlay-actions\\\">" +
+        "<button class=\\\"primary\\\" type=\\\"button\\\" data-like-item>" + (liked || item.liked ? "Liked" : "Like") + "</button>" +
+        "<a class=\\\"button\\\" href=\\\"/settings\\\">Settings</a>" +
+        "<a class=\\\"button\\\" href=\\\"/dashboard\\\">Dashboard</a>" +
+        linkButton(item.infoUrl || item.url, "Artwork") +
+        linkButton(item.blogUrl, "Blog") +
+        linkButton(item.exhibitionUrl, "Exhibition") +
+        "</div></div>";
+      overlay.querySelector("[data-close-overlay]").addEventListener("click", () => { overlay.hidden = true; });
+      overlay.querySelector("[data-like-item]").addEventListener("click", async event => {
+        event.currentTarget.textContent = "Liked";
+        const response = await fetch("/local/frame/like", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ itemId: item.id })
+        }).catch(() => null);
+        item.liked = true;
+        if (!response || !response.ok) event.currentTarget.textContent = "Liked locally";
+      });
+    }
+    function scheduleNext(item) {
+      clearTimeout(frameTimer);
+      const media = stage ? stage.querySelector("video,audio") : null;
+      let advanced = false;
+      const advance = () => {
+        if (advanced) return;
+        advanced = true;
+        if (overlay) overlay.hidden = true;
+        renderFrameItem();
+      };
+      if (media) media.addEventListener("ended", advance, { once: true });
+      frameTimer = setTimeout(advance, itemDisplayMs(item));
     }
     function renderFrameItem() {
       if (!stage || !frameItems.length) {
         if (!frameItems.length) {
           fetch("/local/feed/sync", { method: "POST" }).finally(() => {
-            setTimeout(() => { location.reload(); }, Math.max(rotationMs, 15000));
+            setTimeout(() => { location.reload(); }, Math.max(frameSettings.imageDurationMs, 15000));
           });
         }
         return;
       }
       const item = frameItems[frameIndex % frameItems.length];
-      const meta = [item.artist, item.displayCategory, item.media && item.media.cached ? "cached" : ""].filter(Boolean).map(escapeText).join(" / ");
-      const body = item.body ? "<p>" + escapeText(item.body) + "</p>" : "";
+      currentItem = item;
       const media = mediaMarkup(item);
-      stage.innerHTML = (media ? "<figure class=\\"frame-media\\">" + media + "</figure>" : "") +
-        "<div class=\\"frame-caption\\"><div><strong>" + escapeText(item.title || item.id) + "</strong>" + body + "</div>" +
-        (meta ? "<span>" + meta + "</span>" : "") + "</div>";
+      stage.innerHTML = media ? "<figure class=\\"frame-media\\">" + media + "</figure>" : "<div class=\\"frame-media text-only\\"><strong>" + escapeText(item.title || item.id) + "</strong></div>";
+      renderOverlay(item, item.liked);
       fetch("/local/frame/display", {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({ itemId: item.id })
       }).catch(() => {});
       frameIndex += 1;
+      scheduleNext(item);
+    }
+    if (stage && overlay) {
+      stage.addEventListener("click", () => {
+        if (!frameSettings.showArtworkInfoOnTap || !currentItem) return;
+        renderOverlay(currentItem, currentItem.liked);
+        overlay.hidden = !overlay.hidden;
+      });
+      overlay.addEventListener("click", event => {
+        if (event.target === overlay) overlay.hidden = true;
+      });
     }
     renderFrameItem();
-    setInterval(renderFrameItem, rotationMs);`
+    setInterval(() => fetch("/local/feed/sync", { method: "POST" }).catch(() => {}), 15 * 60 * 1000);`
   );
 }
 
@@ -3011,6 +3362,10 @@ async function renderLaunch(res, url = new URL("http://localhost/launch")) {
     url.searchParams.get("local") === "1" ||
     data.preferences.displayMode === "local-feed" ||
     data.preferences.displayMode === "local_frame";
+  const dashboardRequested =
+    url.searchParams.get("dashboard") === "1" ||
+    data.preferences.displayMode === "dashboard" ||
+    data.preferences.streamProfile === "system-dashboard";
   if (data.state.remoteDisabled || data.device.remoteEnabled === false) {
     updateState({ currentMode: "disabled" });
     redirect(res, "/disabled");
@@ -3036,6 +3391,14 @@ async function renderLaunch(res, url = new URL("http://localhost/launch")) {
       onboardingComplete: true,
       firstRunComplete: true
     });
+  }
+  if (dashboardRequested) {
+    updateState({
+      currentMode: "dashboard",
+      lastLaunchAt: new Date().toISOString()
+    });
+    redirect(res, "/dashboard");
+    return;
   }
   if (localFrameRequested) {
     updateState({
@@ -3644,6 +4007,7 @@ async function handle(req, res) {
     if (req.method === "GET" && url.pathname === "/setup") return html(res, renderSetup());
     if (req.method === "GET" && url.pathname === "/network") return html(res, renderNetwork());
     if (req.method === "GET" && url.pathname === "/settings") return html(res, renderSettings());
+    if (req.method === "GET" && url.pathname === "/dashboard") return html(res, renderDashboard());
     if (req.method === "GET" && url.pathname === "/frame") return html(res, renderFrame());
     if (req.method === "GET" && url.pathname === "/offline") return html(res, renderOffline());
     if (req.method === "GET" && url.pathname === "/broadcast") return html(res, renderBroadcast());
@@ -3780,6 +4144,11 @@ async function handle(req, res) {
       const result = recordFrameItemDisplay(body);
       return sendJson(res, result, result.ok ? 200 : 400);
     }
+    if (req.method === "POST" && url.pathname === "/local/frame/like") {
+      const body = JSON.parse(await readBody(req) || "{}");
+      const result = await likeFrameItem(body);
+      return sendJson(res, result, result.ok ? 200 : 400);
+    }
     if (req.method === "POST" && url.pathname === "/local/broadcast/dismiss") {
       return sendJson(res, dismissBroadcast("duration_elapsed"));
     }
@@ -3832,13 +4201,16 @@ p { font-size: 22px; line-height: 1.35; }
 dt { color: #9ad0bb; }
 dd { margin: 0; overflow-wrap: anywhere; }
 .actions, .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); gap: 14px; }
-button, .button, input { min-height: 56px; border-radius: 8px; border: 1px solid #607069; background: #202b27; color: #f4f1e8; font: inherit; font-size: 18px; padding: 14px 16px; }
+button, .button, input, select { min-height: 56px; border-radius: 8px; border: 1px solid #607069; background: #202b27; color: #f4f1e8; font: inherit; font-size: 18px; padding: 14px 16px; }
 .button { display: inline-grid; place-items: center; text-decoration: none; text-align: center; }
 .primary { background: #d8f3dc; color: #122018; border-color: #d8f3dc; }
 button:disabled, .button.disabled { opacity: 0.45; pointer-events: none; }
 label { display: grid; gap: 8px; color: #c8c6bb; font-size: 18px; }
 .check { display: flex; align-items: center; gap: 12px; }
 .check input { min-height: auto; width: 24px; height: 24px; }
+.setting-group { grid-column: 1 / -1; margin: 0; padding: 18px; border: 1px solid #343d39; border-radius: 8px; }
+.setting-group legend { padding: 0 8px; color: #9ad0bb; font-size: 20px; }
+.check-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); gap: 12px; }
 .onboarding h1 { font-size: clamp(38px, 7vw, 78px); }
 .onboarding h2 { margin: 0 0 8px; font-size: clamp(24px, 4vw, 38px); letter-spacing: 0; }
 .onboarding p { margin: 0 0 14px; }
@@ -3867,10 +4239,29 @@ label { display: grid; gap: 8px; color: #c8c6bb; font-size: 18px; }
 .frame-media { margin: 0; display: grid; place-items: center; min-height: 68vh; background: #101412; border: 1px solid #2d3834; border-radius: 8px; overflow: hidden; }
 .frame-media img, .frame-media video { display: block; width: 100%; height: 68vh; object-fit: contain; background: #0d1110; }
 .frame-media audio { width: min(720px, 90%); }
+.frame-audio-work { width: 100%; min-height: 68vh; display: grid; place-items: center; gap: 16px; text-align: center; background: #101412; }
+.frame-audio-work strong { font-size: clamp(34px, 6vw, 92px); line-height: 1; overflow-wrap: anywhere; }
+.frame-audio-work span { color: #9ad0bb; font-size: 24px; }
+.text-only { padding: 6vw; font-size: clamp(34px, 6vw, 86px); text-align: center; overflow-wrap: anywhere; }
 .frame-caption { display: flex; justify-content: space-between; align-items: flex-start; gap: 20px; color: #c8c6bb; font-size: 18px; }
 .frame-caption strong { display: block; color: #f4f1e8; font-size: clamp(24px, 4vw, 44px); overflow-wrap: anywhere; }
 .frame-caption p { max-width: 820px; margin: 8px 0 0; color: #c8c6bb; font-size: 20px; }
 .frame-caption span { text-align: right; overflow-wrap: anywhere; }
+.frame-overlay { position: fixed; inset: 0; z-index: 20; display: grid; place-items: end center; padding: 4vw; background: linear-gradient(180deg, rgba(13,17,16,0.1), rgba(13,17,16,0.88)); }
+.frame-overlay[hidden] { display: none; }
+.overlay-card { width: min(980px, 100%); padding: 28px; border: 1px solid #607069; border-radius: 8px; background: rgba(16, 20, 18, 0.96); box-shadow: 0 24px 80px rgba(0,0,0,0.45); }
+.overlay-card h2 { margin: 0 0 12px; font-size: clamp(30px, 5vw, 58px); letter-spacing: 0; }
+.overlay-card p { margin: 0 0 18px; font-size: 20px; }
+.overlay-close { float: right; min-height: 44px; font-size: 16px; padding: 10px 14px; }
+.overlay-actions { margin-top: 18px; }
+.dashboard-screen { align-items: stretch; justify-items: stretch; background: #101412; }
+.dashboard-panel { margin: auto; }
+.dashboard-panel h1 { font-size: clamp(42px, 7vw, 84px); }
+.dashboard-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); gap: 14px; margin: 26px 0; }
+.dash-tile { min-height: 128px; display: grid; align-content: center; gap: 8px; padding: 20px; border: 1px solid #343d39; border-radius: 8px; background: #141b18; }
+.dash-tile strong { font-size: clamp(30px, 5vw, 52px); color: #d8f3dc; overflow-wrap: anywhere; }
+.dash-tile span { color: #c8c6bb; font-size: 18px; }
+.gateway-actions { margin-top: 24px; }
 .offline-screen { align-items: stretch; justify-items: stretch; padding: 4vw; }
 .offline-gallery, .offline-empty { width: min(1180px, 100%); margin: auto; }
 .offline-gallery h1, .offline-empty h1 { font-size: clamp(42px, 7vw, 96px); }

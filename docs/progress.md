@@ -1,5 +1,71 @@
 # Progress
 
+## 2026-06-06 - Stream playback gate hardening
+
+Date: 2026-06-06
+
+Milestone: LEAD / integration - local stream player contract
+
+Changed files:
+
+- `scripts/stream-playback-check.sh`
+- `README.md`
+- `docs/progress.md`
+- `docs/agent-notes/pulse.md`
+- `/data/.openclaw/workspace/autopoiesis-os-program/ROLLING-LOG.md`
+
+Implemented:
+
+- Adopted the pending local stream/dashboard/player integration set as the active LEAD handoff instead of leaving it as ambiguous dirty work.
+- Hardened `scripts/stream-playback-check.sh` to choose per-run loopback ports by default, while preserving `AUTOPOIESIS_STREAM_PLAYBACK_CHECK_PORT` and `AUTOPOIESIS_STREAM_PLAYBACK_CHECK_API_PORT` overrides for focused debugging.
+- This brings the stream playback gate in line with the event-ingestion acceptance gate and avoids false failures when hourly cron checks or local development runs overlap.
+
+Verification:
+
+- `node --check local-ui/server.js` passed.
+- `bash -n install.sh update.sh uninstall-dev-tools.sh factory-reset.sh scripts/*.sh` passed.
+- `git diff --check` passed.
+- `scripts/security-smoke.sh` passed.
+- `scripts/stream-playback-check.sh` passed.
+
+Next step:
+
+Implement the hosted `GET /api/frames/device/{deviceId}/stream` path against durable `aos_` preference/content rows, then run this checker plus strict frame-state validation on physical Pi hardware after live feed/cache sync.
+
+## 2026-06-06 - Stream playback integration gate
+
+Date: 2026-06-06
+
+Milestone: LEAD / integration - local stream player contract
+
+Changed files:
+
+- `scripts/stream-playback-check.sh`
+- `scripts/milestone2-verify.sh`
+- `README.md`
+- `docs/progress.md`
+- `docs/agent-notes/pulse.md`
+- `/data/.openclaw/workspace/autopoiesis-os-program/ROLLING-LOG.md`
+
+Implemented:
+
+- Added `scripts/stream-playback-check.sh`, an isolated local UI acceptance gate for the current stream/dashboard/player contract.
+- The check runs a temporary local UI against a mock Frames API and verifies preferred `GET /stream` sync, fallback to legacy `GET /feed`, artist/category preference filtering, `/dashboard` rendering, frame item `displayMs` timing, local like persistence, remote like forwarding, and `feed_item_liked` delivery evidence.
+- Wired the gate into Milestone 2 verification immediately after the local frame route check so physical acceptance catches drift between backend stream shape, device preferences, and local kiosk playback.
+- Documented the standalone gate for focused debugging before a full physical Pi validation pass.
+
+Verification:
+
+- `node --check local-ui/server.js` passed.
+- `bash -n install.sh update.sh uninstall-dev-tools.sh factory-reset.sh scripts/*.sh` passed.
+- `git diff --check` passed.
+- `scripts/security-smoke.sh` passed.
+- `scripts/stream-playback-check.sh` passed.
+
+Next step:
+
+Mirror the same stream contract in the hosted Frames backend with durable `aos_` stream preference defaults, then run this gate plus strict frame-state validation after a real feed/cache cycle on physical Pi hardware. A clean commit for this pass is unsafe until the pre-existing uncommitted stream/dashboard/player edits in `config/defaults.json`, `docs/api-contract.md`, and `local-ui/server.js` are either adopted into the same change set or separated.
+
 ## 2026-06-06 - Admin device snapshot acceptance gate
 
 Date: 2026-06-06

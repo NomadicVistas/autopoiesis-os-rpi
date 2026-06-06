@@ -173,6 +173,14 @@ curl -fsS http://127.0.0.1:3030/local/frame-state
 AUTOPOIESIS_REQUIRE_FRAME_ITEMS=1 ./scripts/frame-state-check.sh
 ```
 
+Run the local stream/playback integration gate:
+
+```bash
+./scripts/stream-playback-check.sh
+```
+
+This isolated check launches a temporary local UI against a mock Frames API on per-run loopback ports and validates preferred `/stream` sync, legacy `/feed` fallback, artist/category filtering, dashboard rendering, item timing, local like persistence, remote like forwarding, and delivery-log evidence.
+
 Collect a redacted local support bundle:
 
 ```bash

@@ -1,5 +1,23 @@
 # Pulse Agent Notes
 
+## 2026-06-06 - Stream playback gate hardening
+
+Date/time: 2026-06-06 14:15 UTC / 2026-06-06 16:15 Europe/Berlin
+Agent: Pulse
+Context: LEAD / INTEGRATION cron pass. The previous stream playback pass left a coherent but ambiguous dirty set around local stream preferences, dashboard/player behavior, likes, and the new acceptance gate.
+What changed: Adopted that integration set as the active stream-player handoff and hardened `scripts/stream-playback-check.sh` to allocate per-run loopback ports by default. Environment overrides still work for debugging, but overlapping cron/local runs should no longer collide on fixed ports.
+What needs review: The hosted backend still needs to serve the preferred `GET /api/frames/device/{deviceId}/stream` contract from durable `aos_` preference/content rows. The RPi gate now gives backend/API work a stable device-side target.
+Next recommended action: After backend stream implementation, run `scripts/stream-playback-check.sh` and `AUTOPOIESIS_REQUIRE_FRAME_ITEMS=1 scripts/frame-state-check.sh` on physical paired hardware following a live feed/cache cycle.
+
+## 2026-06-06 - Stream playback integration gate
+
+Date/time: 2026-06-06 13:15 UTC / 2026-06-06 15:15 Europe/Berlin
+Agent: Pulse
+Context: LEAD / INTEGRATION cron pass. The local frame stream surface now spans backend stream sync, local preferences, dashboard, `/frame`, likes, and delivery evidence, but that cross-system behavior had no single regression gate.
+What changed: Added `scripts/stream-playback-check.sh` and wired it into Milestone 2 verification after the local frame route check. The script launches a temporary local UI with a mock Frames API, proves `/stream` is preferred before legacy `/feed`, validates artist/category filtering, checks dashboard/player timing fields, confirms local like persistence plus remote like forwarding, and verifies `feed_item_liked` delivery evidence.
+What needs review: The checkout still contains pre-existing uncommitted stream/dashboard/player changes in `config/defaults.json`, `docs/api-contract.md`, and `local-ui/server.js`. This gate validates those changes in the current worktree, but a clean commit of only this pass is unsafe until that dirty work is either adopted or separated.
+Next recommended action: Implement the hosted `GET /api/frames/device/{deviceId}/stream` contract against durable `aos_` preferences/content rows, then run this check and strict frame-state validation on physical Pi hardware after a real feed/cache cycle.
+
 ## 2026-06-06 - Admin device snapshot acceptance gate
 
 Date/time: 2026-06-06 13:05 UTC / 2026-06-06 15:05 Europe/Berlin
