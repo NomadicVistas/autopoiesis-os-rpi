@@ -112,9 +112,9 @@ Use `preferences.displayMode=local-feed` or `/launch?local=1` when the kiosk sho
 curl -fsS http://127.0.0.1:3030/local/diagnostics
 ```
 
-The diagnostics endpoint is the quickest support snapshot for hardware testing. It reports software version, uptime, memory, temperature, touchscreen/input visibility, network and pairing state, cache footprint, release state, pending command count, current broadcast, and local Autopoiesis service/timer states when systemd is available.
+The diagnostics endpoint is the quickest support snapshot for hardware testing. It reports software version, uptime, memory, temperature, system clock/NTP synchronization, touchscreen/input visibility, network and pairing state, cache footprint, release state, pending command count, current broadcast, and local Autopoiesis service/timer states when systemd is available.
 
-Read `.diagnostics.health.status` first. It is `ok`, `warning`, or `error`, with `.diagnostics.health.issues[]` carrying stable issue codes such as `network_offline`, `offline_fallback`, `device_key_missing`, `storage_low`, `temperature_high`, `touchscreen_missing`, `release_error`, `commands_pending`, `service_failed`, `timer_failed`, and `timer_disabled`.
+Read `.diagnostics.health.status` first. It is `ok`, `warning`, or `error`, with `.diagnostics.health.issues[]` carrying stable issue codes such as `network_offline`, `offline_fallback`, `device_key_missing`, `storage_low`, `temperature_high`, `clock_unsynchronized`, `clock_unknown`, `touchscreen_missing`, `release_error`, `commands_pending`, `service_failed`, `timer_failed`, and `timer_disabled`.
 
 For quick acceptance checks, use the compact health probe:
 
@@ -144,6 +144,16 @@ systemctl list-timers 'autopoiesis-*'
 
 The timer check is part of Milestone 2 physical Pi verification. It fails if the heartbeat, command executor, cache, updater, or watchdog timer is not enabled and active; those loops are what keep pairing, sync, remote commands, offline cache, release checks, and watchdog recovery alive after boot.
 
+For clock/NTP state:
+
+```bash
+/opt/autopoiesis-os/app/scripts/clock-check.sh
+AUTOPOIESIS_REQUIRE_CLOCK_SYNC=1 /opt/autopoiesis-os/app/scripts/clock-check.sh
+timedatectl status
+```
+
+The clock check is part of Milestone 2 physical Pi verification. It fails in strict mode when system time is not synchronized, because bad Pi time can make HTTPS, feed start/expiry windows, pairing codes, heartbeat cursors, and release windows fail in ways that look unrelated.
+
 For one-step support handoff, collect the redacted support bundle:
 
 ```bash
@@ -151,7 +161,7 @@ For one-step support handoff, collect the redacted support bundle:
 curl -fsS http://127.0.0.1:3030/local/support-bundle
 ```
 
-The bundle combines diagnostics, compact health, rollout readiness, touchscreen/input summary, systemd timer summary, active feed state, local frame playback state, offline-cache inventory, recent command audit entries, recent delivery events, recent release history, and the unified device event export. It is intended for hardware validation notes and admin support adapters, and it should stay free of stored device API keys, raw command payloads, release artifact URLs, checksums, and absolute cache asset paths.
+The bundle combines diagnostics, compact health, rollout readiness, clock/NTP summary, touchscreen/input summary, systemd timer summary, active feed state, local frame playback state, offline-cache inventory, recent command audit entries, recent delivery events, recent release history, and the unified device event export. It is intended for hardware validation notes and admin support adapters, and it should stay free of stored device API keys, raw command payloads, release artifact URLs, checksums, and absolute cache asset paths.
 
 For Admin > Frames remote-action policy checks:
 

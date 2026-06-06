@@ -1,5 +1,14 @@
 # Pulse Agent Notes
 
+## 2026-06-06 - System clock diagnostics gate
+
+Date/time: 2026-06-06 14:38 UTC / 2026-06-06 16:38 Europe/Berlin
+Agent: Pulse
+Context: RPI APPLIANCE cron pass. A Pi with bad system time can break HTTPS, pairing/heartbeat cursors, feed expiry windows, and release checks while presenting as a generic network or sync failure.
+What changed: Added timedatectl-backed clock diagnostics to local diagnostics, compact health, readiness, rollout acceptance, and support bundles. Added `scripts/clock-check.sh` and wired strict `AUTOPOIESIS_REQUIRE_CLOCK_SYNC=1` into Milestone 2 physical verification.
+What needs review: Run the strict clock check on the target Pi after network onboarding; if it fails, capture `timedatectl status` and verify NTP reachability before debugging higher-level feed or release issues.
+Next recommended action: Add Admin > Frames display of the clock phase once support-bundle/device snapshot ingestion is shown in the hosted UI.
+
 ## 2026-06-06 - Defensive feed targeting gate
 
 Date/time: 2026-06-06 14:25 UTC / 2026-06-06 16:25 Europe/Berlin

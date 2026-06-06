@@ -29,9 +29,10 @@ Milestone 2 is scaffolded for physical Pi validation. The local UI can:
 - play the local mixed feed queue at `/frame`, preferring cached assets when available
 - show cached feed media on `/offline` when the live display is unreachable
 - expose a compact `/local/health` probe for support, admin adapters, and hardware acceptance checks
+- expose system clock/NTP synchronization diagnostics through health/readiness/support surfaces
 - expose touchscreen/input diagnostics through health/readiness/support surfaces
 - expose systemd timer diagnostics for heartbeat, command executor, cache, updater, and watchdog loops
-- expose a phase-level `/local/readiness` probe for setup, input, pairing, sync, content, local playback, cache, commands, and release rollout checks
+- expose a phase-level `/local/readiness` probe for setup, clock, input, pairing, sync, content, local playback, cache, commands, and release rollout checks
 - expose `/local/rollout/acceptance` as a redacted setup/staged/production rollout gate for QA, Admin > Frames, and physical device handoffs
 - generate a GitHub-style rollout issue report from rollout acceptance plus the redacted support bundle
 - verify settings sync conflict handling with newest-`updatedAt` semantics across explicit sync, local push, and heartbeat responses
@@ -53,7 +54,7 @@ Milestone 2 is scaffolded for physical Pi validation. The local UI can:
 - run a kiosk check that proves the Chromium launch command uses Pi-safe software rendering flags
 - run a local watchdog timer that restarts setup/kiosk services only when liveness checks fail
 - reinstall and enable systemd units during install/update so new timers reach existing devices
-- verify setup, kiosk, HTTP, Chromium, touchscreen/input, network, and restart behavior on a Pi
+- verify setup, kiosk, HTTP, Chromium, clock/NTP sync, touchscreen/input, network, and restart behavior on a Pi
 
 ## Install
 
@@ -110,6 +111,13 @@ Check appliance timer wiring for sync, command, cache, update, and watchdog loop
 
 ```bash
 ./scripts/systemd-timers-check.sh
+```
+
+Check system clock/NTP synchronization:
+
+```bash
+./scripts/clock-check.sh
+AUTOPOIESIS_REQUIRE_CLOCK_SYNC=1 ./scripts/clock-check.sh
 ```
 
 Run the same liveness checks used by the systemd watchdog:

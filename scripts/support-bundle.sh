@@ -27,6 +27,7 @@ const blockers = Array.isArray(summary.blockers) && summary.blockers.length
 const release = summary.releaseHistory || {};
 const events = payload.deviceEvents || {};
 const input = summary.input || {};
+const clock = summary.clock || {};
 
 console.error([
   "Autopoiesis Frame support bundle",
@@ -36,6 +37,7 @@ console.error([
   "readiness=" + (summary.readinessStatus || "unknown"),
   "issues=" + issues,
   "blockers=" + blockers,
+  "clock=" + (clock.status || "unknown"),
   "input=" + (input.status || "unknown"),
   "release=" + (release.lastStatus || "none") + ":" + (release.lastVersion || "unknown"),
   "events=" + ((events.counts || {}).exported || 0),

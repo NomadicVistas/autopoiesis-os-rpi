@@ -1,5 +1,45 @@
 # Progress
 
+## 2026-06-06 - System clock diagnostics gate
+
+Date: 2026-06-06
+
+Milestone: RPI APPLIANCE - time sync diagnostics and staged hardware acceptance
+
+Changed files:
+
+- `local-ui/server.js`
+- `scripts/clock-check.sh`
+- `scripts/milestone2-verify.sh`
+- `scripts/security-smoke.sh`
+- `scripts/support-bundle.sh`
+- `README.md`
+- `docs/api-contract.md`
+- `docs/troubleshooting.md`
+- `docs/progress.md`
+- `docs/agent-notes/pulse.md`
+- `/data/.openclaw/workspace/autopoiesis-os-program/ROLLING-LOG.md`
+
+Implemented:
+
+- Added `timedatectl show` backed system clock diagnostics to the local UI diagnostics snapshot.
+- Compact health now emits stable `clock_unsynchronized`, `clock_unknown`, and `clock_ntp_disabled` issue codes when system time sync is unhealthy or unavailable.
+- Readiness, rollout acceptance, and support bundles now include a clock phase/summary so staged hardware can distinguish bad Pi time from generic network, feed, heartbeat, or release failures.
+- Added `scripts/clock-check.sh`, validating diagnostics, health, readiness, and support-bundle clock surfaces with strict `AUTOPOIESIS_REQUIRE_CLOCK_SYNC=1` mode.
+- Wired strict clock sync into `scripts/milestone2-verify.sh` after timer diagnostics and extended security/support summaries to cover the new redacted clock contract.
+
+Verification:
+
+- `node --check local-ui/server.js` passed.
+- `bash -n install.sh update.sh uninstall-dev-tools.sh factory-reset.sh scripts/*.sh` passed.
+- `git diff --check` passed.
+- `scripts/security-smoke.sh` passed.
+- Targeted fake-`timedatectl` clock smoke passed for synchronized strict mode, unsynchronized health issue plus strict failure, and unavailable `clock_unknown` reporting.
+
+Next step:
+
+Run strict `scripts/clock-check.sh` on the physical Pi after network onboarding; if it fails, capture `timedatectl status` before debugging higher-level feed, heartbeat, pairing, or release behavior.
+
 ## 2026-06-06 - Defensive feed targeting gate
 
 Date: 2026-06-06

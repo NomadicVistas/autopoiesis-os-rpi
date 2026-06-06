@@ -25,6 +25,7 @@ const HEARTBEAT_EVENT_LIMIT = Number(process.env.AUTOPOIESIS_HEARTBEAT_EVENT_LIM
 const FEED_QUEUE_LIMIT = Number(process.env.AUTOPOIESIS_FEED_QUEUE_LIMIT || 100);
 const EVENT_CURSOR_OVERLAP_MS = Number(process.env.AUTOPOIESIS_EVENT_CURSOR_OVERLAP_MS || 1000);
 const INPUT_DEVICES_PATH = process.env.AUTOPOIESIS_INPUT_DEVICES_PATH || "/proc/bus/input/devices";
+const TIMEDATECTL_BIN = process.env.AUTOPOIESIS_TIMEDATECTL_BIN || "timedatectl";
 
 const COMMAND_POLICIES = {
   sync_settings: { risk: "low", requiresAuthorization: false },
@@ -1794,6 +1795,81 @@ function inputDiagnostics() {
   }
 }
 
+function parseSystemdBoolean(value) {
+  if (value === true || value === false) return value;
+  const normalized = String(value || "").trim().toLowerCase();
+  if (["yes", "true", "1"].includes(normalized)) return true;
+  if (["no", "false", "0"].includes(normalized)) return false;
+  return null;
+}
+
+function parseTimedatectlShow(raw) {
+  const values = {};
+  for (const line of String(raw || "").split(/\r?\n/)) {
+    const index = line.indexOf("=");
+    if (index <= 0) continue;
+    values[line.slice(0, index)] = line.slice(index + 1);
+  }
+  return values;
+}
+
+async function clockDiagnostics() {
+  const collectedAt = new Date();
+  const base = {
+    ok: true,
+    status: "unknown",
+    source: TIMEDATECTL_BIN,
+    systemTime: collectedAt.toISOString(),
+    epochSeconds: Math.floor(collectedAt.getTime() / 1000),
+    timezone: null,
+    ntpEnabled: null,
+    ntpSynchronized: null,
+    systemClockSynchronized: null,
+    localRtc: null
+  };
+
+  try {
+    const { stdout } = await execFilePromise(
+      TIMEDATECTL_BIN,
+      [
+        "show",
+        "--property=Timezone",
+        "--property=LocalRTC",
+        "--property=NTP",
+        "--property=NTPSynchronized",
+        "--property=SystemClockSynchronized"
+      ],
+      { timeout: 2000 }
+    );
+    const values = parseTimedatectlShow(stdout);
+    const systemClockSynchronized = parseSystemdBoolean(values.SystemClockSynchronized);
+    const ntpSynchronized = parseSystemdBoolean(values.NTPSynchronized);
+    const synchronized =
+      systemClockSynchronized !== null
+        ? systemClockSynchronized
+        : ntpSynchronized !== null
+          ? ntpSynchronized
+          : null;
+    return {
+      ...base,
+      ok: synchronized !== false,
+      status: synchronized === true ? "synchronized" : synchronized === false ? "unsynchronized" : "unknown",
+      timezone: values.Timezone || null,
+      ntpEnabled: parseSystemdBoolean(values.NTP),
+      ntpSynchronized,
+      systemClockSynchronized,
+      localRtc: parseSystemdBoolean(values.LocalRTC)
+    };
+  } catch (error) {
+    return {
+      ...base,
+      ok: false,
+      status: "unavailable",
+      error: error.message
+    };
+  }
+}
+
 function directoryStats(dirPath) {
   const stats = { exists: false, files: 0, bytes: 0 };
   function walk(currentPath) {
@@ -1988,6 +2064,16 @@ function diagnosticsHealth(diagnostics, data) {
     }
   }
 
+  if (diagnostics.clock) {
+    if (diagnostics.clock.status === "unsynchronized") {
+      add("warning", "clock_unsynchronized", "System clock is not synchronized; TLS, scheduling, expiry, and release windows may be unreliable.");
+    } else if (diagnostics.clock.status === "unavailable" || diagnostics.clock.ok === false) {
+      add("warning", "clock_unknown", "System clock synchronization status could not be collected.");
+    } else if (diagnostics.clock.ntpEnabled === false) {
+      add("warning", "clock_ntp_disabled", "NTP/system time synchronization is disabled.");
+    }
+  }
+
   if (diagnostics.release && diagnostics.release.status === "error") {
     add("error", "release_error", "Last release/update attempt failed.");
   } else if (diagnostics.release && diagnostics.release.status === "in_progress") {
@@ -2064,6 +2150,7 @@ async function collectDiagnostics(options = {}) {
   const releaseHistory = releaseHistorySummary();
   const frameState = publicFrameState();
   const disk = await diskStatus(DATA_DIR);
+  const clock = await clockDiagnostics();
   const diagnostics = {
     collectedAt: new Date().toISOString(),
     deviceId: data.device.deviceId || null,
@@ -2079,6 +2166,7 @@ async function collectDiagnostics(options = {}) {
       totalMb: Math.round(os.totalmem() / 1024 / 1024),
       freeMb: Math.round(os.freemem() / 1024 / 1024)
     },
+    clock,
     temperatureC: readTemperatureC(),
     input: inputDiagnostics(),
     mode: data.state.currentMode || "setup",
@@ -2184,12 +2272,31 @@ function readinessSummary(diagnostics) {
   const timerSummary = timerStatusSummary(timers);
   const commandAudit = diagnostics.commandAudit || {};
   const input = diagnostics.input || {};
+  const clock = diagnostics.clock || {};
   const commandExecutorActive = serviceActive(services, "autopoiesis-command-executor.service");
   const cacheServiceActive = serviceActive(services, "autopoiesis-cache.service");
   const heartbeatServiceActive = serviceActive(services, "autopoiesis-heartbeat.service");
 
   const phases = {
     localUi: phase(true, "ready", "Local UI responded and produced diagnostics."),
+    clock: phase(
+      clock.ok !== false && clock.status !== "unsynchronized",
+      clock.status || "unknown",
+      clock.status === "synchronized"
+        ? "System clock is synchronized."
+        : clock.status === "unsynchronized"
+          ? "System clock is not synchronized; TLS, scheduling, expiry, and release windows may be unreliable."
+          : clock.status === "unavailable"
+            ? "System clock synchronization status could not be collected."
+            : "System clock synchronization status is unknown.",
+      {
+        systemTime: clock.systemTime || null,
+        timezone: clock.timezone || null,
+        ntpEnabled: clock.ntpEnabled,
+        ntpSynchronized: clock.ntpSynchronized,
+        systemClockSynchronized: clock.systemClockSynchronized
+      }
+    ),
     input: phase(
       Boolean(input.ok && input.pointerPresent),
       input.ok
@@ -2358,6 +2465,7 @@ function rolloutAcceptance(diagnostics, options = {}) {
   const phases = readiness.phases || {};
   const framePlayback = diagnostics.framePlayback || {};
   const input = diagnostics.input || {};
+  const clockPhase = ((readiness.phases || {}).clock) || {};
 
   const checks = [];
   function addCheck(id, label, passed, required, summary, details = {}) {
@@ -2393,6 +2501,14 @@ function rolloutAcceptance(diagnostics, options = {}) {
     true,
     (phases.localUi || {}).summary || "Local UI must respond with diagnostics.",
     { status: (phases.localUi || {}).status || "unknown" }
+  );
+  addCheck(
+    "clock",
+    "System clock synchronized",
+    Boolean(clockPhase.ready),
+    profileRequiresManagedDevice,
+    clockPhase.summary || "Managed rollout requires synchronized system time for TLS, scheduling, feed expiry, and release windows.",
+    { status: clockPhase.status || "unknown" }
   );
   addCheck(
     "input",
@@ -2564,6 +2680,7 @@ function healthSummary(diagnostics) {
       online: Boolean(health.networkOnline),
       primary: diagnostics.network ? diagnostics.network.primary || null : null
     },
+    clock: diagnostics.clock || null,
     pairing: {
       paired: Boolean(health.paired)
     },
@@ -2629,6 +2746,16 @@ async function supportBundle(options = {}) {
         keyboardPresent: diagnostics.input ? Boolean(diagnostics.input.keyboardPresent) : false,
         totalDevices: diagnostics.input ? diagnostics.input.totalDevices || 0 : 0
       },
+      clock: diagnostics.clock
+        ? {
+            status: diagnostics.clock.status || null,
+            systemTime: diagnostics.clock.systemTime || null,
+            timezone: diagnostics.clock.timezone || null,
+            ntpEnabled: diagnostics.clock.ntpEnabled,
+            ntpSynchronized: diagnostics.clock.ntpSynchronized,
+            systemClockSynchronized: diagnostics.clock.systemClockSynchronized
+          }
+        : null,
       timers: diagnostics.timers || null,
       pendingCommands: health.pendingCommands || 0,
       framePlayback: diagnostics.framePlayback || null,
