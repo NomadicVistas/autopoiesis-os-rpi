@@ -231,6 +231,14 @@ Projection:
 - `display_delivery` broadcast lifecycle events update or create BroadcastDelivery rows.
 - `release_history` events update or create ReleaseRollout rows when `releaseId` and target version are present.
 
+Schema contract gate:
+
+- `scripts/aos-schema-contract-check.sh` validates the durable `aos_` table contract from either a SQLite database file or a saved schema JSON fixture.
+- The gate currently requires the MVP tables for devices, pairing, device settings, user preferences, heartbeats, commands, admin command audits, device events, artwork likes, broadcasts, releases, subscriptions, broadcast deliveries, and release rollouts.
+- Required primary/unique keys are checked for device ids, settings rows, user preference rows, command ids, event idempotency, artwork likes, broadcasts, releases, subscriptions, delivery rows, and rollout rows.
+- `aos_frame_pairing_codes.pairing_code_hash` is preferred for production hardening; the gate allows the current MVP `pairing_code` column with a warning so backend migration can happen deliberately.
+- Run this gate before relying on hosted `/stream`, online admin bundles, heartbeat event ingestion, command acknowledgement, broadcast delivery, or release rollout tests.
+
 ### SoftwareRelease
 
 - id

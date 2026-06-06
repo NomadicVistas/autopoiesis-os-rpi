@@ -213,6 +213,15 @@ AUTOPOIESIS_ONLINE_ADMIN_CONTRACT_TOKEN="$TOKEN" ./scripts/online-admin-contract
 
 The online admin contract check validates a saved or live bundle assembled from Profile > Frames and Admin > Frames endpoints. It checks user devices, pairing metadata, settings, active artists, liked artworks, cache preferences, users, subscribers, subscriptions, fleet devices, role-gated remote actions, and redaction of device keys, pairing hashes, private tokens, secrets, and local appliance paths.
 
+Validate the durable `aos_` database schema before backend/admin/device integration work assumes rows exist:
+
+```bash
+./scripts/aos-schema-contract-check.sh /path/to/schema-introspection.json
+./scripts/aos-schema-contract-check.sh /path/to/database.sqlite
+```
+
+The schema contract check validates the required Frames tables, columns, and primary/unique keys for devices, pairing, settings, preferences, heartbeats, commands, admin audits, events, likes, broadcasts, releases, subscriptions, delivery logs, and rollout records. SQLite database checks require the `sqlite3` CLI; CI can also pass a saved schema JSON fixture.
+
 Check defensive feed targeting and cache eligibility:
 
 ```bash

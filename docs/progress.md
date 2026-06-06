@@ -1,5 +1,41 @@
 # Progress
 
+## 2026-06-06 - Durable AOS schema contract gate
+
+Date: 2026-06-06
+
+Milestone: LEAD / INTEGRATION - database foundation
+
+Changed files:
+
+- `scripts/aos-schema-contract-check.sh`
+- `README.md`
+- `docs/api-contract.md`
+- `docs/database-schema.md`
+- `docs/agent-notes/aos-schema-contract-issue.md`
+- `docs/agent-notes/pulse.md`
+- `docs/progress.md`
+- `/data/.openclaw/workspace/autopoiesis-os-program/ROLLING-LOG.md`
+
+Implemented:
+
+- Added `scripts/aos-schema-contract-check.sh`, a schema-level verifier for the durable `aos_` Frames database contract.
+- The checker accepts either a SQLite database file, when `sqlite3` is available, or a saved schema JSON fixture for CI/staging adapters.
+- It validates required tables, columns, and primary/unique keys for frame devices, pairing, settings, user preferences, heartbeats, commands, admin command audits, device events, artwork likes, broadcasts, releases, subscriptions, broadcast deliveries, and release rollouts.
+- Added a backend issue note so database/migration work has a concrete acceptance target before stream, admin, event ingestion, command, broadcast, or rollout gates are trusted.
+
+Verification:
+
+- `node --check local-ui/server.js` passed.
+- `bash -n install.sh update.sh uninstall-dev-tools.sh factory-reset.sh scripts/*.sh` passed.
+- `git diff --check` passed.
+- `scripts/aos-schema-contract-check.sh` passed against a representative durable `aos_` schema fixture.
+- `scripts/security-smoke.sh` passed.
+
+Next step:
+
+Run `scripts/aos-schema-contract-check.sh` against a staging backend database or exported migration schema before relying on hosted stream/admin/event/broadcast/release acceptance checks; migrate `aos_frame_pairing_codes` from plaintext `pairing_code` to `pairing_code_hash` before production hardening.
+
 ## 2026-06-06 - Online admin contract gate
 
 Date: 2026-06-06

@@ -1,5 +1,14 @@
 # Pulse Agent Notes
 
+## 2026-06-06 - Durable AOS schema contract gate
+
+Date/time: 2026-06-06 16:15 UTC / 2026-06-06 18:15 Europe/Berlin
+Agent: Pulse
+Context: LEAD / INTEGRATION cron pass. Stream, online admin, event ingestion, command acknowledgement, targeting, and rollout gates now depend on the same durable `aos_` backend tables, but there was no direct schema acceptance gate to catch missing columns or idempotency keys before those higher-level checks ran.
+What changed: Added `scripts/aos-schema-contract-check.sh`, accepting either a SQLite database file or saved schema JSON fixture. It validates the MVP Frames tables, required columns, and primary/unique keys for devices, pairing, settings, preferences, heartbeats, commands, admin audits, device events, likes, broadcasts, releases, subscriptions, deliveries, and rollouts. Added `docs/agent-notes/aos-schema-contract-issue.md` as the backend handoff note.
+What needs review: Run the gate against a staging database or exported migration schema from the hosted app. The script allows current MVP `pairing_code` storage but warns that `pairing_code_hash` should replace it before production hardening.
+Next recommended action: Add this gate to backend migration/CI before running hosted stream, online admin bundle, heartbeat event ingestion, broadcast delivery, or release rollout acceptance checks.
+
 ## 2026-06-06 - Online admin contract gate
 
 Date/time: 2026-06-06 16:05 UTC / 2026-06-06 18:05 Europe/Berlin

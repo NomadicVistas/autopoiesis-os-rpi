@@ -297,6 +297,13 @@ Unified device event export:
 - The global `cursor` includes latest and oldest exported event pointers plus `hasMore`; `sourceCursors` repeats the same shape per source with total/exported counts and per-source limits so ingestion can detect truncation in command audit, display delivery, or release history independently.
 - Exported events intentionally omit raw command payloads, local cache paths, release artifact URLs, checksums, stdout/stderr, and stored device API keys.
 
+Durable schema gate:
+
+- `scripts/aos-schema-contract-check.sh` validates a saved schema JSON fixture or SQLite database file for the minimum durable `aos_` table contract used by the Frames API.
+- The gate covers device identity, pairing, device settings, user preferences, heartbeats, command queueing, admin command audits, unified device events, artwork likes, broadcasts, releases, subscriptions, broadcast deliveries, and release rollouts.
+- Backend migrations should pass this check before stream, admin bundle, heartbeat event ingestion, command acknowledgement, broadcast delivery, or rollout tests are trusted.
+- SQLite database checks require the `sqlite3` CLI. CI may instead export JSON with `tables`, `columns`, `primaryKey`, and `unique` metadata.
+
 Commands:
 
 - GET /api/frames/device/{deviceId}/commands
