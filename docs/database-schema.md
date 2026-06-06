@@ -241,6 +241,13 @@ Schema contract gate:
 - `aos_frame_pairing_codes.pairing_code_hash` is preferred for production hardening; the gate allows the current MVP `pairing_code` column with a warning so backend migration can happen deliberately.
 - Run this gate before relying on hosted `/stream`, online admin bundles, heartbeat event ingestion, command acknowledgement, broadcast delivery, or release rollout tests.
 
+Migration contract gate:
+
+- `scripts/aos-migration-contract-check.sh` validates the migration plan before it mutates staging or production data.
+- Directory mode scans sorted `.sql` files recursively; manifest mode accepts `migrations` plus optional `finalSchema.tables` metadata from a backend migration tool.
+- The gate requires sortable migration ids, `aos_` table/index namespacing, transaction boundaries for SQL migrations, required MVP table coverage, hashed pairing-code storage, and no accidental destructive DDL/DML.
+- Run it before the schema contract gate. Then run `scripts/aos-schema-contract-check.sh` against the migrated database/export so the migration plan and final database shape are both proven.
+
 ### SoftwareRelease
 
 - id

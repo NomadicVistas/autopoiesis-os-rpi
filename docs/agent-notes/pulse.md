@@ -1,5 +1,14 @@
 # Pulse Agent Notes
 
+## 2026-06-06 - AOS migration contract gate
+
+Date/time: 2026-06-06 18:45 UTC / 2026-06-06 20:45 Europe/Berlin
+Agent: Pulse
+Context: API / DATABASE / SYNC cron pass. The schema gate proves final table shape, but backend migration work still needed a pre-apply check so risky or mis-namespaced migrations do not reach staging before the schema verifier runs.
+What changed: Added `scripts/aos-migration-contract-check.sh`, accepting either a migrations directory or saved migration manifest. It checks deterministic ids, `aos_` table/index namespacing, transaction boundaries, required MVP table coverage, hashed pairing-code storage, secret-literal red flags, and destructive SQL opt-in.
+What needs review: Wire this into backend migration CI before applying Frames migrations, then run `scripts/aos-schema-contract-check.sh` against the migrated database/export.
+Next recommended action: Build the hosted migration manifest/export adapter from the main app migration tool and include backup/rollback notes for any migration that needs `AUTOPOIESIS_ALLOW_DESTRUCTIVE_MIGRATIONS=1`.
+
 ## 2026-06-06 - Broadcast command display contract
 
 Date/time: 2026-06-06 18:25 UTC / 2026-06-06 20:25 Europe/Berlin

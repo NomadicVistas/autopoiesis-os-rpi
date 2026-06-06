@@ -1,5 +1,43 @@
 # Progress
 
+## 2026-06-06 - AOS migration contract gate
+
+Date: 2026-06-06
+
+Milestone: API / DATABASE / SYNC - migration safety foundation
+
+Changed files:
+
+- `scripts/aos-migration-contract-check.sh`
+- `README.md`
+- `docs/api-contract.md`
+- `docs/database-schema.md`
+- `docs/agent-notes/backend-migration-contract-issue.md`
+- `docs/agent-notes/pulse.md`
+- `docs/progress.md`
+- `/data/.openclaw/workspace/autopoiesis-os-program/ROLLING-LOG.md`
+
+Implemented:
+
+- Added `scripts/aos-migration-contract-check.sh`, an executable pre-apply gate for hosted Frames database migrations.
+- The checker accepts either a migrations directory of sorted `.sql` files or a saved migration manifest from a backend migration tool.
+- It validates deterministic migration ids, `aos_` table/index namespacing, transaction boundaries, required MVP table coverage, hashed pairing-code storage, secret-literal red flags, and destructive SQL opt-in.
+- Added a backend handoff note defining how to wire the gate before schema verification in migration CI.
+
+Verification:
+
+- `node --check local-ui/server.js` passed.
+- `bash -n install.sh update.sh uninstall-dev-tools.sh factory-reset.sh scripts/*.sh` passed.
+- `git diff --check` passed.
+- `scripts/aos-migration-contract-check.sh` passed against a representative manifest fixture.
+- `scripts/aos-migration-contract-check.sh` rejected a non-`aos_` migration fixture.
+- `scripts/aos-migration-contract-check.sh` rejected a destructive migration fixture without explicit opt-in.
+- `scripts/security-smoke.sh` passed.
+
+Next step:
+
+Wire the migration gate into the hosted app's migration CI/export path, then run `scripts/aos-schema-contract-check.sh` against the migrated staging database or exported schema before enabling hosted stream/admin/heartbeat checks.
+
 ## 2026-06-06 - Systemd unit rendering gate
 
 Date: 2026-06-06

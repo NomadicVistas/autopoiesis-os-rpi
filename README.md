@@ -249,6 +249,15 @@ Validate the durable `aos_` database schema before backend/admin/device integrat
 
 The schema contract check validates the required Frames tables, columns, and primary/unique keys for devices, pairing, settings, preferences, heartbeats, commands, admin audits, events, likes, broadcasts, releases, subscriptions, delivery logs, and rollout records. SQLite database checks require the `sqlite3` CLI; CI can also pass a saved schema JSON fixture.
 
+Validate the hosted `aos_` migration plan before applying it to staging or production:
+
+```bash
+./scripts/aos-migration-contract-check.sh /path/to/migrations
+./scripts/aos-migration-contract-check.sh /path/to/migration-manifest.json
+```
+
+The migration contract check validates deterministic migration ids, `aos_` table/index namespacing, transaction boundaries, MVP table coverage, hashed pairing-code storage, and absence of accidental destructive SQL. Destructive repair or rollback migrations must be explicitly reviewed and run with `AUTOPOIESIS_ALLOW_DESTRUCTIVE_MIGRATIONS=1`.
+
 Validate a release manifest before a device applies it:
 
 ```bash

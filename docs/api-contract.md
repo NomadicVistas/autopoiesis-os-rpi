@@ -322,6 +322,14 @@ Durable schema gate:
 - Backend migrations should pass this check before stream, admin bundle, heartbeat event ingestion, command acknowledgement, broadcast delivery, or rollout tests are trusted.
 - SQLite database checks require the `sqlite3` CLI. CI may instead export JSON with `tables`, `columns`, `primaryKey`, and `unique` metadata.
 
+Durable migration gate:
+
+- `scripts/aos-migration-contract-check.sh` validates a migration directory or saved migration manifest before the hosted app applies Frames database changes.
+- The gate requires deterministic sortable migration ids, SQL transaction boundaries unless a manifest marks a migration non-transactional, `aos_` table/index namespacing for DDL/DML, and coverage for the same MVP durable tables checked by the schema gate.
+- Migrations that reference persistent `pairing_code` without `pairing_code_hash` are rejected; plaintext pairing codes belong only in active device-facing registration/status responses.
+- DROP, TRUNCATE, unconditional DELETE, and broad UPDATE statements fail by default. Reviewed repair/rollback migrations may opt in with `AUTOPOIESIS_ALLOW_DESTRUCTIVE_MIGRATIONS=1`, but should still be paired with backup/rollback notes in the backend release plan.
+- Run the migration gate before `scripts/aos-schema-contract-check.sh`, then run the schema gate against the migrated staging database or exported final schema.
+
 Release manifest validation:
 
 - `GET /api/frames/device/{deviceId}/release` should return either `{ release: null }` when current or a `release` object that passes `scripts/release-manifest-check.sh`.
