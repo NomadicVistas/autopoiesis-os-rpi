@@ -1,5 +1,41 @@
 # Progress
 
+## 2026-06-06 - Settings sync acceptance gate
+
+Date: 2026-06-06
+
+Milestone: API / DATABASE / SYNC - settings conflict contract
+
+Changed files:
+
+- `scripts/settings-sync-check.sh`
+- `scripts/milestone2-verify.sh`
+- `README.md`
+- `docs/api-contract.md`
+- `docs/progress.md`
+- `docs/agent-notes/pulse.md`
+- `/data/.openclaw/workspace/autopoiesis-os-program/ROLLING-LOG.md`
+
+Implemented:
+
+- Added `scripts/settings-sync-check.sh`, an isolated acceptance gate for device settings conflict behavior.
+- The check starts a temporary local UI and mock Frames API, then verifies stale explicit sync responses are rejected, newer remote settings apply, local settings pushes include `updatedAt`, and stale heartbeat settings preserve newer local preferences.
+- The check also confirms diagnostics exposes `settingsSync.status = local_newer` and compact health emits `settings_conflict` while the conflict is active.
+- Wired the settings sync check into Milestone 2 verification so physical Pi acceptance catches drift in the API/database sync contract.
+- Documented the backend requirement to return authoritative `updatedAt` values from settings GET, settings POST, and heartbeat responses and to mirror newest-wins semantics in durable `aos_` settings rows.
+
+Verification:
+
+- `node --check local-ui/server.js` passed.
+- `bash -n install.sh update.sh uninstall-dev-tools.sh factory-reset.sh scripts/*.sh` passed.
+- `git diff --check` passed.
+- `scripts/security-smoke.sh` passed.
+- `scripts/settings-sync-check.sh` passed.
+
+Next step:
+
+Mirror this acceptance behavior in the online Frames backend by making `aos_` settings writes reject or explicitly flag stale `updatedAt` payloads, then return the authoritative row timestamp in settings and heartbeat responses.
+
 ## 2026-06-06 - Appliance timer diagnostics
 
 Date: 2026-06-06

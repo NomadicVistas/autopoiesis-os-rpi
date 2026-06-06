@@ -1,5 +1,14 @@
 # Pulse Agent Notes
 
+## 2026-06-06 - Settings sync acceptance gate
+
+Date/time: 2026-06-06 10:45 UTC / 2026-06-06 12:45 Europe/Berlin
+Agent: Pulse
+Context: API / DATABASE / SYNC cron pass. Device-side newest-`updatedAt` settings resolution existed, but backend and hardware validation still needed a direct contract test instead of relying on incidental diagnostics checks.
+What changed: Added `scripts/settings-sync-check.sh`, which runs an isolated local UI against a mock Frames API and proves stale explicit sync rejection, newer remote apply, local push `updatedAt` propagation, stale heartbeat rejection, diagnostics conflict visibility, and the `settings_conflict` health issue. Wired it into Milestone 2 verification and documented the backend `aos_` timestamp requirement.
+What needs review: Backend settings rows should now mirror this exactly: every settings GET/POST/heartbeat response needs an authoritative `updatedAt`, and stale writes should be rejected or surfaced as conflicts rather than silently winning.
+Next recommended action: Add backend-side tests around `aos_` device/user settings writes using the same newest-wins cases, then expose explicit conflict status to Profile > Frames/Admin > Frames.
+
 ## 2026-06-06 - Appliance timer diagnostics
 
 Date/time: 2026-06-06 10:35 UTC / 2026-06-06 12:35 Europe/Berlin

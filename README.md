@@ -32,6 +32,7 @@ Milestone 2 is scaffolded for physical Pi validation. The local UI can:
 - expose systemd timer diagnostics for heartbeat, command executor, cache, updater, and watchdog loops
 - expose a phase-level `/local/readiness` probe for setup, input, pairing, sync, content, local playback, cache, commands, and release rollout checks
 - expose `/local/rollout/acceptance` as a redacted setup/staged/production rollout gate for QA, Admin > Frames, and physical device handoffs
+- verify settings sync conflict handling with newest-`updatedAt` semantics across explicit sync, local push, and heartbeat responses
 - expose a redacted `/local/support-bundle` for one-step hardware/support handoff collection
 - expose `/local/frame-state` so QA, support, and future admin adapters can inspect the browser-safe local playback queue
 - expose a metadata-only `/local/commands/audit` trail for recent remote command attempts

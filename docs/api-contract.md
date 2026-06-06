@@ -205,6 +205,8 @@ Device settings conflict behavior:
 - If the remote payload is stale, the Pi keeps local preferences, records `settingsSync.status = local_newer`, and exposes a `settings_conflict` diagnostics health warning.
 - Untimestamped remote payloads are still applied for legacy API compatibility, but are recorded as `remote_applied_untimestamped`.
 - Heartbeat diagnostics include a compact `settingsSync` object with status, source, conflict, reason, localUpdatedAt, remoteUpdatedAt, and checkedAt.
+- `scripts/settings-sync-check.sh` is the acceptance gate for this contract. It runs an isolated local UI against a mock Frames API and verifies stale explicit sync rejection, newer remote apply, local push `updatedAt` propagation, stale heartbeat rejection, diagnostics conflict visibility, and the `settings_conflict` health issue.
+- Backend `aos_` settings rows should mirror the same newest-`updatedAt` behavior and return authoritative `updatedAt` values from settings GET, settings POST, and heartbeat responses.
 
 Content stream:
 

@@ -83,7 +83,11 @@ echo "8. Local admin capabilities contract"
 "$(dirname "$0")/admin-capabilities-check.sh"
 
 echo
-echo "9. Local event export contract"
+echo "9. Settings sync conflict contract"
+"$(dirname "$0")/settings-sync-check.sh"
+
+echo
+echo "10. Local event export contract"
 "$(dirname "$0")/events-export-check.sh"
 
 echo
