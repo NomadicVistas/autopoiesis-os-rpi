@@ -6,4 +6,9 @@ Wants=network-online.target
 [Service]
 Type=oneshot
 User=root
+Environment=AUTOPOIESIS_APP_DIR=/opt/autopoiesis-os/app
+Environment=AUTOPOIESIS_INSTALL_DIR=/opt/autopoiesis-os
+Environment=AUTOPOIESIS_DATA_DIR=/var/lib/autopoiesis-os
+Environment=AUTOPOIESIS_LOG_DIR=/var/log/autopoiesis-os
+Environment=AUTOPOIESIS_USER=frame
 ExecStart=/opt/autopoiesis-os/app/scripts/update-from-github.sh

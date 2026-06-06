@@ -30,7 +30,12 @@ ln -sfn "$INSTALL_DIR/current" "$INSTALL_DIR/app"
 
 "$INSTALL_DIR/app/scripts/bootstrap.sh"
 
-AUTOPOIESIS_APP_DIR="$INSTALL_DIR/app" "$INSTALL_DIR/app/scripts/install-systemd-units.sh"
+AUTOPOIESIS_APP_DIR="$INSTALL_DIR/app" \
+  AUTOPOIESIS_INSTALL_DIR="$INSTALL_DIR" \
+  AUTOPOIESIS_DATA_DIR="$DATA_DIR" \
+  AUTOPOIESIS_LOG_DIR="$LOG_DIR" \
+  AUTOPOIESIS_USER="$USER_NAME" \
+  "$INSTALL_DIR/app/scripts/install-systemd-units.sh"
 
 echo "Installed. Start now with:"
 echo "  sudo systemctl start autopoiesis-setup.service autopoiesis-kiosk.service"

@@ -7,4 +7,7 @@ Wants=network-online.target
 Type=oneshot
 User=frame
 Group=frame
+Environment=AUTOPOIESIS_DATA_DIR=/var/lib/autopoiesis-os
+Environment=AUTOPOIESIS_CACHE_DIR=/var/lib/autopoiesis-os/cache
+Environment=AUTOPOIESIS_LOG_DIR=/var/log/autopoiesis-os
 ExecStart=/opt/autopoiesis-os/app/scripts/cache-artworks.sh

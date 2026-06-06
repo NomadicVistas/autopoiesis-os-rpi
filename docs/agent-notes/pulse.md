@@ -504,3 +504,11 @@ Context: LEAD / INTEGRATION cron pass. Pairing sits early in the profile/databas
 What changed: Added `scripts/pairing-contract-check.sh` plus backend handoff docs for a read-only pairing contract bundle. The gate validates registration, user claim, final pairing status, bounded code TTL, durable device key handoff, owner/device consistency, settings handoff shape, and redaction boundaries.
 What needs review: The online backend should assemble a staging/CI bundle from durable `aos_frame_devices` and `aos_frame_pairing_codes` rows without running a destructive live claim.
 Next recommended action: Run the pairing contract checker against staging before treating physical Pi account pairing as rollout-ready.
+## 2026-06-06 - Systemd unit rendering gate
+
+Date/time: 2026-06-06 18:39 UTC / 2026-06-06 20:39 Europe/Berlin
+Agent: Pulse
+Context: RPI APPLIANCE cron pass. The installer exposed configurable install/data/log/user paths, but the checked-in service units still hard-coded the default `/opt/autopoiesis-os`, `/var/lib/autopoiesis-os`, `/var/log/autopoiesis-os`, `/home/frame`, and `frame` user layout.
+What changed: `scripts/install-systemd-units.sh` now renders service units into the systemd target from the configured paths and appliance user. Service units carry explicit runtime environment for data/log/cache/app paths, `install.sh` passes its selected values into the renderer, and `scripts/systemd-units-install-check.sh` proves the render path with a fake systemd directory and custom user/paths.
+What needs review: Physical Pi install/update should confirm the default rendered units still start healthy services and that `/etc/systemd/system/autopoiesis-*.service` contains the expected production paths.
+Next recommended action: Run full Milestone 2 after `sudo ./install.sh` or `sudo ./update.sh` on hardware, then inspect `systemctl cat autopoiesis-setup.service autopoiesis-kiosk.service`.

@@ -10,6 +10,7 @@ Group=frame
 Environment=DISPLAY=:0
 Environment=XAUTHORITY=/home/frame/.Xauthority
 Environment=AUTOPOIESIS_LAUNCH_URL=http://localhost:3030/launch
+Environment=AUTOPOIESIS_CHROMIUM_PROFILE=/var/lib/autopoiesis-os/chromium
 ExecStart=/opt/autopoiesis-os/app/scripts/start-kiosk.sh
 Restart=always
 RestartSec=5

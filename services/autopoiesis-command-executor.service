@@ -6,4 +6,5 @@ Wants=network-online.target
 [Service]
 Type=oneshot
 User=root
+Environment=AUTOPOIESIS_LOG_DIR=/var/log/autopoiesis-os
 ExecStart=/opt/autopoiesis-os/app/scripts/process-commands.sh

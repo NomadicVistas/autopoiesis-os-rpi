@@ -1,5 +1,46 @@
 # Progress
 
+## 2026-06-06 - Systemd unit rendering gate
+
+Date: 2026-06-06
+
+Milestone: RPI APPLIANCE - installer/systemd path fidelity
+
+Changed files:
+
+- `install.sh`
+- `services/autopoiesis-cache.service`
+- `services/autopoiesis-command-executor.service`
+- `services/autopoiesis-heartbeat.service`
+- `services/autopoiesis-kiosk.service`
+- `services/autopoiesis-setup.service`
+- `services/autopoiesis-updater.service`
+- `scripts/install-systemd-units.sh`
+- `scripts/systemd-units-install-check.sh`
+- `scripts/milestone2-verify.sh`
+- `README.md`
+- `docs/installation.md`
+- `docs/agent-notes/pulse.md`
+- `docs/progress.md`
+- `/data/.openclaw/workspace/autopoiesis-os-program/ROLLING-LOG.md`
+
+Implemented:
+
+- `scripts/install-systemd-units.sh` now renders service units into the target systemd directory using the configured app, install, data, log, appliance user, and user-home paths.
+- `install.sh` now passes its chosen install/data/log/user values into the systemd installer, so custom install roots do not leave services pointing at the default `/opt`, `/var/lib`, or `frame` layout.
+- Timer units are still copied directly, while service units have default path/user placeholders replaced at install/update time.
+- Service units now carry explicit runtime environment for data/log/cache/app paths where their scripts depend on those defaults.
+- Added `scripts/systemd-units-install-check.sh`, an isolated fake-systemd acceptance gate that renders units with custom paths/user and fails if default hard-coded paths or `frame` ownership survive.
+- Wired the gate into Milestone 2 verification after baseline service status checks.
+
+Verification:
+
+- `scripts/systemd-units-install-check.sh` passed.
+
+Next step:
+
+Run `sudo ./install.sh` or `sudo ./update.sh` on a physical Pi using the default layout, then inspect `/etc/systemd/system/autopoiesis-*.service` and run full Milestone 2 verification to confirm rendered units start the healthy installed services.
+
 ## 2026-06-06 - Broadcast command display gate
 
 Date: 2026-06-06

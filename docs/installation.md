@@ -18,6 +18,12 @@ The installer:
 - bootstraps initial JSON config
 - installs systemd services and timers
 
+The systemd installer renders service units from the active install
+configuration. If `AUTOPOIESIS_INSTALL_DIR`, `AUTOPOIESIS_DATA_DIR`,
+`AUTOPOIESIS_LOG_DIR`, `AUTOPOIESIS_USER`, or `AUTOPOIESIS_USER_HOME` are
+overridden, the installed units inherit those values instead of silently
+falling back to `/opt/autopoiesis-os`, `/var/lib/autopoiesis-os`, or `frame`.
+
 The preflight reports hard blockers such as missing root privileges for install
 mode, `rsync`, `curl`, `systemctl`, or Node.js older than 20. It warns, but
 does not stop, when Chromium or NetworkManager are missing so support can still
@@ -41,7 +47,17 @@ Milestone 2 physical Pi verification:
 sudo /opt/autopoiesis-os/app/scripts/milestone2-verify.sh
 ```
 
-This checks that the setup service is active, the kiosk service is active, the local launcher responds, runtime data/cache/log paths are writable, Chromium is running with the expected kiosk flags, Linux sees a touchscreen-class input device, NetworkManager reports device state, and both services restart cleanly.
+This checks that the setup service is active, the kiosk service is active, the
+systemd unit renderer preserves configured appliance paths/users, the local
+launcher responds, runtime data/cache/log paths are writable, Chromium is
+running with the expected kiosk flags, Linux sees a touchscreen-class input
+device, NetworkManager reports device state, and both services restart cleanly.
+
+Isolated systemd render verification:
+
+```bash
+/opt/autopoiesis-os/app/scripts/systemd-units-install-check.sh
+```
 
 LAN setup:
 

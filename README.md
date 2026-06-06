@@ -53,6 +53,7 @@ Milestone 2 is scaffolded for physical Pi validation. The local UI can:
 - validate a hosted pairing/register/claim/status contract before live account pairing is treated as rollout-ready
 - run an appliance preflight that checks root install mode, Node.js, rsync, curl, systemd, Chromium, NetworkManager, and whether the appliance user exists
 - create the appliance user during install/bootstrap before runtime directories are chowned
+- render systemd units during install/update from the configured app, data, log, user, and home paths instead of hard-coding the default appliance layout
 - keep rollback metadata and a pre-update app snapshot for release artifact installs
 - run a deliberate factory reset that clears identity, pairing, preferences, commands, feed/cache, and rollout state while preserving app code and logs
 - run a kiosk check that proves the Chromium launch command uses Pi-safe software rendering flags
@@ -115,6 +116,12 @@ Check appliance timer wiring for sync, command, cache, update, and watchdog loop
 
 ```bash
 ./scripts/systemd-timers-check.sh
+```
+
+Check that systemd unit installation honors custom appliance paths and users:
+
+```bash
+./scripts/systemd-units-install-check.sh
 ```
 
 Check system clock/NTP synchronization:
