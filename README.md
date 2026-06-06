@@ -47,7 +47,7 @@ Milestone 2 is scaffolded for physical Pi validation. The local UI can:
 - expose a metadata-only `/local/release/history` trail for local release check/apply outcomes
 - verify command-delivered broadcasts for targeting, scheduling, display-time delivery logs, dismissal, expiry, and acknowledgements
 - validate release manifests for channel/tag/artifact/checksum/rollback metadata before an update mutates app code
-- run the hosted contract suite for migration, schema, pairing, stream, online-admin, and release readiness before physical Pi testing
+- run the hosted contract suite for migration, schema, pairing, heartbeat, stream, online-admin, and release readiness before physical Pi testing
 - verify the unified local event export contract for backend/admin ingestion readiness
 - verify heartbeat event ingestion cursor acknowledgements, replay overlap, stale ack rejection, and diagnostics/support visibility
 - run a local security smoke test that checks device API key redaction and tracked secret hygiene
@@ -241,6 +241,15 @@ AUTOPOIESIS_PAIRING_CONTRACT_TOKEN="$TOKEN" ./scripts/pairing-contract-check.sh 
 
 The pairing contract check validates read-only staging evidence for `POST /api/frames/device/register`, `POST /api/frames/user/devices/pair`, and `GET /api/frames/device/{deviceId}/pairing-status`. It requires a bounded pairing-code TTL, a durable device credential in the registration response, a claimed owner/device relationship after user pairing, settings handoff shape, final paired status, and redaction of pairing hashes, user tokens, secrets, and local appliance paths. The optional adapter endpoint is for CI/staging evidence; it should not run a destructive live pairing flow.
 
+Validate the hosted heartbeat response before backend sync/admin evidence is treated as staging-ready:
+
+```bash
+./scripts/heartbeat-contract-check.sh /path/to/heartbeat-contract-bundle.json
+AUTOPOIESIS_HEARTBEAT_CONTRACT_REQUEST=/path/to/heartbeat-request.json AUTOPOIESIS_HEARTBEAT_CONTRACT_TOKEN="$TOKEN" ./scripts/heartbeat-contract-check.sh "https://autopoiesis.art/api/frames/device/frame-id/heartbeat"
+```
+
+The heartbeat contract check validates a saved response or a bundle with `request` and `response` sections for `POST /api/frames/device/{deviceId}/heartbeat`. It checks safe diagnostics, unified event export shape, event ingestion acknowledgements, optional authoritative settings, command authorization metadata, mixed-stream item hints, and redaction of device keys, pairing hashes, private tokens, secrets, and local appliance paths.
+
 Validate the durable `aos_` database schema before backend/admin/device integration work assumes rows exist:
 
 ```bash
@@ -265,13 +274,14 @@ Run the hosted staging contract suite before handing backend work to physical Pi
 AUTOPOIESIS_AOS_MIGRATION_CONTRACT_SOURCE=/path/to/migrations \
 AUTOPOIESIS_AOS_SCHEMA_CONTRACT_SOURCE=/path/to/schema-introspection.json \
 AUTOPOIESIS_PAIRING_CONTRACT_SOURCE=/path/to/pairing-contract-bundle.json \
+AUTOPOIESIS_HEARTBEAT_CONTRACT_SOURCE=/path/to/heartbeat-contract-bundle.json \
 AUTOPOIESIS_STREAM_CONTRACT_SOURCE=/path/to/stream-response.json \
 AUTOPOIESIS_ONLINE_ADMIN_CONTRACT_SOURCE=/path/to/online-admin-bundle.json \
 AUTOPOIESIS_RELEASE_MANIFEST_SOURCE=/path/to/release.json \
 ./scripts/hosted-contract-suite-check.sh --strict
 ```
 
-The suite runs the existing hosted gates in dependency order: migrations, final schema, pairing, stream, online admin, then release manifest. In non-strict mode it runs every provided source and fails only if a gate named in `AUTOPOIESIS_HOSTED_CONTRACT_REQUIRE` is missing. Individual token and strictness variables are passed through to the underlying checkers unchanged.
+The suite runs the existing hosted gates in dependency order: migrations, final schema, pairing, heartbeat, stream, online admin, then release manifest. In non-strict mode it runs every provided source and fails only if a gate named in `AUTOPOIESIS_HOSTED_CONTRACT_REQUIRE` is missing. Individual token and strictness variables are passed through to the underlying checkers unchanged.
 
 Validate a release manifest before a device applies it:
 

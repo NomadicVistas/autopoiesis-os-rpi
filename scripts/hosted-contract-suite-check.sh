@@ -15,10 +15,11 @@ Usage:
 
 Environment:
   AUTOPOIESIS_HOSTED_CONTRACT_REQUIRE       comma-separated required gates
-                                            migrations,schema,pairing,stream,online-admin,release
+                                            migrations,schema,pairing,heartbeat,stream,online-admin,release
   AUTOPOIESIS_AOS_MIGRATION_CONTRACT_SOURCE migration directory or manifest
   AUTOPOIESIS_AOS_SCHEMA_CONTRACT_SOURCE    schema JSON or SQLite database
   AUTOPOIESIS_PAIRING_CONTRACT_SOURCE       pairing lifecycle bundle file or URL
+  AUTOPOIESIS_HEARTBEAT_CONTRACT_SOURCE     heartbeat bundle/response file or URL
   AUTOPOIESIS_STREAM_CONTRACT_SOURCE        stream response file or URL
   AUTOPOIESIS_ONLINE_ADMIN_CONTRACT_SOURCE  Profile/Admin bundle file or URL
   AUTOPOIESIS_RELEASE_MANIFEST_SOURCE       release manifest file or URL
@@ -38,6 +39,7 @@ normalize_gate_name() {
     migration|migrations|aos-migration|aos_migration) echo "migrations" ;;
     schema|aos-schema|aos_schema) echo "schema" ;;
     pairing|pairing-contract|pairing_contract) echo "pairing" ;;
+    heartbeat|heartbeat-contract|heartbeat_contract|event-ingestion|event_ingestion) echo "heartbeat" ;;
     stream|stream-contract|stream_contract) echo "stream" ;;
     admin|online-admin|online_admin|online-admin-contract|online_admin_contract) echo "online-admin" ;;
     release|release-manifest|release_manifest) echo "release" ;;
@@ -47,7 +49,7 @@ normalize_gate_name() {
 
 required_gate_csv() {
   if [[ "$REQUIRE_ALL" == "1" ]]; then
-    echo "migrations,schema,pairing,stream,online-admin,release"
+    echo "migrations,schema,pairing,heartbeat,stream,online-admin,release"
   else
     echo "$REQUIRED_LIST"
   fi
@@ -121,6 +123,7 @@ done
 run_gate "migrations" "AUTOPOIESIS_AOS_MIGRATION_CONTRACT_SOURCE" "aos-migration-contract-check.sh" "AOS migration contract"
 run_gate "schema" "AUTOPOIESIS_AOS_SCHEMA_CONTRACT_SOURCE" "aos-schema-contract-check.sh" "AOS schema contract"
 run_gate "pairing" "AUTOPOIESIS_PAIRING_CONTRACT_SOURCE" "pairing-contract-check.sh" "Hosted pairing contract"
+run_gate "heartbeat" "AUTOPOIESIS_HEARTBEAT_CONTRACT_SOURCE" "heartbeat-contract-check.sh" "Hosted heartbeat contract"
 run_gate "stream" "AUTOPOIESIS_STREAM_CONTRACT_SOURCE" "stream-contract-check.sh" "Hosted stream contract"
 run_gate "online-admin" "AUTOPOIESIS_ONLINE_ADMIN_CONTRACT_SOURCE" "online-admin-contract-check.sh" "Hosted Profile/Admin contract"
 run_gate "release" "AUTOPOIESIS_RELEASE_MANIFEST_SOURCE" "release-manifest-check.sh" "Release manifest contract"

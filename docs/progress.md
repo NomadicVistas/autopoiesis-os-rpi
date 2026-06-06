@@ -1,5 +1,45 @@
 # Progress
 
+## 2026-06-06 - Hosted heartbeat contract gate
+
+Date: 2026-06-06
+
+Milestone: LEAD / INTEGRATION - heartbeat sync readiness
+
+Changed files:
+
+- `scripts/heartbeat-contract-check.sh`
+- `scripts/hosted-contract-suite-check.sh`
+- `README.md`
+- `docs/api-contract.md`
+- `docs/agent-notes/backend-heartbeat-contract-issue.md`
+- `docs/agent-notes/hosted-contract-suite-issue.md`
+- `docs/agent-notes/pulse.md`
+- `docs/progress.md`
+- `/data/.openclaw/workspace/autopoiesis-os-program/ROLLING-LOG.md`
+
+Implemented:
+
+- Added `scripts/heartbeat-contract-check.sh`, a saved-response, saved request/response bundle, or live-URL verifier for `POST /api/frames/device/{deviceId}/heartbeat`.
+- The checker validates safe heartbeat request diagnostics, unified event export shape, event ingestion acknowledgements, optional settings, remote command authorization metadata, optional mixed-stream items, and sensitive/local-only field redaction.
+- Wired the heartbeat gate into `scripts/hosted-contract-suite-check.sh`; strict hosted readiness now requires migration, schema, pairing, heartbeat, stream, online-admin, and release sources.
+- Added a backend handoff issue note for generating the heartbeat contract fixture from a paired staged device or durable seeded `aos_` rows.
+
+Verification:
+
+- `node --check local-ui/server.js` passed.
+- `bash -n install.sh update.sh uninstall-dev-tools.sh factory-reset.sh scripts/*.sh` passed.
+- `git diff --check` passed.
+- `scripts/heartbeat-contract-check.sh` passed against a representative heartbeat request/response fixture.
+- `scripts/heartbeat-contract-check.sh` rejected a heartbeat response without an event acknowledgement.
+- `scripts/hosted-contract-suite-check.sh` passed with a required heartbeat source.
+- `scripts/hosted-contract-suite-check.sh` rejected a missing required heartbeat source.
+- `scripts/security-smoke.sh` passed.
+
+Next step:
+
+Generate the heartbeat bundle from hosted staging after pairing, then run the expanded hosted suite with real migration/schema/pairing/heartbeat/stream/admin/release fixtures before physical Pi Milestone 2 validation.
+
 ## 2026-06-06 - Hosted contract suite gate
 
 Date: 2026-06-06

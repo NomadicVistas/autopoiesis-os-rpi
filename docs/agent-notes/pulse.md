@@ -1,5 +1,14 @@
 # Pulse Agent Notes
 
+## 2026-06-06 - Hosted heartbeat contract gate
+
+Date/time: 2026-06-06 20:15 UTC / 2026-06-06 22:15 Europe/Berlin
+Agent: Pulse
+Context: LEAD / INTEGRATION cron pass. The hosted suite covered migration/schema/pairing/stream/admin/release, but heartbeat is the sync path where settings, commands, event ingestion, broadcast delivery, and rollout evidence converge.
+What changed: Added `scripts/heartbeat-contract-check.sh` for saved heartbeat responses, saved request/response bundles, or live POST checks with a request fixture. Wired the checker into `scripts/hosted-contract-suite-check.sh` so strict hosted readiness now requires heartbeat/event-ingestion evidence.
+What needs review: Hosted CI should generate a heartbeat contract bundle from a paired staged device or a seeded fixture that includes exported events and an `eventsAck` response.
+Next recommended action: Run the expanded hosted suite against real migration/schema/pairing/heartbeat/stream/admin/release fixtures before physical Pi Milestone 2 validation.
+
 ## 2026-06-06 - Hosted contract suite gate
 
 Date/time: 2026-06-06 19:15 UTC / 2026-06-06 21:15 Europe/Berlin

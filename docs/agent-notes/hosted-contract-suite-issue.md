@@ -6,16 +6,17 @@ Wire `scripts/hosted-contract-suite-check.sh` into the hosted Frames staging or 
 
 ## Context
 
-The repo now has individual gates for migration plans, final `aos_` schema shape, pairing lifecycle evidence, stream responses, Profile/Admin Frames bundles, and release manifests. Running them one-by-one is easy to forget and makes backend handoff ambiguous.
+The repo now has individual gates for migration plans, final `aos_` schema shape, pairing lifecycle evidence, heartbeat/event-ingestion evidence, stream responses, Profile/Admin Frames bundles, and release manifests. Running them one-by-one is easy to forget and makes backend handoff ambiguous.
 
 The suite runner gives the hosted app one ordered contract pass:
 
 1. `scripts/aos-migration-contract-check.sh`
 2. `scripts/aos-schema-contract-check.sh`
 3. `scripts/pairing-contract-check.sh`
-4. `scripts/stream-contract-check.sh`
-5. `scripts/online-admin-contract-check.sh`
-6. `scripts/release-manifest-check.sh`
+4. `scripts/heartbeat-contract-check.sh`
+5. `scripts/stream-contract-check.sh`
+6. `scripts/online-admin-contract-check.sh`
+7. `scripts/release-manifest-check.sh`
 
 ## Acceptance
 
@@ -27,4 +28,5 @@ The suite runner gives the hosted app one ordered contract pass:
 ## Open Questions
 
 - Which hosted CI job will own generating the pairing and online-admin contract bundles from real auth/session data?
+- Should the heartbeat bundle be generated from the same staged device used for pairing acceptance, or from a durable fixture seeded directly into `aos_device_events` and command queue rows?
 - Should release manifest validation run against the GitHub release adapter, the Frames API release endpoint, or both before the first production tag?

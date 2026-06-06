@@ -311,6 +311,7 @@ Unified device event export:
 - Heartbeats include the same shape under `events`, bounded by `AUTOPOIESIS_HEARTBEAT_EVENT_LIMIT` (default 10 per source), so the backend can persist durable `aos_` command audit, broadcast delivery, and release rollout rows without scraping Pi log files.
 - Heartbeats also include `eventIngestionCursor` when a previous backend acknowledgement exists. This tells the API what event pointer the device believes was last accepted and which replay window it used for the current heartbeat.
 - A heartbeat response may include `eventsAck`, `eventAck`, `deviceEventsAck`, or `eventIngestionCursor` with `status`, `acceptedAt`, `acceptedThroughObservedAt`, `acceptedThroughEventKey`, optional `sourceCursors`, and optional `counts`. The Pi persists that redacted acknowledgement in `event-cursor.json`, reports it in diagnostics/support bundles, and uses `acceptedThroughObservedAt` minus a small overlap window as the next heartbeat's `since` cursor.
+- `scripts/heartbeat-contract-check.sh` validates a saved heartbeat response or a bundle with `request` and `response` sections before backend staging is treated as sync-ready. It checks request diagnostics/event export shape, response event acknowledgements, optional authoritative settings, remote command authorization metadata, mixed-stream item hints, and redaction of device keys, pairing-code hashes, private tokens, secrets, and local appliance paths.
 - `scripts/events-ingestion-check.sh` validates the device side of this contract against a mock Frames API: first heartbeat exports all local event sources, accepted acks persist a redacted cursor, the next heartbeat uses the replay overlap, stale acks are rejected, and diagnostics/support surfaces keep the retained cursor visible.
 - The online Frames backend accepts heartbeat `events`, stores them idempotently in `aos_device_events` by `deviceId + eventKey`, returns `eventsAck`, and projects recognized event sources into existing `aos_admin_command_audits`, `aos_broadcast_deliveries`, and `aos_release_rollouts` rows.
 - Every exported event includes a stable `source`, `eventKey`, and `observedAt` when available. Backend ingestion should treat `deviceId + eventKey` as idempotent.
@@ -334,9 +335,9 @@ Durable migration gate:
 
 Hosted integration suite:
 
-- `scripts/hosted-contract-suite-check.sh` runs the hosted migration, schema, pairing, stream, online-admin, and release gates in dependency order.
+- `scripts/hosted-contract-suite-check.sh` runs the hosted migration, schema, pairing, heartbeat, stream, online-admin, and release gates in dependency order.
 - Use `--strict` for staging or CI jobs that must provide every source before physical Pi acceptance.
-- Use `AUTOPOIESIS_HOSTED_CONTRACT_REQUIRE=migrations,schema,pairing,stream,online-admin,release` when a partial job should require only selected gates while still running any other provided sources.
+- Use `AUTOPOIESIS_HOSTED_CONTRACT_REQUIRE=migrations,schema,pairing,heartbeat,stream,online-admin,release` when a partial job should require only selected gates while still running any other provided sources.
 - The suite does not invent or fetch endpoints by itself; CI/staging should pass saved fixtures or live URLs through the existing `AUTOPOIESIS_*_SOURCE` variables.
 
 Release manifest validation:
