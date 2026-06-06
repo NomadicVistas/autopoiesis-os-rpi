@@ -431,3 +431,12 @@ Context: LEAD / INTEGRATION cron pass. Rollout acceptance and support bundles we
 What changed: Added `scripts/rollout-issue-report.sh` to collect redacted rollout acceptance plus support-bundle evidence and emit a GitHub-style Markdown report with blockers, warnings, support evidence, and reproduction commands.
 What needs review: Run the script on the physical Pi after live pairing/feed/cache cycles; confirm the report gives enough context for a GitHub issue without leaking device keys or local paths.
 Next recommended action: Use the report whenever staged or production rollout acceptance blocks, then attach the support bundle and hardware-specific evidence if the failure is physical-device-specific.
+
+## 2026-06-06 - Command acknowledgement retry gate
+
+Date/time: 2026-06-06 14:49 UTC / 2026-06-06 16:49 Europe/Berlin
+Agent: Pulse
+Context: API / DATABASE / SYNC cron pass. Device command retry behavior was documented, but Milestone 2 did not yet prove the acknowledgement edge cases that backend `aos_` command rows must tolerate.
+What changed: Added `scripts/command-ack-retry-check.sh`, wired it into Milestone 2, and tightened final-ack audit status so successful local execution with a failed `completed` acknowledgement is immediately visible as `ack_failed`.
+What needs review: Backend command acknowledgement handlers should be idempotent for repeated final `completed`/`error` statuses and should expose last ack failure/timestamp in Admin > Frames.
+Next recommended action: Add the same command ack retry cases to hosted backend tests once durable command rows are isolated from the dirty main gallery checkout.

@@ -161,6 +161,12 @@ Generate and validate the redacted Admin/Profile device snapshot shape:
 AUTOPOIESIS_REQUIRE_DEVICE_ADMIN_READY=1 ./scripts/admin-device-snapshot-check.sh
 ```
 
+Check command acknowledgement retry behavior against a mock Frames API:
+
+```bash
+./scripts/command-ack-retry-check.sh
+```
+
 Check the unified command/delivery/release event export contract:
 
 ```bash

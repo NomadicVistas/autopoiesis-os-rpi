@@ -4184,33 +4184,40 @@ async function processCommands() {
           error: result.error || "Command failed",
           policy: result.policy || null
         };
+        let finalAckError = null;
         try {
           await ackCommand(device.deviceId, commandId, "error", finalAck);
         } catch (error) {
           const message = error.stderr || error.message;
+          finalAckError = message;
           appendLog("commands-error.log", commandId + " final error ack failed " + message);
           retained.push(commandForStorage(normalizedCommand, ackRetry(normalizedCommand, "final", "error", finalAck, message)));
         }
         appendCommandAudit({
           ...auditBase,
-          status: "error",
+          status: finalAckError ? "ack_failed" : "error",
           startedAt,
           completedAt: new Date().toISOString(),
-          error: result.error || "Command failed"
+          error: finalAckError
+            ? "Final error acknowledgement failed: " + finalAckError
+            : result.error || "Command failed"
         });
       } else {
+        let finalAckError = null;
         try {
           await ackCommand(device.deviceId, commandId, "completed");
         } catch (error) {
           const message = error.stderr || error.message;
+          finalAckError = message;
           appendLog("commands-error.log", commandId + " final completed ack failed " + message);
           retained.push(commandForStorage(normalizedCommand, ackRetry(normalizedCommand, "final", "completed", {}, message)));
         }
         appendCommandAudit({
           ...auditBase,
-          status: "completed",
+          status: finalAckError ? "ack_failed" : "completed",
           startedAt,
-          completedAt: new Date().toISOString()
+          completedAt: new Date().toISOString(),
+          error: finalAckError ? "Final completed acknowledgement failed: " + finalAckError : undefined
         });
       }
       results.push({ commandId, commandType, result });

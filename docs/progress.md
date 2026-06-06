@@ -1,5 +1,41 @@
 # Progress
 
+## 2026-06-06 - Command acknowledgement retry gate
+
+Date: 2026-06-06
+
+Milestone: API / DATABASE / SYNC - command acknowledgement idempotency
+
+Changed files:
+
+- `local-ui/server.js`
+- `scripts/command-ack-retry-check.sh`
+- `scripts/milestone2-verify.sh`
+- `README.md`
+- `docs/api-contract.md`
+- `docs/progress.md`
+- `docs/agent-notes/pulse.md`
+- `/data/.openclaw/workspace/autopoiesis-os-program/ROLLING-LOG.md`
+
+Implemented:
+
+- Tightened command audit status for successful local executions whose final `completed` acknowledgement cannot be delivered; those now surface immediately as `ack_failed` instead of looking cleanly completed.
+- Added `scripts/command-ack-retry-check.sh`, an isolated local UI + mock Frames API gate for command acknowledgement retry behavior.
+- The gate verifies initial acknowledgement failures retain commands before execution, successful initial ack retry then executes once, final acknowledgement failures retain final-only retry metadata and count as audit errors, final ack retry success does not re-execute the command, and repeated final ack retry failure records `ack_retry_failed`.
+- Wired the gate into Milestone 2 verification before settings sync and event ingestion checks.
+
+Verification:
+
+- `node --check local-ui/server.js` passed.
+- `bash -n install.sh update.sh uninstall-dev-tools.sh factory-reset.sh scripts/*.sh` passed.
+- `git diff --check` passed.
+- `scripts/command-ack-retry-check.sh` passed.
+- `scripts/security-smoke.sh` passed.
+
+Next step:
+
+Mirror this idempotency contract in durable backend `aos_` command rows: repeated `completed`/`error` acknowledgements should be harmless, and last ack failure/timestamp should be visible in Admin > Frames support data.
+
 ## 2026-06-06 - System clock diagnostics gate
 
 Date: 2026-06-06
