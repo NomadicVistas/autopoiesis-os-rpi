@@ -1,5 +1,40 @@
 # Progress
 
+## 2026-06-06 - Installer preflight and appliance user bootstrap
+
+Date: 2026-06-06
+
+Milestone: MVP 1.0 - Production installer foundation
+
+Changed files:
+
+- `install.sh`
+- `scripts/bootstrap.sh`
+- `scripts/ensure-appliance-user.sh`
+- `scripts/preflight.sh`
+- `README.md`
+- `docs/installation.md`
+- `docs/agent-notes/pulse.md`
+- `/data/.openclaw/workspace/autopoiesis-os-program/ROLLING-LOG.md`
+
+Implemented:
+
+- Added a reusable appliance user bootstrap helper so fresh installs and later bootstrap/update paths create the configured frame user before any runtime directory chown.
+- Added `scripts/preflight.sh --install` to report hard installer blockers for root mode, rsync, curl, systemd, and Node.js 20+, plus warnings for non-Pi development hosts, missing Chromium, missing NetworkManager, and user creation.
+- Wired the preflight and user helper into `install.sh`, and the user helper into `scripts/bootstrap.sh`.
+
+Verification:
+
+- `node --check local-ui/server.js` passed.
+- `bash -n install.sh update.sh uninstall-dev-tools.sh factory-reset.sh scripts/*.sh` passed.
+- `git diff --check` passed.
+- Local preflight smoke correctly failed on this development host because `rsync` is missing.
+- PATH-stubbed local preflight smoke passed and reported only expected non-Pi/missing-NetworkManager warnings.
+
+Next step:
+
+Run `sudo ./install.sh` on a clean Raspberry Pi OS image where the `frame` user does not yet exist, then confirm the user is created with display/input groups and Milestone 2 verification still passes.
+
 ## 2026-06-04
 
 Date: 2026-06-04

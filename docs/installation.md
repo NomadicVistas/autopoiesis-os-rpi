@@ -3,18 +3,25 @@
 Run from a checkout:
 
 ```bash
+sudo ./scripts/preflight.sh --install
 sudo ./install.sh
 ```
 
 The installer:
 
 - creates `/opt/autopoiesis-os`
+- creates the appliance user if it does not already exist
 - creates `/var/lib/autopoiesis-os`
 - creates `/var/log/autopoiesis-os`
 - copies this repo into `/opt/autopoiesis-os/current`
 - links `/opt/autopoiesis-os/app`
 - bootstraps initial JSON config
 - installs systemd services and timers
+
+The preflight reports hard blockers such as missing root privileges for install
+mode, `rsync`, `curl`, `systemctl`, or Node.js older than 20. It warns, but
+does not stop, when Chromium or NetworkManager are missing so support can still
+prepare an image and see exactly why kiosk or Wi-Fi setup will be limited.
 
 Start services:
 

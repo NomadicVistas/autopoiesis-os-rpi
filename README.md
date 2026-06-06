@@ -34,6 +34,8 @@ Milestone 2 is scaffolded for physical Pi validation. The local UI can:
 - expose `/local/events/export` so backend/admin adapters can ingest command, delivery, and release lifecycle evidence through one redacted contract
 - expose a metadata-only `/local/release/history` trail for local release check/apply outcomes
 - run a local security smoke test that checks device API key redaction and tracked secret hygiene
+- run an appliance preflight that checks root install mode, Node.js, rsync, curl, systemd, Chromium, NetworkManager, and whether the appliance user exists
+- create the appliance user during install/bootstrap before runtime directories are chowned
 - run a kiosk check that proves the Chromium launch command uses Pi-safe software rendering flags
 - run a local watchdog timer that restarts setup/kiosk services only when liveness checks fail
 - reinstall and enable systemd units during install/update so new timers reach existing devices
@@ -44,6 +46,7 @@ Milestone 2 is scaffolded for physical Pi validation. The local UI can:
 From this repo:
 
 ```bash
+sudo ./scripts/preflight.sh --install
 sudo ./install.sh
 sudo systemctl start autopoiesis-setup.service autopoiesis-kiosk.service
 sudo /opt/autopoiesis-os/app/scripts/milestone2-verify.sh

@@ -8,6 +8,8 @@ INSTALL_DIR="${AUTOPOIESIS_INSTALL_DIR:-/opt/autopoiesis-os}"
 USER_NAME="${AUTOPOIESIS_USER:-frame}"
 VERSION="$(tr -d '\n' < "$APP_DIR/VERSION")"
 
+"$APP_DIR/scripts/ensure-appliance-user.sh"
+
 install -d -o "$USER_NAME" -g "$USER_NAME" "$DATA_DIR" "$LOG_DIR"
 install -d -o "$USER_NAME" -g "$USER_NAME" "$INSTALL_DIR/cache/artworks" "$INSTALL_DIR/cache/metadata" "$INSTALL_DIR/cache/fallback"
 

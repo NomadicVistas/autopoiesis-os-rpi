@@ -14,6 +14,9 @@ fi
 
 echo "Installing Autopoiesis OS appliance layer..."
 
+"$REPO_DIR/scripts/preflight.sh" --install
+"$REPO_DIR/scripts/ensure-appliance-user.sh"
+
 install -d -o "$USER_NAME" -g "$USER_NAME" "$INSTALL_DIR" "$INSTALL_DIR/releases" "$DATA_DIR" "$LOG_DIR"
 install -d -o "$USER_NAME" -g "$USER_NAME" "$INSTALL_DIR/cache/artworks" "$INSTALL_DIR/cache/metadata" "$INSTALL_DIR/cache/fallback"
 

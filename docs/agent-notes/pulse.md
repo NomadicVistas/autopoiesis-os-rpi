@@ -1,5 +1,14 @@
 # Pulse Agent Notes
 
+## 2026-06-06 - Installer preflight and appliance user bootstrap
+
+Date/time: 2026-06-06 04:35 UTC / 2026-06-06 06:35 Europe/Berlin
+Agent: Pulse
+Context: RPI APPLIANCE cron pass. The one-command install path still assumed the `frame` user already existed before the installer created owned runtime directories.
+What changed: Added `scripts/ensure-appliance-user.sh`, added `scripts/preflight.sh --install`, called both from `install.sh`, and called the user helper from `scripts/bootstrap.sh` so update/bootstrap paths keep the same invariant.
+What needs review: Validate on a clean Raspberry Pi OS image without a pre-created `frame` user. Confirm the created user has enough display/input access for the graphical kiosk session on that image.
+Next recommended action: If clean-image validation passes, decide whether the installer should also install missing packages automatically or continue to fail/report prerequisites explicitly.
+
 ## 2026-06-05
 
 Date/time: 2026-06-05 08:10 UTC
