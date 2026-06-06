@@ -195,6 +195,30 @@ User-level defaults synced to all frames unless overridden.
 - metadata
 - createdAt
 
+### DeviceEvent
+
+Durable online mirror of the redacted Pi event export.
+
+- deviceId
+- eventKey
+- source
+- eventType
+- status
+- observedAt
+- eventJson
+- ingestedAt
+- updatedAt
+
+Constraint:
+
+- unique(deviceId, eventKey)
+
+Projection:
+
+- `command_audit` events update matching DeviceCommand and AdminCommandAudit rows when `commandId` is present.
+- `display_delivery` broadcast lifecycle events update or create BroadcastDelivery rows.
+- `release_history` events update or create ReleaseRollout rows when `releaseId` and target version are present.
+
 ### SoftwareRelease
 
 - id
@@ -213,4 +237,3 @@ User-level defaults synced to all frames unless overridden.
 - server remains final source of truth.
 - offline local changes queue until connection returns.
 - remote admin commands override local state where safety requires it.
-

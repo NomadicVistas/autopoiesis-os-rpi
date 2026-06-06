@@ -276,3 +276,12 @@ Context: ONLINE ADMIN cron pass. The Pi now enforces remote command authorizatio
 What changed: Updated the main gallery backend Frames API to create `aos_admin_command_audits` rows before queueing authorized remote commands. Direct device commands, broadcast display commands, and release update commands now carry `payload.authorization` with approved actor/action/role/timestamp/audit metadata; command acknowledgements update the durable audit status. Admin device detail now returns recent command audit rows.
 What needs review: The main `autopoiesis` checkout is still too dirty for a clean scoped commit from this run, so the backend change is verified but uncommitted there. Review/stage only `app/backend/production.py` once that repo's unrelated backlog is under control.
 Next recommended action: Add backend heartbeat `events` ingestion into durable delivery/release/device-event rows using `deviceId + eventKey` idempotency, then wire Admin > Frames to render those rows.
+
+## 2026-06-06 - Backend heartbeat event ingestion
+
+Date/time: 2026-06-06 07:15 UTC / 2026-06-06 09:15 Europe/Berlin
+Agent: Pulse
+Context: LEAD / INTEGRATION cron pass. The Pi already exported a redacted unified event stream and persisted backend acknowledgements, but the online Frames API still needed to accept those events and return the cursor ack.
+What changed: Added backend `aos_device_events` ingestion in the main gallery Frames API, keyed by `device_id + event_key`. Heartbeats now return `eventsAck`; command audit, broadcast delivery, and release history events project into existing durable admin/delivery/rollout rows; Admin device detail returns recent `deviceEvents`.
+What needs review: The backend code lives in the dirty main `autopoiesis` repo and remains uncommitted there. Review/stage `app/backend/production.py` only after separating it from the repo's unrelated backlog.
+Next recommended action: Add Admin > Frames UI rendering for `deviceEvents` and projected rollout/delivery state, then deploy the backend patch when the main checkout is commit-safe.

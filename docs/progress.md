@@ -1,5 +1,41 @@
 # Progress
 
+## 2026-06-06 - Backend heartbeat event ingestion
+
+Date: 2026-06-06
+
+Milestone: LEAD / integration - durable event ingestion
+
+Changed files:
+
+- `/data/.openclaw/workspace/autopoiesis/app/backend/production.py`
+- `docs/api-contract.md`
+- `docs/database-schema.md`
+- `docs/admin-system.md`
+- `docs/progress.md`
+- `docs/agent-notes/pulse.md`
+- `/data/.openclaw/workspace/autopoiesis-os-program/ROLLING-LOG.md`
+
+Implemented:
+
+- Added backend `aos_device_events` persistence for redacted heartbeat event exports, keyed idempotently by `device_id + event_key`.
+- Heartbeat responses now return `eventsAck` with accepted event pointers, source cursors, and ingestion counts so Pi devices can advance their local replay cursor safely.
+- Backend ingestion projects recognized events into existing durable rows: command audit events update command/audit status, broadcast display lifecycle events update delivery rows, and release history events update rollout rows.
+- Admin device detail now returns recent ingested `deviceEvents` for support/UI consumption.
+
+Verification:
+
+- `python3 -m py_compile app/backend/production.py` passed in the main gallery repo.
+- Focused Flask test-client smoke with a temporary SQLite DB passed for event insertion, device-key redaction, `eventsAck`, command audit projection, broadcast delivery projection, release rollout projection, and Admin device detail `deviceEvents`.
+- `node --check local-ui/server.js` passed.
+- `bash -n install.sh update.sh uninstall-dev-tools.sh factory-reset.sh scripts/*.sh` passed.
+- `git diff --check` passed in the RPi repo.
+- `scripts/security-smoke.sh` passed.
+
+Next step:
+
+Wire Admin > Frames to render ingested `deviceEvents` and the projected delivery/release state, then decide whether production deploy should include this backend patch after the main `autopoiesis` worktree is cleaned enough for a scoped commit.
+
 ## 2026-06-06 - Heartbeat event ingestion cursor
 
 Date: 2026-06-06
