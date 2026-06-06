@@ -47,6 +47,9 @@ if [[ -z "$ARTIFACT_URL" ]]; then
   git -C "$APP_DIR" fetch origin main
   git -C "$APP_DIR" pull --ff-only origin main
   "$APP_DIR/scripts/bootstrap.sh"
+  if [[ "$(id -u)" -eq 0 ]]; then
+    "$APP_DIR/scripts/install-systemd-units.sh"
+  fi
   if command -v systemctl >/dev/null 2>&1; then
     systemctl restart autopoiesis-kiosk.service || true
   fi
@@ -74,6 +77,9 @@ fi
 
 rsync -a --delete --exclude '.git' "$PAYLOAD_DIR/" "$APP_DIR/"
 "$APP_DIR/scripts/bootstrap.sh"
+if [[ "$(id -u)" -eq 0 ]]; then
+  "$APP_DIR/scripts/install-systemd-units.sh"
+fi
 
 if command -v systemctl >/dev/null 2>&1; then
   systemctl restart autopoiesis-kiosk.service || true

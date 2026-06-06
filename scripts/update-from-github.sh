@@ -18,5 +18,8 @@ fi
 
 git pull --ff-only origin main
 "$APP_DIR/scripts/bootstrap.sh"
+if [[ "$(id -u)" -eq 0 ]]; then
+  "$APP_DIR/scripts/install-systemd-units.sh"
+fi
 systemctl restart autopoiesis-setup.service autopoiesis-kiosk.service
 echo "$(date -Is) updater: updated to $(git rev-parse --short HEAD)" >> "$LOG_DIR/update.log"

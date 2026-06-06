@@ -18,6 +18,8 @@ systemctl is-active --quiet autopoiesis-setup.service
 echo "   autopoiesis-setup.service active"
 systemctl is-active --quiet autopoiesis-kiosk.service
 echo "   autopoiesis-kiosk.service active"
+systemctl is-enabled --quiet autopoiesis-watchdog.timer
+echo "   autopoiesis-watchdog.timer enabled"
 
 echo
 echo "2. Local launcher HTTP"
@@ -44,6 +46,9 @@ else
 fi
 
 AUTOPOIESIS_REQUIRE_KIOSK_PROCESS=1 "$(dirname "$0")/kiosk-check.sh"
+echo
+echo "4b. Appliance watchdog"
+"$(dirname "$0")/watchdog.sh"
 
 echo
 echo "5. Restart behavior"

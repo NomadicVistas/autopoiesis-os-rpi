@@ -27,16 +27,7 @@ ln -sfn "$INSTALL_DIR/current" "$INSTALL_DIR/app"
 
 "$INSTALL_DIR/app/scripts/bootstrap.sh"
 
-install -m 0644 "$INSTALL_DIR/app/services/"*.service /etc/systemd/system/
-install -m 0644 "$INSTALL_DIR/app/timers/"*.timer /etc/systemd/system/
-
-systemctl daemon-reload
-systemctl enable autopoiesis-setup.service
-systemctl enable autopoiesis-kiosk.service
-systemctl enable autopoiesis-heartbeat.timer
-systemctl enable autopoiesis-command-executor.timer
-systemctl enable autopoiesis-updater.timer
-systemctl enable autopoiesis-cache.timer
+AUTOPOIESIS_APP_DIR="$INSTALL_DIR/app" "$INSTALL_DIR/app/scripts/install-systemd-units.sh"
 
 echo "Installed. Start now with:"
 echo "  sudo systemctl start autopoiesis-setup.service autopoiesis-kiosk.service"

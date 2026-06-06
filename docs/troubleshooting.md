@@ -14,6 +14,18 @@ systemctl status autopoiesis-kiosk.service
 journalctl -u autopoiesis-kiosk.service -n 100 --no-pager
 ```
 
+The appliance watchdog runs every two minutes after boot. It checks the local
+health route, the local launch route, and the running Chromium kiosk command. It
+restarts `autopoiesis-setup.service` only when local HTTP routes stop responding,
+and restarts `autopoiesis-kiosk.service` only when the kiosk process or launch
+flags fail validation.
+
+```bash
+systemctl status autopoiesis-watchdog.timer
+journalctl -u autopoiesis-watchdog.service -n 120 --no-pager
+sudo /opt/autopoiesis-os/app/scripts/watchdog.sh
+```
+
 If the screen is blank and the journal shows `GLES3 is unsupported`,
 `CreateGLContext failed`, or `CollectGraphicsInfo failed`, update to the latest
 kiosk launcher and restart the service. Pi 3 class devices default to Chromium

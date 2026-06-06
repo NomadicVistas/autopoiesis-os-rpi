@@ -161,3 +161,12 @@ Context: BROADCAST / FEED cron pass. The Pi could show broadcasts and sync feed 
 What changed: Added bounded local `delivery-log.json` persistence plus redacted `GET /local/delivery-log`. Feed sync writes `feed_synced`; broadcast lifecycle writes `broadcast_shown`, `broadcast_dismissed`, and one-time `broadcast_expired`. Diagnostics, health, and support bundle now include compact display-delivery summaries.
 What needs review: Backend/admin still needs durable `aos_` delivery rows and should decide whether heartbeat diagnostics, a future delivery-log POST, or support-bundle ingestion is the canonical persistence path.
 Next recommended action: Add backend delivery persistence and Admin > Frames delivery-state UI using these event names as the device-side source contract.
+
+## 2026-06-06 - Appliance watchdog timer
+
+Date/time: 2026-06-06 02:35 UTC / 2026-06-06 04:35 Europe/Berlin
+Agent: Pulse
+Context: RPI APPLIANCE cron pass. The repo had an `autopoiesis-watchdog.service`, but it only restarted the kiosk and was not enabled by the installer, so it was not a real production self-healing path.
+What changed: Added `scripts/watchdog.sh`, converted the watchdog service to run it, added `autopoiesis-watchdog.timer`, and folded the watchdog into Milestone 2 verification. Added `scripts/install-systemd-units.sh` so fresh installs and update paths copy changed units into `/etc/systemd/system`, enable newly added timers, and start timers immediately. The watchdog script restarts setup only when local HTTP routes are unreachable and restarts kiosk only when `kiosk-check.sh` says the process or launch flags are unhealthy.
+What needs review: Physical Pi validation should confirm the timer runs as root, can restart both services, and does not interrupt a healthy display session.
+Next recommended action: Run full `scripts/milestone2-verify.sh` on the target Pi after update, then inspect `journalctl -u autopoiesis-watchdog.service -n 120 --no-pager` for clean pass entries.

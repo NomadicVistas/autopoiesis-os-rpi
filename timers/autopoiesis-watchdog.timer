@@ -1,0 +1,11 @@
+[Unit]
+Description=Run Autopoiesis appliance watchdog frequently
+
+[Timer]
+OnBootSec=3min
+OnUnitActiveSec=2min
+AccuracySec=30s
+Unit=autopoiesis-watchdog.service
+
+[Install]
+WantedBy=timers.target

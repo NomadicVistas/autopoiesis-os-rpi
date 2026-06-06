@@ -1,7 +1,9 @@
 [Unit]
-Description=Autopoiesis kiosk watchdog
-After=graphical.target
+Description=Autopoiesis appliance watchdog
+After=autopoiesis-setup.service autopoiesis-kiosk.service
+Wants=autopoiesis-setup.service autopoiesis-kiosk.service
 
 [Service]
 Type=oneshot
-ExecStart=/bin/systemctl restart autopoiesis-kiosk.service
+User=root
+ExecStart=/opt/autopoiesis-os/app/scripts/watchdog.sh

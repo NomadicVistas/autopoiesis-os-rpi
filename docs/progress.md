@@ -851,3 +851,46 @@ Verification:
 Next step:
 
 Mirror these device-side delivery events into durable backend `aos_` delivery rows from heartbeat diagnostics/support-bundle ingestion, then surface broadcast delivery state in Admin > Frames.
+
+## 2026-06-06 - Appliance watchdog timer
+
+Date: 2026-06-06
+
+Milestone: RPi appliance runtime self-healing
+
+Changed files:
+
+- `scripts/watchdog.sh`
+- `scripts/install-systemd-units.sh`
+- `services/autopoiesis-watchdog.service`
+- `timers/autopoiesis-watchdog.timer`
+- `install.sh`
+- `scripts/update-from-github.sh`
+- `scripts/update-from-release.sh`
+- `scripts/milestone2-verify.sh`
+- `README.md`
+- `docs/troubleshooting.md`
+- `docs/agent-notes/pulse.md`
+- `/data/.openclaw/workspace/autopoiesis-os-program/ROLLING-LOG.md`
+
+Implemented:
+
+- Replaced the placeholder kiosk restart service with a real appliance watchdog script.
+- Added a systemd watchdog timer enabled by install.
+- Added a shared systemd unit installer used by fresh install and both update paths so changed services/timers are copied to `/etc/systemd/system` and newly added timers are enabled on upgraded devices.
+- Watchdog checks local health HTTP, local launch HTTP, and the kiosk process/flags through the existing kiosk check.
+- Setup restarts only when local routes are unreachable; kiosk restarts only when the kiosk check fails.
+- Milestone 2 verification now confirms the watchdog timer is enabled and runs the watchdog script.
+
+Verification:
+
+- `node --check local-ui/server.js` passed.
+- `bash -n install.sh update.sh uninstall-dev-tools.sh factory-reset.sh scripts/*.sh` passed.
+- `git diff --check` passed.
+- `scripts/security-smoke.sh` passed.
+- Local watchdog smoke passed with a temporary local UI, fake systemctl, and simulated Chromium kiosk process.
+- Systemd unit installer dry-run smoke passed against a temporary systemd directory with a fake systemctl.
+
+Next step:
+
+Run the updated `scripts/milestone2-verify.sh` on physical Pi hardware after install/update to confirm the watchdog timer can restart real systemd services without disrupting a healthy kiosk session.

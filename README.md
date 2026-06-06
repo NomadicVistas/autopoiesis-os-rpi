@@ -32,6 +32,8 @@ Milestone 2 is scaffolded for physical Pi validation. The local UI can:
 - expose a metadata-only `/local/commands/audit` trail for recent remote command attempts
 - run a local security smoke test that checks device API key redaction and tracked secret hygiene
 - run a kiosk check that proves the Chromium launch command uses Pi-safe software rendering flags
+- run a local watchdog timer that restarts setup/kiosk services only when liveness checks fail
+- reinstall and enable systemd units during install/update so new timers reach existing devices
 - verify setup, kiosk, HTTP, Chromium, network, and restart behavior on a Pi
 
 ## Install
@@ -68,6 +70,12 @@ Check the kiosk launch command and any running kiosk process:
 
 ```bash
 ./scripts/kiosk-check.sh
+```
+
+Run the same liveness checks used by the systemd watchdog:
+
+```bash
+sudo /opt/autopoiesis-os/app/scripts/watchdog.sh
 ```
 
 Check rollout readiness across the local integration phases:
