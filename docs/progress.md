@@ -1,5 +1,44 @@
 # Progress
 
+## 2026-06-07 - Release artifact copy fallback
+
+Date: 2026-06-07
+
+Milestone: RELEASE / ROLLOUT - artifact update and rollback resilience
+
+Changed files:
+
+- `scripts/update-from-release.sh`
+- `scripts/rollback-release.sh`
+- `scripts/release-app-tree-copy-check.sh`
+- `scripts/milestone2-verify.sh`
+- `README.md`
+- `docs/github-updates.md`
+- `docs/installation.md`
+- `docs/agent-notes/pulse.md`
+- `docs/progress.md`
+- `/data/.openclaw/workspace/autopoiesis-os-program/ROLLING-LOG.md`
+
+Implemented:
+
+- Reused the installer app-tree copy helper for artifact release snapshot creation, artifact payload installation, and snapshot rollback restore.
+- Preserved `rsync --delete` as the preferred copy method while allowing the tested `tar` fallback when `rsync` is absent on lean Raspberry Pi OS images.
+- Added an isolated release app-tree gate that applies a checksum-verified artifact release through the forced `tar` path, confirms development paths are excluded, then rolls back from the stored snapshot.
+- Wired the new gate into Milestone 2 beside the install app-tree copy check.
+
+Verification:
+
+- `scripts/release-app-tree-copy-check.sh` passed, including artifact apply and snapshot rollback with `AUTOPOIESIS_INSTALL_COPY_METHOD=tar`.
+- `node --check local-ui/server.js` passed.
+- `bash -n install.sh update.sh uninstall-dev-tools.sh factory-reset.sh scripts/*.sh` passed.
+- `git diff --check` passed.
+- `scripts/security-smoke.sh` passed.
+
+Next step:
+
+- Run a staged artifact release on the Pi 5 without preinstalling `rsync`, then run rollback and confirm pairing/config under `/var/lib/autopoiesis-os` survives the app-code revert.
+
+
 ## 2026-06-07 - Hosted suite dependency catalog single source
 
 Date: 2026-06-07

@@ -63,6 +63,7 @@ Milestone 2 is scaffolded for physical Pi validation. The local UI can:
 - render systemd units during install/update from the configured app, data, log, user, and home paths instead of hard-coding the default appliance layout
 - launch the setup/local UI from the configured or installed app path instead of assuming the default `/opt/autopoiesis-os` layout
 - keep rollback metadata and a pre-update app snapshot for release artifact installs
+- apply artifact releases and snapshot rollbacks through the same app-tree copy helper, preserving `rsync` when present and falling back to `tar` on lean Pi images
 - run a deliberate factory reset that clears identity, pairing, preferences, commands, feed/cache, and rollout state while preserving app code and logs
 - run a kiosk check that proves the Chromium launch command uses Pi-safe software rendering flags
 - run a hardware profile check that fails physical acceptance on underpowered Pi hardware while allowing x86_64 development hosts
@@ -512,6 +513,12 @@ Validate the support bundle contract used by hardware reports and Admin/Profile 
 Rollback the last release update on a device after a bad rollout:
 
     sudo /opt/autopoiesis-os/app/scripts/rollback-release.sh
+
+Validate artifact release copy and snapshot rollback behavior without mutating installed device state:
+
+```bash
+./scripts/release-app-tree-copy-check.sh
+```
 
 Preview and run a local factory reset on a device:
 

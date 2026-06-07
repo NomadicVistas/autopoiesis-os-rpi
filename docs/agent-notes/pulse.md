@@ -1,5 +1,15 @@
 # Pulse Agent Notes
 
+## 2026-06-07 - Release artifact copy fallback
+
+Date/time: 2026-06-07 18:00 UTC / 2026-06-07 20:00 Europe/Berlin
+Agent: Pulse
+Context: RELEASE / ROLLOUT cron pass. The one-command installer had a safe `tar` fallback, but artifact release apply and snapshot rollback still called `rsync` directly, so a lean Pi image could install cleanly and then fail during release rollout.
+What changed: `scripts/update-from-release.sh` and `scripts/rollback-release.sh` now reuse `scripts/install-app-tree.sh` for rollback snapshot creation, artifact payload install, and snapshot restore. Added `scripts/release-app-tree-copy-check.sh` and wired it into Milestone 2.
+What needs review: Physical Pi rollout should test a real artifact update and rollback on the Pi 5 without manually installing `rsync`.
+Next recommended action: Publish or stage a checksum-bearing release artifact, apply it on the Pi, run rollback, and confirm local identity/pairing/preferences remain intact under `/var/lib/autopoiesis-os`.
+
+
 ## 2026-06-07 - Hosted suite dependency catalog single source
 
 Date/time: 2026-06-07 17:23 UTC / 2026-06-07 19:23 Europe/Berlin

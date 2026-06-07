@@ -81,6 +81,11 @@ Release updates use the local `device.json` `updateChannel` as the default
 expected channel. A production or staged frame on `stable` will reject a `beta`,
 `dev`, or channel-less manifest before it writes rollback metadata or mutates
 app code. Override `AUTOPOIESIS_RELEASE_CHANNEL` only for an explicit test.
+Artifact release apply and snapshot rollback use the same app-tree copy helper
+as install, so `rsync` is preferred when available and a staged `tar` copy is
+used on lean images where `rsync` is absent. Run
+`/opt/autopoiesis-os/app/scripts/release-app-tree-copy-check.sh` before a
+physical staged rollout when validating a new image.
 
 Isolated systemd render verification:
 

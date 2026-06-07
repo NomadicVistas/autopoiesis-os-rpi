@@ -2,6 +2,7 @@
 set -euo pipefail
 
 APP_DIR="${AUTOPOIESIS_APP_DIR:-/opt/autopoiesis-os/app}"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 INSTALL_DIR="${AUTOPOIESIS_INSTALL_DIR:-/opt/autopoiesis-os}"
 DATA_DIR="${AUTOPOIESIS_DATA_DIR:-/var/lib/autopoiesis-os}"
 LOG_DIR="${AUTOPOIESIS_LOG_DIR:-/var/log/autopoiesis-os}"
@@ -25,6 +26,25 @@ fail() {
 read_rollback_field() {
   local field="$1"
   node -e "const fs=require('fs');const d=JSON.parse(fs.readFileSync(process.argv[1],'utf8'));process.stdout.write(String(d[process.argv[2]]||''));" "$ROLLBACK_FILE" "$field"
+}
+
+app_tree_owner() {
+  if [[ -n "${AUTOPOIESIS_USER:-}" ]]; then
+    printf '%s:%s' "$AUTOPOIESIS_USER" "${AUTOPOIESIS_GROUP:-$AUTOPOIESIS_USER}"
+    return
+  fi
+  if [[ -e "$APP_DIR" ]]; then
+    stat -c '%U:%G' "$APP_DIR" 2>/dev/null && return
+  fi
+  printf '%s:%s' "$(id -un)" "$(id -gn)"
+}
+
+restore_app_snapshot() {
+  local owner_group owner group
+  owner_group="$(app_tree_owner)"
+  owner="${owner_group%%:*}"
+  group="${owner_group#*:}"
+  "$SCRIPT_DIR/install-app-tree.sh" "$BACKUP_DIR" "$APP_DIR" "$owner" "$group"
 }
 
 append_release_event() {
@@ -98,7 +118,7 @@ if [[ -n "$PREVIOUS_REVISION" && -d "$APP_DIR/.git" ]]; then
   git -C "$APP_DIR" reset --hard "$PREVIOUS_REVISION"
   METHOD="git_reset"
 elif [[ -n "$BACKUP_DIR" && -d "$BACKUP_DIR" ]]; then
-  rsync -a --delete --exclude '.git' --exclude 'node_modules' "$BACKUP_DIR/" "$APP_DIR/"
+  restore_app_snapshot
   METHOD="snapshot_restore"
 else
   fail "no usable git revision or snapshot backup is available"
