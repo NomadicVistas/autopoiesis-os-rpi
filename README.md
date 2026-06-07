@@ -57,7 +57,8 @@ Milestone 2 is scaffolded for physical Pi validation. The local UI can:
 - run a production cleanup audit that fails on app-tree secrets, Git metadata, Codex/OpenClaw/OpenAI homes, shell-history secret hints, development caches, and SSH exposure
 - run an isolated factory reset contract check that proves identity, pairing, runtime, cache, support-history, dry-run, and service-restart behavior before a real reset touches device state
 - validate a hosted pairing/register/claim/status contract before live account pairing is treated as rollout-ready
-- run an appliance preflight that checks app-tree completeness, local UI syntax, root install mode, Node.js, rsync, curl, systemd, target volume free space, Chromium, NetworkManager, and whether the appliance user exists
+- run an appliance preflight that checks app-tree completeness, local UI syntax, root install mode, Node.js, an app-tree copy tool (`rsync` or `tar` fallback), curl, systemd, target volume free space, Chromium, NetworkManager, and whether the appliance user exists
+- copy the appliance app tree through an isolated installer helper that excludes Git metadata, logs, and `node_modules`, deletes stale installed files, and falls back to `tar` when `rsync` is unavailable
 - create the appliance user during install/bootstrap before runtime directories are chowned
 - render systemd units during install/update from the configured app, data, log, user, and home paths instead of hard-coding the default appliance layout
 - launch the setup/local UI from the configured or installed app path instead of assuming the default `/opt/autopoiesis-os` layout
@@ -154,6 +155,12 @@ Check that systemd unit installation honors custom appliance paths and users:
 
 ```bash
 ./scripts/systemd-units-install-check.sh
+```
+
+Check the installer app-tree copy path without root or hardware:
+
+```bash
+./scripts/install-app-tree-check.sh
 ```
 
 Check that the setup/local UI launcher honors custom appliance paths:

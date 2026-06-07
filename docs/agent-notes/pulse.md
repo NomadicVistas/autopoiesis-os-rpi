@@ -1,5 +1,14 @@
 # Pulse Agent Notes
 
+## 2026-06-07 - Installer app-tree copy fallback
+
+Date/time: 2026-06-07 17:01 UTC / 2026-06-07 19:01 Europe/Berlin
+Agent: Pulse
+Context: RPI APPLIANCE cron pass. The one-command installer still depended directly on `rsync`; when `rsync` was absent, preflight failed before the app tree could be installed even though a safe `tar` copy path is enough for fresh Raspberry Pi OS images.
+What changed: Moved app-tree copy into `scripts/install-app-tree.sh`, preserving `rsync --delete` when available and adding a `tar` fallback that stages a clean app tree, excludes Git metadata, logs, and `node_modules`, replaces stale installed files, and then lets install relink `/opt/autopoiesis-os/app`. Added `scripts/install-app-tree-check.sh` and wired it into Milestone 2.
+What needs review: Physical Pi install should still run the full preflight and installer from a release checkout. If production images omit both `rsync` and `tar`, preflight now reports that precise copy-tool blocker.
+Next recommended action: Run `sudo ./install.sh` on the Pi 5 without manually installing `rsync` first; if it uses the fallback, confirm `/opt/autopoiesis-os/current` contains app code but no `.git`, `logs/*`, or `node_modules`.
+
 ## 2026-06-07 - Hosted suite dependency readiness
 
 Date/time: 2026-06-07 16:18 UTC / 2026-06-07 18:18 Europe/Berlin

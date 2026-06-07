@@ -1,5 +1,45 @@
 # Progress
 
+## 2026-06-07 - Installer app-tree copy fallback
+
+Date: 2026-06-07
+
+Milestone: RPI APPLIANCE - one-command install resilience
+
+Changed files:
+
+- `install.sh`
+- `scripts/install-app-tree.sh`
+- `scripts/install-app-tree-check.sh`
+- `scripts/preflight.sh`
+- `scripts/milestone2-verify.sh`
+- `README.md`
+- `docs/installation.md`
+- `docs/agent-notes/pulse.md`
+- `docs/progress.md`
+- `/data/.openclaw/workspace/autopoiesis-os-program/ROLLING-LOG.md`
+
+Implemented:
+
+- Moved installer app-tree copying into a dedicated helper used by `install.sh`.
+- Preserved `rsync --delete` as the preferred copy method when `rsync` is available.
+- Added a `tar` fallback that stages a clean app tree, excludes Git metadata, logs, and `node_modules`, and replaces stale installed files.
+- Relaxed preflight from a hard `rsync` requirement to requiring either `rsync` or `tar`.
+- Added an isolated app-tree copy gate and wired it into Milestone 2 before systemd rendering checks.
+
+Verification:
+
+- `scripts/install-app-tree-check.sh` passed.
+- Preflight passed with `AUTOPOIESIS_PREFLIGHT_MIN_FREE_MB=0`, reporting the `tar` app-tree copy fallback in this environment where `rsync` is unavailable.
+- `node --check local-ui/server.js` passed.
+- `bash -n install.sh update.sh uninstall-dev-tools.sh factory-reset.sh scripts/*.sh` passed.
+- `git diff --check` passed.
+- `scripts/security-smoke.sh` passed.
+
+Next step:
+
+Run the one-command installer on the Raspberry Pi 5 from a clean checkout without preinstalling `rsync`; if the fallback path is used, inspect `/opt/autopoiesis-os/current` for excluded development paths before continuing physical Milestone 2.
+
 ## 2026-06-07 - Hosted suite dependency readiness
 
 Date: 2026-06-07

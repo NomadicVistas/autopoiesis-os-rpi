@@ -13,7 +13,8 @@ The installer:
 - creates the appliance user if it does not already exist
 - creates `/var/lib/autopoiesis-os`
 - creates `/var/log/autopoiesis-os`
-- copies this repo into `/opt/autopoiesis-os/current`
+- copies this repo into `/opt/autopoiesis-os/current`, excluding Git metadata,
+  logs, and `node_modules`
 - links `/opt/autopoiesis-os/app`
 - bootstraps initial JSON config
 - installs systemd services and timers
@@ -29,7 +30,8 @@ start a rendered service that immediately jumps back to the default path.
 
 The preflight reports hard blockers such as an incomplete appliance app tree,
 a `local-ui/server.js` syntax failure, missing root privileges for install
-mode, `rsync`, `curl`, `systemctl`, Node.js older than 20, or less than
+mode, no app-tree copy tool (`rsync` or `tar`), `curl`, `systemctl`,
+Node.js older than 20, or less than
 1024 MB free on the selected install, data, or log volumes. It warns, but does
 not stop, when Chromium or NetworkManager are missing so support can still
 prepare an image and see exactly why kiosk or Wi-Fi setup will be limited.
@@ -64,7 +66,8 @@ sudo /opt/autopoiesis-os/app/scripts/milestone2-verify.sh
 ```
 
 This checks that the setup service is active, the kiosk service is active, the
-systemd unit renderer preserves configured appliance paths/users, the local
+installer app-tree copy helper excludes development-only paths and deletes stale
+installed files, the systemd unit renderer preserves configured appliance paths/users, the local
 setup launcher honors the configured app path, the local launcher responds,
 runtime data/cache/log paths are writable, the heartbeat
 timer wrapper tolerates missing pre-pairing state and records local UI failures,
@@ -84,6 +87,12 @@ Isolated systemd render verification:
 ```bash
 /opt/autopoiesis-os/app/scripts/systemd-units-install-check.sh
 ```
+
+Isolated app-tree copy verification:
+
+~~~bash
+/opt/autopoiesis-os/app/scripts/install-app-tree-check.sh
+~~~
 
 Isolated setup launcher path verification:
 

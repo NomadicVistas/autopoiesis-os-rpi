@@ -32,6 +32,16 @@ require_command() {
   fi
 }
 
+require_copy_tool() {
+  if command -v rsync >/dev/null 2>&1; then
+    pass "rsync found for appliance app-tree copy"
+  elif command -v tar >/dev/null 2>&1; then
+    pass "tar found for appliance app-tree copy fallback"
+  else
+    fail "rsync or tar is required. Install rsync or tar before running the appliance installer."
+  fi
+}
+
 require_path() {
   local kind="$1"
   local relative_path="$2"
@@ -104,6 +114,8 @@ check_app_tree() {
     install.sh
     update.sh
     factory-reset.sh
+    scripts/install-app-tree.sh
+    scripts/install-app-tree-check.sh
     scripts/bootstrap.sh
     scripts/ensure-appliance-user.sh
     scripts/generate-device-id.sh
@@ -266,7 +278,7 @@ else
 fi
 
 require_command bash "Install bash."
-require_command rsync "Install rsync before running the appliance installer."
+require_copy_tool
 require_command curl "Install curl for local health checks, launch probing, and release downloads."
 require_command systemctl "Install or boot into a systemd-based Raspberry Pi OS image."
 check_node_version

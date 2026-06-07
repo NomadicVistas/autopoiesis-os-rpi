@@ -20,11 +20,7 @@ echo "Installing Autopoiesis OS appliance layer..."
 install -d -o "$USER_NAME" -g "$USER_NAME" "$INSTALL_DIR" "$INSTALL_DIR/releases" "$DATA_DIR" "$LOG_DIR"
 install -d -o "$USER_NAME" -g "$USER_NAME" "$INSTALL_DIR/cache/artworks" "$INSTALL_DIR/cache/metadata" "$INSTALL_DIR/cache/fallback"
 
-rsync -a --delete \
-  --exclude '.git' \
-  --exclude 'logs/*' \
-  --exclude 'node_modules' \
-  "$REPO_DIR/" "$INSTALL_DIR/current/"
+"$REPO_DIR/scripts/install-app-tree.sh" "$REPO_DIR" "$INSTALL_DIR/current" "$USER_NAME" "$USER_NAME"
 
 ln -sfn "$INSTALL_DIR/current" "$INSTALL_DIR/app"
 
