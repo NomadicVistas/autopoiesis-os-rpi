@@ -1,5 +1,14 @@
 # Pulse Agent Notes
 
+## 2026-06-07 - Mock hosted API + device lifecycle integration gate
+
+Date/time: 2026-06-07 18:30 UTC / 2026-06-07 20:30 Europe/Berlin
+Agent: Pulse
+Context: LEAD / INTEGRATION cron pass. The device-side local UI had comprehensive route handling and 16+ hosted contract checkers, but no end-to-end way to prove the full device lifecycle works against contract-compliant hosted responses.
+What changed: Added `scripts/mock-hosted-api/server.js` implementing all device-facing Frames API endpoints (registration, pairing, settings, heartbeat, stream, commands, release, likes) with in-memory state and test helpers. Added `scripts/device-lifecycle-check.sh` that walks 18 lifecycle steps from factory state through pairing, heartbeat, feed, commands, settings, release, diagnostics, and support bundle against the mock.
+What needs review: The mock API is intentionally minimal — it doesn't validate request schemas or enforce the full contract that the individual contract checkers cover. It should be used alongside hosted contract checks, not as a replacement.
+Next recommended action: Run the hosted contract suite with mock-served fixture URLs to prove device and hosted contract checkers agree, then wire the lifecycle gate into Milestone 2.
+
 ## 2026-06-07 - Release artifact copy fallback
 
 Date/time: 2026-06-07 18:00 UTC / 2026-06-07 20:00 Europe/Berlin

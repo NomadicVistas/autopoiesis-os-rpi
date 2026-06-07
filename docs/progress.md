@@ -1,5 +1,40 @@
 # Progress
 
+## 2026-06-07 - Mock hosted API + device lifecycle integration gate
+
+Date: 2026-06-07
+
+Milestone: LEAD / INTEGRATION - end-to-end device lifecycle testing
+
+Changed files:
+
+- `scripts/mock-hosted-api/server.js`
+- `scripts/device-lifecycle-check.sh`
+- `docs/agent-notes/pulse.md`
+- `docs/progress.md`
+- `/data/.openclaw/workspace/autopoiesis-os-program/ROLLING-LOG.md`
+
+Implemented:
+
+- Added `scripts/mock-hosted-api/server.js`, a minimal mock of the hosted Frames API that serves contract-compliant responses for all device-facing endpoints: registration, pairing status, settings read/write, heartbeat with event ingestion, content stream/feed, command queue + ack, release check, and artwork likes.
+- Added mock test helpers (`/mock/pair-device/:id`, `/mock/queue-command/:id`, `/mock/set-release/:id`, `/mock/state`) so the lifecycle gate can force state transitions without the real backend.
+- Added `scripts/device-lifecycle-check.sh`, an 18-step integration gate that starts both the mock API and local UI from a clean temp directory, then walks the full lifecycle: factory state → register → pair → settings push → heartbeat → feed sync → command queue/poll/process → release check → final state verification → diagnostics → support bundle.
+- Every step validates state at the transition point, proving all device-side routes compose correctly against contract-compliant hosted responses.
+
+Verification:
+
+- `scripts/device-lifecycle-check.sh` passed all 18 steps.
+- `node --check local-ui/server.js` passed.
+- `node --check scripts/mock-hosted-api/server.js` passed.
+- `bash -n install.sh update.sh uninstall-dev-tools.sh factory-reset.sh scripts/*.sh` passed.
+- `git diff --check` passed.
+- `scripts/security-smoke.sh` passed.
+
+Next step:
+
+- Evolve the mock API into hosted contract fixtures and run `scripts/hosted-contract-suite-check.sh` against mock-served responses to prove device contracts and hosted contracts agree.
+- Add the lifecycle gate to Milestone 2 verification alongside the existing contract checks.
+
 ## 2026-06-07 - Release artifact copy fallback
 
 Date: 2026-06-07
