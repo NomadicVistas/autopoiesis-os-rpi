@@ -137,7 +137,7 @@ Environment:
   AUTOPOIESIS_HOSTED_CONTRACT_BUNDLE        alias for AUTOPOIESIS_HOSTED_CONTRACT_MANIFEST
   AUTOPOIESIS_HOSTED_CONTRACT_MANIFEST_TOKEN optional bearer token for manifest URL fetches
   AUTOPOIESIS_HOSTED_CONTRACT_REQUIRE       comma-separated required gates
-                                            migrations,schema,pairing,device-auth,settings,profile-ownership,heartbeat,command-poll,command-ack,stream,cache,online-admin,broadcast,release,release-rollout
+                                            migrations,schema,pairing,device-auth,settings,profile-ownership,heartbeat,command-poll,command-ack,command-state,stream,cache,online-admin,broadcast,release,release-rollout
   AUTOPOIESIS_HOSTED_CONTRACT_REPORT        optional JSON report output path
   AUTOPOIESIS_AOS_MIGRATION_CONTRACT_SOURCE migration directory or manifest
   AUTOPOIESIS_AOS_SCHEMA_CONTRACT_SOURCE    schema JSON or SQLite database
@@ -148,6 +148,7 @@ Environment:
   AUTOPOIESIS_HEARTBEAT_CONTRACT_SOURCE     heartbeat bundle/response file or URL
   AUTOPOIESIS_COMMAND_POLL_CONTRACT_SOURCE  command polling lifecycle bundle file or URL
   AUTOPOIESIS_COMMAND_ACK_CONTRACT_SOURCE   command acknowledgement lifecycle bundle file or URL
+  AUTOPOIESIS_COMMAND_STATE_CONTRACT_SOURCE command outbox state bundle file or URL
   AUTOPOIESIS_STREAM_CONTRACT_SOURCE        stream response file or URL
   AUTOPOIESIS_CACHE_CONTRACT_SOURCE         cache/offline bundle file or URL
   AUTOPOIESIS_ONLINE_ADMIN_CONTRACT_SOURCE  Profile/Admin bundle file or URL
@@ -186,6 +187,7 @@ normalize_gate_name() {
     heartbeat|heartbeat-contract|heartbeat_contract|event-ingestion|event_ingestion) echo "heartbeat" ;;
     command-poll|command_poll|commands|command-queue|command_queue|poll|polling|command-poll-contract|command_poll_contract) echo "command-poll" ;;
     command-ack|command_ack|commands-ack|commands_ack|ack|acknowledgement|acknowledgment|command-ack-contract|command_ack_contract) echo "command-ack" ;;
+    command-state|command_state|commands-state|commands_state|command-lifecycle|command_lifecycle|outbox|command-outbox|command_outbox|command-state-contract|command_state_contract) echo "command-state" ;;
     stream|stream-contract|stream_contract) echo "stream" ;;
     cache|offline-cache|offline_cache|cache-contract|cache_contract) echo "cache" ;;
     admin|online-admin|online_admin|online-admin-contract|online_admin_contract) echo "online-admin" ;;
@@ -198,7 +200,7 @@ normalize_gate_name() {
 
 required_gate_csv() {
   if [[ "$REQUIRE_ALL" == "1" || "$MANIFEST_REQUIRE_ALL" == "1" ]]; then
-    echo "migrations,schema,pairing,device-auth,settings,profile-ownership,heartbeat,command-poll,command-ack,stream,cache,online-admin,broadcast,release,release-rollout"
+    echo "migrations,schema,pairing,device-auth,settings,profile-ownership,heartbeat,command-poll,command-ack,command-state,stream,cache,online-admin,broadcast,release,release-rollout"
   else
     local required_csv="$REQUIRED_LIST"
     if [[ -n "$MANIFEST_REQUIRED_LIST" ]]; then
@@ -343,6 +345,18 @@ function normalize(value) {
     case "command-ack-contract":
     case "command_ack_contract":
       return "command-ack";
+    case "command-state":
+    case "command_state":
+    case "commands-state":
+    case "commands_state":
+    case "command-lifecycle":
+    case "command_lifecycle":
+    case "outbox":
+    case "command-outbox":
+    case "command_outbox":
+    case "command-state-contract":
+    case "command_state_contract":
+      return "command-state";
     case "stream":
     case "stream-contract":
     case "stream_contract":
@@ -463,6 +477,7 @@ const allGates = new Set([
   "heartbeat",
   "command-poll",
   "command-ack",
+  "command-state",
   "stream",
   "cache",
   "online-admin",
@@ -532,6 +547,18 @@ function normalize(value) {
     case "command-ack-contract":
     case "command_ack_contract":
       return "command-ack";
+    case "command-state":
+    case "command_state":
+    case "commands-state":
+    case "commands_state":
+    case "command-lifecycle":
+    case "command_lifecycle":
+    case "outbox":
+    case "command-outbox":
+    case "command_outbox":
+    case "command-state-contract":
+    case "command_state_contract":
+      return "command-state";
     case "stream":
     case "stream-contract":
     case "stream_contract":
@@ -678,6 +705,7 @@ run_gate "profile-ownership" "AUTOPOIESIS_PROFILE_OWNERSHIP_CONTRACT_SOURCE" "pr
 run_gate "heartbeat" "AUTOPOIESIS_HEARTBEAT_CONTRACT_SOURCE" "heartbeat-contract-check.sh" "Hosted heartbeat contract"
 run_gate "command-poll" "AUTOPOIESIS_COMMAND_POLL_CONTRACT_SOURCE" "command-poll-contract-check.sh" "Hosted command polling contract"
 run_gate "command-ack" "AUTOPOIESIS_COMMAND_ACK_CONTRACT_SOURCE" "command-ack-contract-check.sh" "Hosted command acknowledgement contract"
+run_gate "command-state" "AUTOPOIESIS_COMMAND_STATE_CONTRACT_SOURCE" "command-state-contract-check.sh" "Hosted command state contract"
 run_gate "stream" "AUTOPOIESIS_STREAM_CONTRACT_SOURCE" "stream-contract-check.sh" "Hosted stream contract"
 run_gate "cache" "AUTOPOIESIS_CACHE_CONTRACT_SOURCE" "cache-contract-check.sh" "Hosted cache/offline contract"
 run_gate "online-admin" "AUTOPOIESIS_ONLINE_ADMIN_CONTRACT_SOURCE" "online-admin-contract-check.sh" "Hosted Profile/Admin contract"

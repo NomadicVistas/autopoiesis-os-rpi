@@ -48,7 +48,7 @@ Milestone 2 is scaffolded for physical Pi validation. The local UI can:
 - expose a metadata-only `/local/release/history` trail for local release check/apply outcomes
 - verify command-delivered broadcasts for targeting, scheduling, display-time delivery logs, dismissal, expiry, and acknowledgements
 - validate release manifests for channel/tag/artifact/checksum/rollback metadata before an update mutates app code
-- run the hosted contract suite for migration, schema, pairing, device-auth, settings conflict, profile ownership, heartbeat, command polling, command acknowledgement, stream, cache, online-admin, broadcast, release, and rollout readiness before physical Pi testing
+- run the hosted contract suite for migration, schema, pairing, device-auth, settings conflict, profile ownership, heartbeat, command polling, command acknowledgement, command state, stream, cache, online-admin, broadcast, release, and rollout readiness before physical Pi testing
 - verify the unified local event export contract for backend/admin ingestion readiness
 - verify heartbeat event ingestion cursor acknowledgements, replay overlap, stale ack rejection, and diagnostics/support visibility
 - run a local security smoke test that checks device API key redaction and tracked secret hygiene
@@ -244,6 +244,15 @@ AUTOPOIESIS_COMMAND_ACK_CONTRACT_TOKEN="$TOKEN" ./scripts/command-ack-contract-c
 
 The command ack contract check validates read-only staging/CI evidence that `POST /api/frames/device/{deviceId}/commands/{commandId}/ack` updates durable `aos_device_commands`, mirrors status into `aos_admin_command_audits`, ingests `command_audit` events idempotently by `deviceId + eventKey`, and handles duplicate final acknowledgements without creating duplicate effects. It rejects raw command payloads, credentials, tokens, release artifact details, checksums, stdout/stderr, and local appliance paths.
 
+Validate hosted command state transitions before treating remote commands as staging-ready:
+
+```bash
+./scripts/command-state-contract-check.sh /path/to/command-state-contract-bundle.json
+AUTOPOIESIS_COMMAND_STATE_CONTRACT_TOKEN="$TOKEN" ./scripts/command-state-contract-check.sh "https://autopoiesis.art/api/admin/frames/command-state-contract-bundle"
+```
+
+The command state contract check validates read-only staging/CI evidence that a durable `aos_device_commands` row moves from queued before poll, to delivered/sent after poll, to terminal after acknowledgement, mirrors terminal status into `aos_admin_command_audits`, and is not returned by the next device poll. It rejects raw command payloads, credentials, tokens, release artifact details, checksums, stdout/stderr, and local appliance paths.
+
 Inspect the local frame playback queue:
 
 ```bash
@@ -362,6 +371,7 @@ AUTOPOIESIS_PROFILE_OWNERSHIP_CONTRACT_SOURCE=/path/to/profile-ownership-contrac
 AUTOPOIESIS_HEARTBEAT_CONTRACT_SOURCE=/path/to/heartbeat-contract-bundle.json \
 AUTOPOIESIS_COMMAND_POLL_CONTRACT_SOURCE=/path/to/command-poll-contract-bundle.json \
 AUTOPOIESIS_COMMAND_ACK_CONTRACT_SOURCE=/path/to/command-ack-contract-bundle.json \
+AUTOPOIESIS_COMMAND_STATE_CONTRACT_SOURCE=/path/to/command-state-contract-bundle.json \
 AUTOPOIESIS_STREAM_CONTRACT_SOURCE=/path/to/stream-response.json \
 AUTOPOIESIS_CACHE_CONTRACT_SOURCE=/path/to/cache-contract-bundle.json \
 AUTOPOIESIS_ONLINE_ADMIN_CONTRACT_SOURCE=/path/to/online-admin-bundle.json \
@@ -386,6 +396,7 @@ CI can also hand the suite a single manifest instead of exporting every source:
     "heartbeat",
     "command-poll",
     "command-ack",
+    "command-state",
     "stream",
     "cache",
     "online-admin",
@@ -403,6 +414,7 @@ CI can also hand the suite a single manifest instead of exporting every source:
     "heartbeat": "./heartbeat-contract-bundle.json",
     "command-poll": "./command-poll-contract-bundle.json",
     "command-ack": "./command-ack-contract-bundle.json",
+    "command-state": "./command-state-contract-bundle.json",
     "stream": "./stream-response.json",
     "cache": "./cache-contract-bundle.json",
     "online-admin": "./online-admin-bundle.json",
@@ -419,7 +431,7 @@ AUTOPOIESIS_HOSTED_CONTRACT_REPORT=/path/to/hosted-contract-report.json \
 ./scripts/hosted-contract-suite-check.sh
 ```
 
-The suite runs the existing hosted gates in dependency order: migrations, final schema, pairing, device auth, settings conflict, profile ownership, heartbeat, command polling, command acknowledgement, stream, cache/offline, online admin, broadcast lifecycle, release manifest, then hosted release rollout evidence. Manifest paths are resolved relative to the manifest file, and per-gate `AUTOPOIESIS_*_SOURCE` variables override manifest entries. A manifest can declare required gates with `require`, `required`, `requireGates`, `requiredGates`, or `required_gates`; set `strict` or `requireAll` to `true` when the manifest must provide every hosted source. In non-strict mode it runs every provided source and fails only if a gate named in the manifest or `AUTOPOIESIS_HOSTED_CONTRACT_REQUIRE` is missing. Individual token and strictness variables are passed through to the underlying checkers unchanged.
+The suite runs the existing hosted gates in dependency order: migrations, final schema, pairing, device auth, settings conflict, profile ownership, heartbeat, command polling, command acknowledgement, command state, stream, cache/offline, online admin, broadcast lifecycle, release manifest, then hosted release rollout evidence. Manifest paths are resolved relative to the manifest file, and per-gate `AUTOPOIESIS_*_SOURCE` variables override manifest entries. A manifest can declare required gates with `require`, `required`, `requireGates`, `requiredGates`, or `required_gates`; set `strict` or `requireAll` to `true` when the manifest must provide every hosted source. In non-strict mode it runs every provided source and fails only if a gate named in the manifest or `AUTOPOIESIS_HOSTED_CONTRACT_REQUIRE` is missing. Individual token and strictness variables are passed through to the underlying checkers unchanged.
 
 When `AUTOPOIESIS_HOSTED_CONTRACT_REPORT` is set, the suite writes a redacted JSON report on both pass and fail with `status`, `exitCode`, `requiredGates`, summary counts, and per-gate pass/skip/missing-required status. The report records only source-presence booleans and source environment names, not fixture paths, URLs, bearer tokens, or local appliance paths.
 

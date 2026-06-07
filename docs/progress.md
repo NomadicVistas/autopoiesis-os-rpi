@@ -1,5 +1,46 @@
 # Progress
 
+## 2026-06-07 - Hosted command state contract
+
+Date: 2026-06-07
+
+Milestone: API / DATABASE / SYNC - durable command outbox transitions
+
+Changed files:
+
+- `scripts/command-state-contract-check.sh`
+- `scripts/hosted-contract-suite-check.sh`
+- `README.md`
+- `docs/api-contract.md`
+- `docs/database-schema.md`
+- `docs/agent-notes/backend-command-state-contract-issue.md`
+- `docs/agent-notes/hosted-contract-suite-issue.md`
+- `docs/agent-notes/pulse.md`
+- `docs/progress.md`
+- `/data/.openclaw/workspace/autopoiesis-os-program/ROLLING-LOG.md`
+
+Implemented:
+
+- Added `scripts/command-state-contract-check.sh`, a read-only hosted contract gate for durable command outbox state transitions.
+- The gate validates a queued before-poll row, matching delivered/sent post-poll row with delivered timestamp evidence, matching terminal post-ack row with terminal timestamp evidence, mirrored admin audit status, next-poll exclusion of terminal commands, and redaction of credentials, raw payloads, artifact details, stdout/stderr, and local appliance paths.
+- Wired `command-state` into `scripts/hosted-contract-suite-check.sh` after command acknowledgement, including strict mode, manifest requirements, aliases, report rows, and source env support.
+- Added backend handoff notes for the staging-only `/api/admin/frames/command-state-contract-bundle` adapter.
+
+Verification:
+
+- Representative command-state bundle passed.
+- Missing post-poll delivered-row fixture was rejected.
+- Terminal command re-delivery in next poll was rejected.
+- Hosted suite required-command-state pass/rejection paths passed.
+- `node --check local-ui/server.js` passed.
+- `bash -n install.sh update.sh uninstall-dev-tools.sh factory-reset.sh scripts/*.sh` passed.
+- `git diff --check` passed.
+- `scripts/security-smoke.sh` passed.
+
+Next step:
+
+Generate the hosted command-state bundle from seeded `aos_device_commands`, `aos_admin_command_audits`, the command poll serializer, and the ack route integration tests. Decide whether poll marks rows `sent` immediately or whether initial `acknowledged` is the canonical delivered transition before broad remote commands ship.
+
 ## 2026-06-07 - Setup launcher custom path hardening
 
 Date: 2026-06-07

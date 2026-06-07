@@ -1,5 +1,14 @@
 # Pulse Agent Notes
 
+## 2026-06-07 - Hosted command state contract
+
+Date/time: 2026-06-07 06:45 UTC / 2026-06-07 08:45 Europe/Berlin
+Agent: Pulse
+Context: API / DATABASE / SYNC cron pass. Command polling and acknowledgement gates existed, but the hosted suite still lacked one direct proof that the durable command outbox moves through queued, delivered, terminal, and post-terminal non-delivery states.
+What changed: Added `scripts/command-state-contract-check.sh` and wired `command-state` into the hosted contract suite after command acknowledgement. Added backend handoff docs for a read-only bundle covering `beforePollCommands`, `postPollCommands`, `postAckCommands`, mirrored admin audits, next-poll exclusion, and redaction boundaries.
+What needs review: Hosted staging should generate this bundle from seeded `aos_device_commands` rows plus the same poll serializer and ack route used by real devices. Decide whether poll itself marks rows `sent` immediately or whether the first acknowledgement is the canonical delivered transition.
+Next recommended action: Run the strict hosted suite with `AUTOPOIESIS_COMMAND_STATE_CONTRACT_SOURCE` before enabling broad Profile/Admin remote command controls.
+
 ## 2026-06-07 - Hosted suite JSON readiness report
 
 Date/time: 2026-06-07 06:15 UTC / 2026-06-07 08:15 Europe/Berlin

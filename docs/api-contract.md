@@ -402,9 +402,9 @@ Durable migration gate:
 
 Hosted integration suite:
 
-- `scripts/hosted-contract-suite-check.sh` runs the hosted migration, schema, pairing, device-auth, settings, profile-ownership, heartbeat, command-poll, command-ack, stream, cache/offline, online-admin, broadcast, release, and release-rollout gates in dependency order.
+- `scripts/hosted-contract-suite-check.sh` runs the hosted migration, schema, pairing, device-auth, settings, profile-ownership, heartbeat, command-poll, command-ack, command-state, stream, cache/offline, online-admin, broadcast, release, and release-rollout gates in dependency order.
 - Use `--strict` for staging or CI jobs that must provide every source before physical Pi acceptance.
-- Use `AUTOPOIESIS_HOSTED_CONTRACT_REQUIRE=migrations,schema,pairing,device-auth,settings,profile-ownership,heartbeat,command-poll,command-ack,stream,cache,online-admin,broadcast,release,release-rollout` when a partial job should require only selected gates while still running any other provided sources.
+- Use `AUTOPOIESIS_HOSTED_CONTRACT_REQUIRE=migrations,schema,pairing,device-auth,settings,profile-ownership,heartbeat,command-poll,command-ack,command-state,stream,cache,online-admin,broadcast,release,release-rollout` when a partial job should require only selected gates while still running any other provided sources.
 - CI/staging may pass saved fixtures or live URLs through the existing `AUTOPOIESIS_*_SOURCE` variables, or provide one `AUTOPOIESIS_HOSTED_CONTRACT_MANIFEST` JSON file with a `sources` object keyed by gate name. Manifest-relative file paths are resolved from the manifest directory, and individual `AUTOPOIESIS_*_SOURCE` variables override manifest entries for targeted reruns.
 - A manifest may self-declare required gates with `require`, `required`, `requireGates`, `requiredGates`, or `required_gates`, either as a comma-separated string, array, or object whose truthy keys are required. Set `strict` or `requireAll` to `true` in the manifest to require every hosted gate without also passing `--strict`.
 - Set `AUTOPOIESIS_HOSTED_CONTRACT_REPORT=/path/to/hosted-contract-report.json` when CI or staging needs a machine-readable readiness artifact. The report is written on pass and fail, includes `status`, `exitCode`, required gates, summary counts, failed gate/reason when available, and per-gate source-presence booleans, and deliberately omits raw source paths, URLs, tokens, and local appliance paths.
@@ -491,6 +491,15 @@ Hosted command acknowledgement contract:
 - At least one acknowledgement must move a command to `acknowledged`, at least one final acknowledgement must move a command to `completed`, `error`, `failed`, or `denied`, and duplicate final acknowledgement evidence must be idempotent/no-change.
 - Durable command rows must preserve `acknowledgedAt` and terminal timestamp evidence, admin audit rows must mirror terminal command status, and command audit events must reference known command/device rows with unique `deviceId + eventKey` idempotency.
 - The checker rejects unknown command references, duplicate ids/event keys, non-terminal rows after final ack, raw command payload keys, stored credentials, tokens, release artifact details, checksums, stdout/stderr, and local appliance paths.
+
+Hosted command state contract:
+
+- Optional adapter endpoint: GET /api/admin/frames/command-state-contract-bundle
+- `scripts/command-state-contract-check.sh` validates read-only staging/CI evidence that the durable command outbox moves through poll and ack transitions without re-delivering terminal commands.
+- The bundle root may use `kind: "autopoiesis_frames_command_state_contract"` and `schemaVersion: 1`, and should include `beforePollCommands`, `postPollCommands`, `postAckCommands`, `adminAudits`, and `nextPoll`.
+- At least one command must move from queued before poll, to delivered/sent after poll with delivered timestamp evidence, to terminal after acknowledgement with terminal timestamp evidence.
+- Admin audit rows must mirror terminal command status, and a subsequent poll for the same device must not return terminal commands.
+- The checker rejects unknown command references, duplicate command ids, unsupported command types, terminal re-delivery, stored credentials, tokens, release artifact details, checksums, stdout/stderr, raw command payloads, and local appliance paths.
 
 Local command audit:
 
