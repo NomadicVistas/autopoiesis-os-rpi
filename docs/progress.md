@@ -1,5 +1,41 @@
 # Progress
 
+## 2026-06-07 - Active-window stream contract hardening
+
+Date: 2026-06-07
+
+Milestone: BROADCAST / FEED - hosted stream acceptance
+
+Changed files:
+
+- `scripts/stream-contract-check.sh`
+- `README.md`
+- `docs/api-contract.md`
+- `docs/agent-notes/backend-stream-contract-issue.md`
+- `docs/agent-notes/pulse.md`
+- `docs/progress.md`
+- `/data/.openclaw/workspace/autopoiesis-os-program/ROLLING-LOG.md`
+
+Implemented:
+
+- Tightened the hosted stream contract checker so each item must be individually displayable, not only part of a globally playable response.
+- Added mixed-content type/category validation aligned with the local queue categories for broadcast, curatorial, artwork, blog, news, and general content.
+- Added active-window validation relative to root `generatedAt`, rejecting future `startsAt`, expired `expiresAt`, and inverted `startsAt >= expiresAt` rows before physical Pi handoff.
+- Expanded snake_case field validation for media, links, duration, artist, and text aliases used by hosted fixtures.
+
+Verification:
+
+- Representative stream fixture passed with artwork, blog, news, curatorial, broadcast, and content items plus polling metadata.
+- Future, expired, inverted-window, unsupported-type, and non-displayable item fixtures were rejected as expected.
+- `node --check local-ui/server.js` passed.
+- `bash -n install.sh update.sh uninstall-dev-tools.sh factory-reset.sh scripts/*.sh` passed.
+- `git diff --check` passed.
+- `scripts/security-smoke.sh` passed.
+
+Next step:
+
+Generate the durable hosted `/api/frames/device/{deviceId}/stream` staging fixture from `aos_` content, broadcast, preference, subscription, and device rows, then run the strict hosted suite before physical Pi cache/feed playback validation.
+
 ## 2026-06-07 - Hosted suite JSON readiness report
 
 Date: 2026-06-07

@@ -25,6 +25,8 @@ Implement `GET /api/frames/device/{deviceId}/stream` from durable online rows:
 
 The endpoint should return only items eligible for the requesting device, owner, subscription status/tier, region, and active schedule window. Device-side targeting remains a last-mile guard, not the primary filter.
 
+The stream contract checker now treats the active schedule window as a backend responsibility. A saved or live response fails if an item starts after root `generatedAt`, expires at or before `generatedAt`, has `startsAt >= expiresAt`, uses an unsupported mixed-stream content type, or lacks any displayable media/text fields. This keeps physical Pi validation focused on playback and cache behavior instead of discovering stale or premature hosted rows.
+
 ## Response Contract
 
 Return JSON:
@@ -79,6 +81,8 @@ Each item should include:
 - `expiresAt`
 - `url`, `infoUrl`, `blogUrl`, `exhibitionUrl`, or `dashboardUrl` where relevant
 
+Supported mixed-stream type signals include broadcast, curatorial/announcement/notice, blog/essay/post, news/update, artwork/artist_drop/image/video/audio/sound/generative, and general content/text/note/exhibition items. Unknown types should be mapped before they reach the device contract.
+
 Do not return stored device API keys, pairing-code hashes, private admin tokens, local filesystem paths, release artifact checksums, or raw command payloads.
 
 ## Acceptance Checks
@@ -111,4 +115,3 @@ Before handing to physical Pi validation:
 - Which subscription source is authoritative for `subscriptionStatus` and `subscriptionTier`?
 - Should first production streams include only artworks and broadcasts, or also blog/exhibition/system-news rows immediately?
 - What cursor format should be used for pagination once the MVP stream exceeds a single device payload?
-

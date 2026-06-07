@@ -93,9 +93,20 @@ function optionalNumber(value, field) {
   if (!Number.isFinite(Number(value))) fail(field + " must be numeric when present");
 }
 
+function optionalString(value, field) {
+  if (value === null || value === undefined) return;
+  if (typeof value !== "string") fail(field + " must be a string when present");
+}
+
 function optionalArray(value, field) {
   if (value === null || value === undefined) return;
   if (!Array.isArray(value)) fail(field + " must be an array when present");
+}
+
+function optionalTimestampMs(value, field) {
+  if (value === null || value === undefined || value === "") return null;
+  if (!validIso(value)) fail(field + " must be an ISO timestamp");
+  return Date.parse(value);
 }
 
 function validateTargeting(targeting, field) {
@@ -123,6 +134,19 @@ function validateTargeting(targeting, field) {
 
 function firstPresent(...values) {
   return values.find(value => value !== undefined && value !== null && value !== "");
+}
+
+function streamItemCategory(item) {
+  const source = String(item.source || "").toLowerCase();
+  const type = String(item.type || "").toLowerCase();
+  if (source === "broadcast" || type.includes("broadcast")) return "broadcast";
+  if (type.includes("curatorial") || type.includes("announcement") || type.includes("notice")) return "curatorial";
+  if (type.includes("blog") || type.includes("essay") || type.includes("post")) return "blog";
+  if (type.includes("news") || type.includes("update")) return "news";
+  if (type.includes("artwork") || type.includes("artist_drop")) return "artwork";
+  if (type.includes("image") || type.includes("video") || type.includes("audio") || type.includes("sound") || type.includes("generative")) return "artwork";
+  if (type.includes("exhibition") || type.includes("content") || type.includes("text") || type.includes("note")) return "content";
+  return null;
 }
 
 function pollingSeconds(value, field) {
@@ -191,7 +215,8 @@ for (const pattern of forbiddenPatterns) {
 if (!isObject(payload)) fail("stream response must be a JSON object");
 if (payload.ok === false) fail("stream response ok=false");
 if (payload.schemaVersion !== 1) fail("schemaVersion must be 1");
-if (!validIso(payload.generatedAt)) fail("generatedAt is missing or invalid");
+const generatedAtMs = optionalTimestampMs(payload.generatedAt, "generatedAt");
+if (generatedAtMs === null) fail("generatedAt is missing or invalid");
 if (!isObject(payload.stream)) fail("stream metadata object is required");
 if (payload.stream.profile !== undefined && typeof payload.stream.profile !== "string") fail("stream.profile must be a string");
 if (payload.stream.source !== undefined && typeof payload.stream.source !== "string") fail("stream.source must be a string");
@@ -225,36 +250,40 @@ for (const [index, item] of payload.items.entries()) {
   if (ids.has(item.id)) fail("duplicate stream item id: " + item.id);
   ids.add(item.id);
   if (!item.type || typeof item.type !== "string") fail(prefix + ".type is required");
-  if (item.title !== undefined && item.title !== null && typeof item.title !== "string") fail(prefix + ".title must be a string");
-  if (item.artist !== undefined && item.artist !== null && typeof item.artist !== "string") fail(prefix + ".artist must be a string");
-  if (item.artistId !== undefined && item.artistId !== null && typeof item.artistId !== "string") fail(prefix + ".artistId must be a string");
-  if (item.body !== undefined && item.body !== null && typeof item.body !== "string") fail(prefix + ".body must be a string");
-  for (const field of ["mediaUrl", "thumbnailUrl", "url", "infoUrl", "blogUrl", "exhibitionUrl", "dashboardUrl", "likeUrl"]) {
-    if (item[field] !== undefined && item[field] !== null && typeof item[field] !== "string") fail(prefix + "." + field + " must be a string");
+  for (const field of ["title", "artist", "artistId", "artist_id", "body", "description", "message"]) {
+    optionalString(item[field], prefix + "." + field);
   }
-  optionalNumber(item.durationSeconds ?? item.duration, prefix + ".durationSeconds");
+  for (const field of ["mediaUrl", "media_url", "thumbnailUrl", "thumbnail_url", "url", "infoUrl", "info_url", "blogUrl", "blog_url", "exhibitionUrl", "exhibition_url", "dashboardUrl", "dashboard_url", "likeUrl", "like_url"]) {
+    optionalString(item[field], prefix + "." + field);
+  }
+  optionalNumber(item.durationSeconds ?? item.duration_seconds ?? item.duration, prefix + ".durationSeconds");
   optionalBoolean(item.cacheAllowed ?? item.cache_allowed, prefix + ".cacheAllowed");
   optionalBoolean(item.soundRequired ?? item.sound_required, prefix + ".soundRequired");
   optionalIso(item.createdAt || item.created_at, prefix + ".createdAt");
-  optionalIso(item.startsAt || item.starts_at || item.scheduledAt || item.scheduled_at, prefix + ".startsAt");
-  optionalIso(item.expiresAt || item.expires_at, prefix + ".expiresAt");
+  const startsAtMs = optionalTimestampMs(firstPresent(item.startsAt, item.starts_at, item.scheduledAt, item.scheduled_at), prefix + ".startsAt");
+  const expiresAtMs = optionalTimestampMs(firstPresent(item.expiresAt, item.expires_at), prefix + ".expiresAt");
+  if (startsAtMs !== null && expiresAtMs !== null && startsAtMs >= expiresAtMs) {
+    fail(prefix + ".startsAt must be before .expiresAt");
+  }
+  if (startsAtMs !== null && startsAtMs > generatedAtMs) {
+    fail(prefix + " starts after generatedAt; hosted stream should return active-window items only");
+  }
+  if (expiresAtMs !== null && expiresAtMs <= generatedAtMs) {
+    fail(prefix + " is expired at generatedAt; hosted stream should return active-window items only");
+  }
   const priority = String(item.priority || "normal").toLowerCase();
   if (!allowedPriorities.has(priority)) fail(prefix + ".priority has unsupported value: " + priority);
   validateTargeting(item.targeting || item.visibility, prefix + ".targeting");
 
-  const type = String(item.type).toLowerCase();
-  const category = type.includes("broadcast")
-    ? "broadcast"
-    : type.includes("blog")
-      ? "blog"
-      : type.includes("news")
-        ? "news"
-        : type.includes("curatorial")
-          ? "curatorial"
-          : "artwork";
+  const category = streamItemCategory(item);
+  if (!category) fail(prefix + ".type is not a supported mixed-stream content type: " + item.type);
   categoryCounts[category] = (categoryCounts[category] || 0) + 1;
   if ((item.cacheAllowed ?? item.cache_allowed) !== false && (item.mediaUrl || item.media_url || item.thumbnailUrl || item.thumbnail_url)) cacheEligible += 1;
-  if (item.mediaUrl || item.media_url || item.thumbnailUrl || item.thumbnail_url || item.title || item.body) playable += 1;
+  if (item.mediaUrl || item.media_url || item.thumbnailUrl || item.thumbnail_url || item.title || item.body || item.description || item.message) {
+    playable += 1;
+  } else {
+    fail(prefix + " must include media, title, body, description, or message for display");
+  }
 }
 
 if (requireItems && playable === 0) fail("stream contains no playable/displayable items");

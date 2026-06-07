@@ -749,6 +749,7 @@ Context: BROADCAST / FEED cron pass. Command-delivered broadcasts produced `broa
 What changed: `POST /local/frame/display` now emits `broadcast_shown` for broadcast-category frame items while preserving `feed_item_shown` for artwork, blog, news, curatorial, and other non-broadcast stream content. The feed targeting gate now proves the delivery log and unified event export expose this mixed-stream broadcast evidence with broadcast source metadata.
 What needs review: Hosted heartbeat event ingestion should map both command and mixed-stream `broadcast_shown` events into durable `aos_broadcast_deliveries` rows without treating repeated frame rotations as separate rollout failures.
 Next recommended action: Surface mixed-stream broadcast delivery rows in Admin > Frames alongside command-delivered broadcast rows, keyed idempotently by `deviceId + eventKey`.
+
 ## 2026-06-06 - Systemd unit rendering gate
 
 Date/time: 2026-06-06 18:39 UTC / 2026-06-06 20:39 Europe/Berlin
@@ -757,3 +758,12 @@ Context: RPI APPLIANCE cron pass. The installer exposed configurable install/dat
 What changed: `scripts/install-systemd-units.sh` now renders service units into the systemd target from the configured paths and appliance user. Service units carry explicit runtime environment for data/log/cache/app paths, `install.sh` passes its selected values into the renderer, and `scripts/systemd-units-install-check.sh` proves the render path with a fake systemd directory and custom user/paths.
 What needs review: Physical Pi install/update should confirm the default rendered units still start healthy services and that `/etc/systemd/system/autopoiesis-*.service` contains the expected production paths.
 Next recommended action: Run full Milestone 2 after `sudo ./install.sh` or `sudo ./update.sh` on hardware, then inspect `systemctl cat autopoiesis-setup.service autopoiesis-kiosk.service`.
+
+## 2026-06-07 - Active-window stream contract hardening
+
+Date/time: 2026-06-07 06:25 UTC / 2026-06-07 08:25 Europe/Berlin
+Agent: Pulse
+Context: BROADCAST / FEED cron pass. The Pi defensively filters expired/future feed items, but the hosted `/stream` contract still allowed stale or premature rows to pass acceptance as long as their timestamps parsed.
+What changed: Tightened `scripts/stream-contract-check.sh` so every stream item must be individually displayable, map into the known mixed-content categories, and be active relative to root `generatedAt`. It now rejects future `startsAt`, expired `expiresAt`, inverted schedule windows, unsupported type strings, and id/type-only rows.
+What needs review: Hosted staging should run this gate against the real durable `aos_` stream query before physical Pi validation, because the Pi guard is a fallback rather than the primary targeting/scheduling layer.
+Next recommended action: Generate a live `/api/frames/device/{deviceId}/stream` fixture with artwork, blog/news/curatorial, and broadcast rows, then run `AUTOPOIESIS_REQUIRE_STREAM_POLLING=1 scripts/stream-contract-check.sh` before cache/feed playback gates.
