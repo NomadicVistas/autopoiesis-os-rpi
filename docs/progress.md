@@ -1,5 +1,42 @@
 # Progress
 
+## 2026-06-07 - Heartbeat-driven feed polling
+
+Date: 2026-06-07
+
+Milestone: BROADCAST / FEED - personalized stream polling and display freshness
+
+Changed files:
+
+- `local-ui/server.js`
+- `scripts/feed-targeting-check.sh`
+- `README.md`
+- `docs/api-contract.md`
+- `docs/agent-notes/feed-polling-heartbeat-note.md`
+- `docs/progress.md`
+- `/data/.openclaw/workspace/autopoiesis-os-program/ROLLING-LOG.md`
+
+Implemented:
+
+- Added a computed feed polling summary for saved `/stream` cadence, including initial-sync due state, due/stale detection, minimum poll interval handling, due timestamps, and last local poll result.
+- `POST /local/heartbeat` now refreshes the stream before sending the hosted heartbeat when the saved polling policy says the feed is due or stale.
+- Exposed `pollingStatus` through `/local/feed`, `/local/frame-state`, diagnostics, readiness/health/support surfaces, and `feed_synced` delivery evidence.
+- Added a `feed_stale` health issue so support/admin can distinguish stale personalized content from ordinary empty queues.
+- Extended the feed targeting gate to prove heartbeat-triggered stream sync, polling status propagation, targeting, schedule filtering, cache eligibility, and mixed-stream broadcast display evidence together.
+
+Verification:
+
+- `scripts/feed-targeting-check.sh` passed.
+- `node --check local-ui/server.js` passed.
+- `bash -n install.sh update.sh uninstall-dev-tools.sh factory-reset.sh scripts/*.sh` passed.
+- `git diff --check` passed.
+- `scripts/security-smoke.sh` passed.
+
+Next step:
+
+Have hosted staging emit realistic `nextPollAt`, `pollAfterSeconds`, `minPollSeconds`, and `staleAfter` values from durable `aos_` stream policy rows, then confirm a paired Pi stays fresh without manual `/local/feed/sync` calls.
+
+
 ## 2026-06-07 - Hosted suite manifest template
 
 Date: 2026-06-07

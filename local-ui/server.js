@@ -1304,6 +1304,86 @@ function normalizePollingPayload(payload = {}) {
   };
 }
 
+function isoFromMs(value) {
+  return Number.isFinite(value) ? new Date(value).toISOString() : null;
+}
+
+function feedPollingSummary(feed = readJson(paths.feed, { syncedAt: null, items: [] }), device = readJson(paths.device, {}), now = Date.now()) {
+  const polling = feed && feed.polling && typeof feed.polling === "object" ? feed.polling : null;
+  const syncedAtMs = parseTimestamp(feed ? feed.syncedAt : null);
+  const lastPollAt = device.lastFeedPollAt || null;
+  const lastStatus = device.lastFeedPollStatus || null;
+  const lastError = device.lastFeedPollError || null;
+
+  if (syncedAtMs === null) {
+    return {
+      status: "waiting_for_initial_sync",
+      due: true,
+      stale: false,
+      reason: "no_feed_sync",
+      syncedAt: feed ? feed.syncedAt || null : null,
+      lastPollAt,
+      lastStatus,
+      lastError
+    };
+  }
+
+  if (!polling) {
+    return {
+      status: "polling_unset",
+      due: false,
+      stale: false,
+      reason: "no_polling_policy",
+      syncedAt: feed.syncedAt || null,
+      ageSeconds: Math.max(0, Math.round((now - syncedAtMs) / 1000)),
+      lastPollAt,
+      lastStatus,
+      lastError
+    };
+  }
+
+  const pollAfterSeconds = numberOrNull(polling.pollAfterSeconds);
+  const minPollSeconds = numberOrNull(polling.minPollSeconds);
+  const maxPollSeconds = numberOrNull(polling.maxPollSeconds);
+  const explicitNextPollMs = parseTimestamp(polling.nextPollAt);
+  const staleAfterMs = parseTimestamp(polling.staleAfter);
+  const pollAfterDueMs = pollAfterSeconds && pollAfterSeconds > 0 ? syncedAtMs + pollAfterSeconds * 1000 : null;
+  const maxPollDueMs = maxPollSeconds && maxPollSeconds > 0 ? syncedAtMs + maxPollSeconds * 1000 : null;
+  const minPollDueMs = minPollSeconds && minPollSeconds > 0 ? syncedAtMs + minPollSeconds * 1000 : null;
+  const dueCandidates = [explicitNextPollMs, pollAfterDueMs, maxPollDueMs].filter(Number.isFinite);
+  const naturalDueMs = dueCandidates.length ? Math.min(...dueCandidates) : null;
+  const dueAtMs = naturalDueMs !== null && minPollDueMs !== null ? Math.max(naturalDueMs, minPollDueMs) : naturalDueMs;
+  const stale = staleAfterMs !== null && staleAfterMs <= now;
+  const due = stale || (dueAtMs !== null && dueAtMs <= now);
+  const waitingForMinimum = !due && minPollDueMs !== null && minPollDueMs > now && naturalDueMs !== null && naturalDueMs < minPollDueMs;
+  const statusValue = stale
+    ? "stale"
+    : due
+      ? "due"
+      : waitingForMinimum
+        ? "waiting_min_poll_interval"
+        : "fresh";
+
+  return {
+    status: statusValue,
+    due,
+    stale,
+    reason: polling.reason || (stale ? "stale_after_elapsed" : due ? "poll_due" : "poll_not_due"),
+    syncedAt: feed.syncedAt || null,
+    ageSeconds: Math.max(0, Math.round((now - syncedAtMs) / 1000)),
+    pollAfterSeconds: pollAfterSeconds || null,
+    minPollSeconds: minPollSeconds || null,
+    maxPollSeconds: maxPollSeconds || null,
+    nextPollAt: polling.nextPollAt || null,
+    staleAfter: polling.staleAfter || null,
+    dueAt: isoFromMs(dueAtMs),
+    minimumPollAt: isoFromMs(minPollDueMs),
+    lastPollAt,
+    lastStatus,
+    lastError
+  };
+}
+
 function normalizeFeedPayload(payload = {}) {
   const now = new Date().toISOString();
   const feedItems = arrayValue(payload.feed || payload.items || payload.artworks);
@@ -1389,6 +1469,7 @@ function writeFeedState(feed) {
   writeJson(paths.feed, feed);
   const preferences = readJson(paths.preferences, {});
   const displayQueue = mixedFeedQueue(feed, preferences);
+  const pollingStatus = feedPollingSummary(feed);
   const cacheItems = displayQueue
     .filter(item => item.cacheAllowed && (item.mediaUrl || item.thumbnailUrl))
     .map(item => ({
@@ -1416,6 +1497,9 @@ function writeFeedState(feed) {
     categories: feedCategoryCounts(displayQueue),
     pollAfterSeconds: feed.polling ? feed.polling.pollAfterSeconds || null : null,
     nextPollAt: feed.polling ? feed.polling.nextPollAt || null : null,
+    pollingStatus: pollingStatus.status,
+    pollDueAt: pollingStatus.dueAt || null,
+    staleAfter: pollingStatus.staleAfter || null,
     syncedAt: feed.syncedAt || null
   });
 }
@@ -1430,6 +1514,7 @@ function publicFeed() {
     ok: true,
     syncedAt: feed.syncedAt || null,
     polling: feed.polling || null,
+    pollingStatus: feedPollingSummary(feed),
     totalItems: (feed.items || []).length,
     eligibleItems: items.length,
     cacheEligibleItems: cache.count || 0,
@@ -1572,6 +1657,7 @@ function publicFrameState() {
     schemaVersion: 1,
     generatedAt: new Date().toISOString(),
     syncedAt: feed.syncedAt || null,
+    pollingStatus: feedPollingSummary(feed),
     totalItems: Array.isArray(feed.items) ? feed.items.length : 0,
     displayQueueItems: displayQueue.length,
     playableItems: playableItems.length,
@@ -1775,10 +1861,52 @@ async function syncFeedFromRemote() {
     endpoint,
     fallbackReason,
     syncedAt: feed.syncedAt,
+    pollingStatus: feedPollingSummary(feed),
     polling: feed.polling || null,
     totalItems: feed.items.length,
     eligibleItems: eligibleFeedItems(feed, preferences).length
   };
+}
+
+async function maybeSyncFeedForPolling(source = "heartbeat") {
+  const device = readJson(paths.device, {});
+  const feed = readJson(paths.feed, { syncedAt: null, items: [] });
+  const pollingStatus = feedPollingSummary(feed, device);
+  if (!pollingStatus.due) {
+    return { ok: true, skipped: true, source, reason: pollingStatus.status, pollingStatus };
+  }
+
+  const startedAt = new Date().toISOString();
+  writeJson(paths.device, {
+    ...device,
+    lastFeedPollAt: startedAt,
+    lastFeedPollStatus: "started",
+    lastFeedPollReason: pollingStatus.reason || pollingStatus.status,
+    lastFeedPollError: null
+  });
+
+  try {
+    const synced = await syncFeedFromRemote();
+    const updatedDevice = readJson(paths.device, {});
+    writeJson(paths.device, {
+      ...updatedDevice,
+      lastFeedPollAt: new Date().toISOString(),
+      lastFeedPollStatus: synced.ok ? "synced" : "skipped",
+      lastFeedPollReason: synced.reason || pollingStatus.reason || pollingStatus.status,
+      lastFeedPollError: synced.error || null
+    });
+    return { ok: Boolean(synced.ok), skipped: Boolean(synced.skipped), source, reason: pollingStatus.reason || pollingStatus.status, pollingStatus, synced };
+  } catch (error) {
+    const updatedDevice = readJson(paths.device, {});
+    writeJson(paths.device, {
+      ...updatedDevice,
+      lastFeedPollAt: new Date().toISOString(),
+      lastFeedPollStatus: "error",
+      lastFeedPollReason: pollingStatus.reason || pollingStatus.status,
+      lastFeedPollError: error.message
+    });
+    return { ok: false, skipped: false, source, reason: pollingStatus.reason || pollingStatus.status, pollingStatus, error: error.message };
+  }
 }
 
 function activeBroadcast(now = Date.now()) {
@@ -2324,6 +2452,9 @@ function diagnosticsHealth(diagnostics, data) {
   }
 
   if (diagnostics.feed) {
+    if (diagnostics.feed.pollingStatus && diagnostics.feed.pollingStatus.stale) {
+      add("warning", "feed_stale", "The local feed polling policy marks the stream as stale.");
+    }
     if (diagnostics.feed.cacheFailedItems > 0) {
       add("warning", "cache_failures", "One or more eligible feed cache assets failed to download.");
     }
@@ -2453,6 +2584,7 @@ async function collectDiagnostics(options = {}) {
     feed: {
       syncedAt: feed.syncedAt || null,
       polling: feed.polling || null,
+      pollingStatus: feedPollingSummary(feed, data.device),
       totalItems: Array.isArray(feed.items) ? feed.items.length : 0,
       eligibleItems: eligibleFeedItems(feed, data.preferences).length,
       displayQueueItems: mixedFeedQueue(feed, data.preferences).length,
@@ -2630,8 +2762,12 @@ function readinessSummary(diagnostics) {
     ),
     content: phase(
       Boolean(feed.syncedAt || feed.totalItems || feed.eligibleItems),
-      feed.syncedAt ? "ready" : "waiting_for_feed",
-      feed.syncedAt ? "A feed has been synced locally." : "No local feed sync has completed yet.",
+      feed.pollingStatus && feed.pollingStatus.stale ? "stale" : feed.syncedAt ? "ready" : "waiting_for_feed",
+      feed.pollingStatus && feed.pollingStatus.stale
+        ? "A feed has been synced locally, but the stream polling policy marks it stale."
+        : feed.syncedAt
+          ? "A feed has been synced locally."
+          : "No local feed sync has completed yet.",
       { feed }
     ),
     playback: phase(
@@ -3025,6 +3161,7 @@ async function supportBundle(options = {}) {
         : null,
       timers: diagnostics.timers || null,
       pendingCommands: health.pendingCommands || 0,
+      feedPolling: diagnostics.feed ? diagnostics.feed.pollingStatus || null : null,
       framePlayback: diagnostics.framePlayback || null,
       offlinePlayableItems: offlineCache.playableItems || 0,
       commandAudit: {
@@ -4198,6 +4335,7 @@ async function pushSettingsToRemote(device, preferences) {
 async function sendHeartbeat() {
   const data = status();
   if (!data.device.deviceId || !data.device.paired) return { ok: false, skipped: true, reason: "Device is not paired" };
+  const localFeedSync = await maybeSyncFeedForPolling("heartbeat");
   const diagnostics = await collectDiagnostics();
   const eventCursor = eventIngestionCursor();
   const eventReplaySince = eventCursorReplaySince(eventCursor);
@@ -4242,7 +4380,7 @@ async function sendHeartbeat() {
     writeFeedState(normalizeFeedPayload(result));
   }
   writeJson(paths.device, { ...readJson(paths.device, {}), lastHeartbeatAt: new Date().toISOString() });
-  return result;
+  return { ...result, localFeedSync };
 }
 
 async function checkRelease() {

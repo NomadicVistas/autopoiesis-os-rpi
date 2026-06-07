@@ -209,6 +209,13 @@ function streamItems() {
 http.createServer((req, res) => {
   const url = new URL(req.url, "http://127.0.0.1");
   if (req.method === "GET" && url.pathname === "/__health") return send(res, 200, { ok: true });
+  if (req.method === "POST" && url.pathname.endsWith("/heartbeat")) {
+    return send(res, 200, {
+      ok: true,
+      commands: [],
+      source: "targeting-check-heartbeat"
+    });
+  }
   if (req.method === "GET" && url.pathname.endsWith("/stream")) {
     return send(res, 200, {
       ok: true,
@@ -278,10 +285,11 @@ for _ in {1..50}; do
 done
 curl -fsS "$BASE_URL/local/status" >/dev/null || fail "local UI did not start"
 
-curl -fsS -X POST "$BASE_URL/local/feed/sync" >"$TMP_DIR/sync.json" || fail "feed sync failed"
+curl -fsS -X POST "$BASE_URL/local/heartbeat" >"$TMP_DIR/sync.json" || fail "heartbeat-triggered feed sync failed"
 curl -fsS "$BASE_URL/local/feed" >"$TMP_DIR/feed.json" || fail "local feed request failed"
 curl -fsS "$BASE_URL/local/diagnostics" >"$TMP_DIR/diagnostics.json" || fail "diagnostics request failed"
 curl -fsS "$BASE_URL/local/frame-state" >"$TMP_DIR/frame-state.json" || fail "frame-state request failed"
+curl -fsS "$BASE_URL/local/support-bundle?services=0&limit=10" >"$TMP_DIR/support.json" || fail "support-bundle request failed"
 curl -fsS -X POST -H "content-type: application/json" -d '{"itemId":"broadcast-device-ok"}' "$BASE_URL/local/frame/display" >"$TMP_DIR/display.json" || fail "broadcast display acknowledgement failed"
 curl -fsS "$BASE_URL/local/delivery-log?limit=10" >"$TMP_DIR/delivery.json" || fail "delivery-log request failed"
 curl -fsS "$BASE_URL/local/events/export?limit=10" >"$TMP_DIR/events.json" || fail "events export request failed"
@@ -295,13 +303,14 @@ if [[ ! -f "$TMP_DIR/data/feed-cache.json" ]]; then
   fail "feed cache manifest was not written"
 fi
 
-node - "$TMP_DIR/sync.json" "$TMP_DIR/feed.json" "$TMP_DIR/diagnostics.json" "$TMP_DIR/frame-state.json" "$TMP_DIR/display.json" "$TMP_DIR/delivery.json" "$TMP_DIR/events.json" "$TMP_DIR/data/feed-cache.json" <<'NODE'
+node - "$TMP_DIR/sync.json" "$TMP_DIR/feed.json" "$TMP_DIR/diagnostics.json" "$TMP_DIR/frame-state.json" "$TMP_DIR/support.json" "$TMP_DIR/display.json" "$TMP_DIR/delivery.json" "$TMP_DIR/events.json" "$TMP_DIR/data/feed-cache.json" <<'NODE'
 const fs = require("fs");
-const [syncPath, feedPath, diagnosticsPath, framePath, displayPath, deliveryPath, eventsPath, cachePath] = process.argv.slice(2);
+const [syncPath, feedPath, diagnosticsPath, framePath, supportPath, displayPath, deliveryPath, eventsPath, cachePath] = process.argv.slice(2);
 const sync = JSON.parse(fs.readFileSync(syncPath, "utf8"));
 const feed = JSON.parse(fs.readFileSync(feedPath, "utf8"));
 const diagnostics = JSON.parse(fs.readFileSync(diagnosticsPath, "utf8"));
 const frame = JSON.parse(fs.readFileSync(framePath, "utf8"));
+const support = JSON.parse(fs.readFileSync(supportPath, "utf8"));
 const display = JSON.parse(fs.readFileSync(displayPath, "utf8"));
 const delivery = JSON.parse(fs.readFileSync(deliveryPath, "utf8"));
 const events = JSON.parse(fs.readFileSync(eventsPath, "utf8"));
@@ -331,16 +340,32 @@ const expectedHidden = [
   "art-future"
 ];
 
-if (sync.endpoint !== "stream") fail("feed sync did not use stream endpoint");
-if (sync.totalItems !== 14) fail("unexpected normalized item count: " + sync.totalItems);
-if (!sync.polling || sync.polling.pollAfterSeconds !== 900 || sync.polling.nextPollAt !== "2026-06-06T14:40:00.000Z") {
-  fail("feed sync response did not preserve stream polling cadence");
+const heartbeatSync = sync.localFeedSync && sync.localFeedSync.synced ? sync.localFeedSync.synced : null;
+if (!heartbeatSync || heartbeatSync.endpoint !== "stream") fail("heartbeat did not trigger stream feed sync");
+if (heartbeatSync.totalItems !== 14) fail("unexpected normalized item count: " + heartbeatSync.totalItems);
+if (!heartbeatSync.polling || heartbeatSync.polling.pollAfterSeconds !== 900 || heartbeatSync.polling.nextPollAt !== "2026-06-06T14:40:00.000Z") {
+  fail("heartbeat-triggered feed sync did not preserve stream polling cadence");
+}
+if (!sync.localFeedSync || sync.localFeedSync.reason !== "no_feed_sync") {
+  fail("initial heartbeat feed sync did not explain the no-feed poll reason");
 }
 if (!feed.polling || feed.polling.minPollSeconds !== 300 || feed.polling.maxPollSeconds !== 3600) {
   fail("public local feed did not expose redacted stream polling bounds");
 }
+if (!feed.pollingStatus || feed.pollingStatus.status !== "stale" || feed.pollingStatus.due !== true) {
+  fail("public local feed did not expose stale/due polling status");
+}
 if (!diagnostics.diagnostics || !diagnostics.diagnostics.feed || !diagnostics.diagnostics.feed.polling || diagnostics.diagnostics.feed.polling.staleAfter !== "2026-06-06T15:25:00.000Z") {
   fail("diagnostics did not include stream polling freshness metadata");
+}
+if (!diagnostics.diagnostics.feed.pollingStatus || diagnostics.diagnostics.feed.pollingStatus.status !== "stale") {
+  fail("diagnostics did not include computed polling status");
+}
+if (!frame.pollingStatus || frame.pollingStatus.status !== "stale") {
+  fail("frame-state did not include computed polling status for display behavior");
+}
+if (!support.summary || !support.summary.feedPolling || support.summary.feedPolling.status !== "stale") {
+  fail("support bundle summary did not include feed polling status");
 }
 for (const id of expectedVisible) {
   if (!visibleIds.has(id)) fail("expected targeted item missing: " + id);
@@ -367,7 +392,7 @@ if (cacheIds.has("art-device-blocked") || cacheIds.has("art-expired") || cacheId
 
 const synced = delivery.entries.find(entry => entry.eventType === "feed_synced");
 if (!synced) fail("delivery log missed feed_synced event");
-if (synced.pollAfterSeconds !== 900 || synced.nextPollAt !== "2026-06-06T14:40:00.000Z") {
+if (synced.pollAfterSeconds !== 900 || synced.nextPollAt !== "2026-06-06T14:40:00.000Z" || synced.pollingStatus !== "stale") {
   fail("feed_synced delivery evidence did not include polling cadence");
 }
 if (!synced.categories || synced.categories.broadcast !== 1 || synced.categories.artwork !== 2) {
@@ -383,4 +408,4 @@ if (!exported) fail("events export did not expose mixed-stream broadcast_shown e
 if (exported.itemSource !== "broadcast") fail("mixed-stream broadcast event did not preserve broadcast source");
 NODE
 
-echo "feed targeting check passed: local stream targeting, expiry/start filtering, priority order, polling metadata, public redaction, broadcast display evidence, and cache eligibility are coherent"
+echo "feed targeting check passed: heartbeat-triggered stream polling, local targeting, expiry/start filtering, priority order, public redaction, broadcast display evidence, and cache eligibility are coherent"

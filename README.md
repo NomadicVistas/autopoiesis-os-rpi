@@ -26,6 +26,7 @@ Milestone 2 is scaffolded for physical Pi validation. The local UI can:
 - start a mock pairing flow
 - redirect `/launch` to setup, disabled, offline fallback, local frame playback, or the live display route depending on local state and remote reachability
 - build a local cache index from eligible feed media through the hourly cache timer
+- refresh the local stream from the heartbeat loop when hosted polling cadence marks it due or stale
 - play the local mixed feed queue at `/frame`, preferring cached assets when available
 - show cached feed media on `/offline` when the live display is unreachable
 - expose a compact `/local/health` probe for support, admin adapters, and hardware acceptance checks
@@ -471,7 +472,7 @@ Check defensive feed targeting and cache eligibility:
 ./scripts/feed-targeting-check.sh
 ```
 
-This isolated check validates local stream targeting for device, owner, subscriber status, tier, and region shapes; expiry/start-time filtering; priority order; public targeting redaction; mixed-stream broadcast display evidence; and feed cache manifest eligibility.
+This isolated check validates heartbeat-triggered stream polling, local stream targeting for device, owner, subscriber status, tier, and region shapes; expiry/start-time filtering; priority order; public targeting redaction; mixed-stream broadcast display evidence; and feed cache manifest eligibility.
 
 Check command-delivered broadcast behavior:
 
