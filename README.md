@@ -62,7 +62,7 @@ Milestone 2 is scaffolded for physical Pi validation. The local UI can:
 - keep rollback metadata and a pre-update app snapshot for release artifact installs
 - run a deliberate factory reset that clears identity, pairing, preferences, commands, feed/cache, and rollout state while preserving app code and logs
 - run a kiosk check that proves the Chromium launch command uses Pi-safe software rendering flags
-- run a local watchdog timer that restarts setup/kiosk services only when liveness checks fail
+- run a local watchdog timer plus isolated acceptance gate that restarts setup/kiosk services only when liveness checks fail
 - reinstall and enable systemd units during install/update so new timers reach existing devices
 - verify setup, kiosk, HTTP, Chromium, clock/NTP sync, touchscreen/input, network, and restart behavior on a Pi
 
@@ -172,6 +172,7 @@ AUTOPOIESIS_REQUIRE_RUNTIME_STORAGE=1 ./scripts/runtime-storage-check.sh
 Run the same liveness checks used by the systemd watchdog:
 
 ```bash
+./scripts/watchdog-check.sh
 sudo /opt/autopoiesis-os/app/scripts/watchdog.sh
 ```
 

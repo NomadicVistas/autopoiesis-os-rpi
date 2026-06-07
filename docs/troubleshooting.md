@@ -29,9 +29,16 @@ flags fail validation.
 ```bash
 systemctl status autopoiesis-watchdog.timer
 journalctl -u autopoiesis-watchdog.service -n 120 --no-pager
+/opt/autopoiesis-os/app/scripts/watchdog-check.sh
 sudo /opt/autopoiesis-os/app/scripts/watchdog.sh
 /opt/autopoiesis-os/app/scripts/systemd-timers-check.sh
 ```
+
+Run the isolated check first when diagnosing watchdog behavior. It stubs the
+local HTTP probes, kiosk process lookup, and systemctl calls, then proves the
+healthy no-op path, setup restart on local HTTP failure, setup restart on launch
+failure, and kiosk restart on missing Chromium process without touching live
+services.
 
 If the screen is blank and the journal shows `GLES3 is unsupported`,
 `CreateGLContext failed`, or `CollectGraphicsInfo failed`, update to the latest

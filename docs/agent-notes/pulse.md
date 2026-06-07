@@ -1,5 +1,14 @@
 # Pulse Agent Notes
 
+## 2026-06-07 - Watchdog restart policy gate
+
+Date/time: 2026-06-07 08:35 UTC / 2026-06-07 10:35 Europe/Berlin
+Agent: Pulse
+Context: RPI APPLIANCE cron pass. The appliance watchdog already restarted setup or kiosk during live Milestone 2 checks, but there was no isolated way to prove its restart policy before touching real services.
+What changed: Added `scripts/watchdog-check.sh`, which stubs local HTTP probes, kiosk process lookup, `systemctl`, and `sleep` around the real `scripts/watchdog.sh`. It verifies healthy no-op behavior, setup restart on `/local/health` failure, setup restart on `/launch` failure, and kiosk restart when Chromium is missing once. Milestone 2 now runs this gate before the live watchdog.
+What needs review: Physical Pi validation should still force one real setup failure and one real kiosk failure, then compare service journals against this isolated policy.
+Next recommended action: Run full Milestone 2 on hardware after install/update and capture `journalctl -u autopoiesis-watchdog.service -n 120 --no-pager` if either recovery path differs.
+
 ## 2026-06-07 - Hosted manifest source validation
 
 Date/time: 2026-06-07 08:15 UTC / 2026-06-07 10:15 Europe/Berlin

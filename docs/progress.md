@@ -1,5 +1,41 @@
 # Progress
 
+## 2026-06-07 - Watchdog restart policy gate
+
+Date: 2026-06-07
+
+Milestone: RPI APPLIANCE - watchdog recovery acceptance
+
+Changed files:
+
+- `scripts/watchdog-check.sh`
+- `scripts/milestone2-verify.sh`
+- `README.md`
+- `docs/installation.md`
+- `docs/troubleshooting.md`
+- `docs/agent-notes/pulse.md`
+- `docs/progress.md`
+- `/data/.openclaw/workspace/autopoiesis-os-program/ROLLING-LOG.md`
+
+Implemented:
+
+- Added an isolated acceptance gate for the real `scripts/watchdog.sh`.
+- The gate stubs `curl`, `pgrep`, `systemctl`, and `sleep` so it can verify watchdog policy without touching live services.
+- It proves healthy no-op behavior, setup restart when `/local/health` fails once, setup restart when `/launch` fails once, and kiosk restart when the Chromium process is missing once.
+- Wired the gate into Milestone 2 before invoking the live watchdog.
+
+Verification:
+
+- `scripts/watchdog-check.sh` passed.
+- `node --check local-ui/server.js` passed.
+- `bash -n install.sh update.sh uninstall-dev-tools.sh factory-reset.sh scripts/*.sh` passed.
+- `git diff --check` passed.
+- `scripts/security-smoke.sh` passed.
+
+Next step:
+
+Run full Milestone 2 on physical Pi hardware and compare the isolated watchdog gate with real `journalctl -u autopoiesis-watchdog.service` output after forcing one setup outage and one kiosk restart.
+
 ## 2026-06-07 - Hosted manifest source validation
 
 Date: 2026-06-07

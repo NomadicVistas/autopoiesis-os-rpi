@@ -67,6 +67,7 @@ echo
 echo "4b. Appliance watchdog"
 "$(dirname "$0")/systemd-timers-check.sh"
 AUTOPOIESIS_REQUIRE_CLOCK_SYNC=1 "$(dirname "$0")/clock-check.sh"
+"$(dirname "$0")/watchdog-check.sh"
 "$(dirname "$0")/watchdog.sh"
 
 echo

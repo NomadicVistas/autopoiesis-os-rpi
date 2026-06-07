@@ -67,7 +67,8 @@ runtime data/cache/log paths are writable, the heartbeat
 timer wrapper tolerates missing pre-pairing state and records local UI failures,
 Chromium is
 running with the expected kiosk flags, Linux sees a touchscreen-class input
-device, NetworkManager reports device state, and both services restart cleanly.
+device, NetworkManager reports device state, the watchdog restart policy passes
+its isolated acceptance gate, and both services restart cleanly.
 
 Release updates use the local `device.json` `updateChannel` as the default
 expected channel. A production or staged frame on `stable` will reject a `beta`,
@@ -84,6 +85,12 @@ Isolated setup launcher path verification:
 
 ~~~bash
 /opt/autopoiesis-os/app/scripts/setup-launcher-check.sh
+~~~
+
+Isolated watchdog restart policy verification:
+
+~~~bash
+/opt/autopoiesis-os/app/scripts/watchdog-check.sh
 ~~~
 
 LAN setup:
