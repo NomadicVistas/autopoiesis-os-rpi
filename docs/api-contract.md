@@ -469,6 +469,16 @@ Online admin backend behavior:
 - Device acknowledgement updates the matching backend audit row status so Admin > Frames can show queued/acknowledged/completed/error state from durable `aos_` data.
 - Heartbeat `events` ingestion into broadcast delivery and release rollout rows should be proven with the broadcast and release-rollout contract gates before enabling broad Admin > Frames fleet actions.
 
+Hosted command polling contract:
+
+- Optional adapter endpoint: GET /api/admin/frames/command-poll-contract-bundle
+- `scripts/command-poll-contract-check.sh` validates read-only staging/CI evidence for command polling through heartbeat command responses or GET /api/frames/device/{deviceId}/commands.
+- The bundle root may use `kind: "autopoiesis_frames_command_poll_contract"` and `schemaVersion: 1`, and should include durable `commands`, an `authorizedPoll` response, `excludedCommands`, and `deniedPolls`.
+- Every queued/pending/ready/retry durable command row for the polling device must be returned exactly once. Other-device rows, not-yet-due rows, expired/cancelled rows, and terminal rows must not be returned.
+- Risky commands must include approved authorization metadata. High/critical commands must include an audit id, and `factory_reset_request` must also require local confirmation.
+- Denied poll evidence should prove disabled, unpaired, unauthorized, owner-mismatched, or otherwise blocked devices receive no command rows.
+- The checker rejects unknown returned commands, missing queued commands, duplicate command ids, unsupported command types, raw payload keys outside the safe command surface, stored credentials, pairing codes/hashes, tokens, release artifact details, checksums, stdout/stderr, and local appliance paths.
+
 Hosted command acknowledgement contract:
 
 - Optional adapter endpoint: GET /api/admin/frames/command-ack-contract-bundle

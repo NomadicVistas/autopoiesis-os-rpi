@@ -1,5 +1,47 @@
 # Progress
 
+## 2026-06-07 - Hosted command polling contract
+
+Date: 2026-06-07
+
+Milestone: LEAD / INTEGRATION - remote command queue readiness
+
+Changed files:
+
+- `scripts/command-poll-contract-check.sh`
+- `scripts/hosted-contract-suite-check.sh`
+- `README.md`
+- `docs/api-contract.md`
+- `docs/database-schema.md`
+- `docs/agent-notes/backend-command-poll-contract-issue.md`
+- `docs/agent-notes/pulse.md`
+- `docs/progress.md`
+- `/data/.openclaw/workspace/autopoiesis-os-program/ROLLING-LOG.md`
+
+Implemented:
+
+- Added `scripts/command-poll-contract-check.sh`, a read-only saved-bundle/live-URL verifier for hosted command polling readiness.
+- The checker validates durable command rows, the exact command set returned to an authorized device poll, missing queued-row detection, duplicate returned command rejection, ineligible command exclusion, blocked/denied poll evidence, risky command authorization metadata, high/critical audit ids, local confirmation on factory reset requests, and sensitive/local-only redaction.
+- Wired `command-poll` into `scripts/hosted-contract-suite-check.sh` immediately after heartbeat and before command acknowledgement, so strict hosted readiness proves command delivery selection before ack durability.
+- Added a backend handoff note for generating the bundle from `aos_device_commands`, `aos_admin_command_audits`, device eligibility state from `aos_frame_devices`, and the same serializer used by heartbeat command responses or `GET /commands`.
+
+Verification:
+
+- `scripts/command-poll-contract-check.sh` passed against a representative command polling bundle.
+- `scripts/command-poll-contract-check.sh` rejected an authorized poll response that omitted a queued command row for the target device.
+- `scripts/command-poll-contract-check.sh` rejected a denied poll response that leaked commands.
+- `scripts/command-poll-contract-check.sh` rejected a high-risk command missing an audit id.
+- `scripts/hosted-contract-suite-check.sh` passed with `AUTOPOIESIS_HOSTED_CONTRACT_REQUIRE=command-poll` and the command-poll source provided.
+- `scripts/hosted-contract-suite-check.sh` rejected a missing required command-poll source.
+- `node --check local-ui/server.js` passed.
+- `bash -n install.sh update.sh uninstall-dev-tools.sh factory-reset.sh scripts/*.sh` passed.
+- `git diff --check` passed.
+- `scripts/security-smoke.sh` passed.
+
+Next step:
+
+Generate the command-poll bundle from hosted staging or CI using real durable command rows and command-poll route/heartbeat serializers, then run the strict hosted suite before enabling broad remote command actions.
+
 ## 2026-06-07 - Hosted command acknowledgement contract
 
 Date: 2026-06-07

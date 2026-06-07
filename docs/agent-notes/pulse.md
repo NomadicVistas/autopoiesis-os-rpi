@@ -1,5 +1,14 @@
 # Pulse Agent Notes
 
+## 2026-06-07 - Hosted command polling contract
+
+Date/time: 2026-06-07 03:15 UTC / 2026-06-07 05:15 Europe/Berlin
+Agent: Pulse
+Context: LEAD / INTEGRATION cron pass. Device auth proved the command route is keyed and command acknowledgement proved ack persistence, but hosted readiness still lacked a direct proof that durable queued command rows become exactly the redacted command set a device is allowed to poll.
+What changed: Added `scripts/command-poll-contract-check.sh` and wired `command-poll` into the hosted contract suite between heartbeat and command acknowledgement. Added backend handoff docs for a read-only bundle covering durable `aos_device_commands`, authorized poll response shape, ineligible command exclusion, denied poll evidence, authorization metadata, audit ids, and redaction boundaries.
+What needs review: Hosted staging should generate this bundle from real command queue rows plus the same serializer used by heartbeat command responses or `GET /api/frames/device/{deviceId}/commands`. Decide whether polling marks rows as sent immediately or waits for the initial acknowledged ack.
+Next recommended action: Run the strict hosted suite with `AUTOPOIESIS_COMMAND_POLL_CONTRACT_SOURCE` before enabling broad Admin/Profile remote command actions.
+
 ## 2026-06-07 - Hosted command acknowledgement contract
 
 Date/time: 2026-06-07 02:45 UTC / 2026-06-07 04:45 Europe/Berlin
