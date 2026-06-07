@@ -1,5 +1,14 @@
 # Pulse Agent Notes
 
+## 2026-06-08 - Content-type-aware display dwell time
+
+Date/time: 2026-06-07 23:27 UTC / 2026-06-08 01:27 Europe/Berlin
+Agent: Pulse
+Context: BROADCAST / FEED cron pass. The feed system had a single `imageDuration` preference (default 60s) applied to every non-video feed item. In a mixed content stream with artworks, blog posts, news updates, curatorial notes, and broadcasts, a flat duration creates a monotonous rhythm — a 2-line news flash gets the same display time as a detailed artwork. This is the foundational display behavior primitive that enables content-appropriate pacing.
+What changed: Added `CATEGORY_DISPLAY_SECONDS` with per-category defaults (broadcast=0/until dismissed, curatorial=45s, artwork=60s, blog=30s, news=20s, content=60s). Added `BROADCAST_MAX_DISPLAY_SECONDS` (300s safety cap) and `broadcastMaxDuration` preference. Updated `frameItemDisplayMs()` to resolve category-aware durations with user preference overrides via `preferences.categoryDurations`. Exposed `categoryDisplay` (defaults + overrides + broadcastMaxSeconds) in frame-state and diagnostics. Created `scripts/feed-display-dwell-check.sh` — 12-step gate.
+What needs review: The broadcast max cap of 300s (5 minutes) is a reasonable default for admin announcements, but some broadcasts (e.g., system alerts) may need shorter caps. The `categoryDurations` preference is currently local-only; the hosted API contract doesn't include per-category durations yet. The kiosk JavaScript needs to read `displayMs` from each frame item rather than using a single global interval.
+Next recommended action: Wire `categoryDisplay` into the hosted stream/heartbeat contract so online Profile > Frames can sync per-category durations. Update the kiosk Chromium JavaScript to use per-item `displayMs` for the frame cycle timer. Consider adding a `displayMs` field to delivery events so admin can see actual display durations per content type.
+
 ## 2026-06-08 - Night mode enforcement timer
 
 Date/time: 2026-06-07 23:10 UTC / 2026-06-08 01:10 Europe/Berlin

@@ -1,5 +1,49 @@
 # Progress
 
+## 2026-06-08 - Content-type-aware display dwell time
+
+Date: 2026-06-08
+
+Milestone: BROADCAST / FEED - per-category display dwell time
+
+Changed files:
+
+- `local-ui/server.js`
+- `scripts/feed-display-dwell-check.sh`
+- `docs/progress.md`
+- `docs/agent-notes/pulse.md`
+- `/data/.openclaw/workspace/autopoiesis-os-program/ROLLING-LOG.md`
+
+Implemented:
+
+- Added `CATEGORY_DISPLAY_SECONDS` — per-category default display durations: `broadcast: 0` (until dismissed, capped at broadcast max), `curatorial: 45s`, `artwork: 60s`, `blog: 30s`, `news: 20s`, `content: 60s`.
+- Added `BROADCAST_MAX_DISPLAY_SECONDS` (300s default) — safety cap for broadcast items so "until dismissed" never means forever if the kiosk doesn't send a dismiss.
+- Added `categoryDisplaySeconds()` — resolves display duration per category with optional user preference overrides via `preferences.categoryDurations`.
+- Updated `frameItemDisplayMs()` to use category-aware durations instead of a single flat `imageDuration` for all non-video items. Video/audio items still use their own duration. Broadcast items with default duration 0 get the `broadcastMaxDuration` cap.
+- Exposed `categoryDisplay` in frame-state response — includes `defaults`, `overrides`, and `broadcastMaxSeconds` so the kiosk UI knows exactly what timing applies.
+- Exposed `categoryDisplay` in diagnostics feed section for admin/support visibility.
+- Added `scripts/feed-display-dwell-check.sh`, a 12-step isolated gate proving: category defaults in frame-state and diagnostics, per-type displayMs for artwork/broadcast/blog/news/curatorial, category duration preference overrides, override visibility in categoryDisplay, broadcast max cap preference, video duration override, and mixed-content queue per-item dwell time preservation.
+
+Why this matters:
+
+The previous system gave every non-video feed item the same `imageDuration` (default 60s). In a mixed content stream, artworks deserve longer display than news flashes, blog posts need less time than curatorial notes, and broadcasts should stay until dismissed (with a safety cap). Without content-type-aware dwell time, the frame spent equal time on every item regardless of content density — a news headline got the same 60s as an intricate artwork. This foundation enables the kiosk UI to present content with rhythm and pacing appropriate to each type, and gives users control over per-category timing through preferences.
+
+Verification:
+
+- `scripts/feed-display-dwell-check.sh` passed all 12 steps.
+- `scripts/feed-targeting-check.sh` passed (no regression).
+- `scripts/feed-cursor-check.sh` passed (no regression).
+- `scripts/broadcast-command-check.sh` passed (no regression).
+- `scripts/security-smoke.sh` passed.
+- `node --check local-ui/server.js` passed.
+- `bash -n install.sh update.sh uninstall-dev-tools.sh factory-reset.sh scripts/*.sh` passed.
+- `git diff --check` passed.
+
+Next step:
+
+- Wire `categoryDisplay` into the hosted API contract so the online Profile > Frames preferences can sync per-category durations to the device.
+- On the Pi, verify the kiosk JavaScript reads `displayMs` from each frame item and uses it as the display interval, creating a natural rhythm between content types.
+
 ## 2026-06-08 - Night mode enforcement timer
 
 Date: 2026-06-08

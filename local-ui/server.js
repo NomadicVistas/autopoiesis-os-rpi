@@ -1017,6 +1017,24 @@ function isExpired(value, now = Date.now()) {
   return timestamp !== null && timestamp <= now;
 }
 
+const CATEGORY_DISPLAY_SECONDS = {
+  broadcast: 0,       // until dismissed or max cap
+  curatorial: 45,
+  artwork: 60,
+  blog: 30,
+  news: 20,
+  content: 60
+};
+
+const BROADCAST_MAX_DISPLAY_SECONDS = 300; // 5-minute safety cap for broadcasts
+
+function categoryDisplaySeconds(category, preferences) {
+  const overrides = preferences.categoryDurations || {};
+  const override = Number(overrides[category]);
+  if (Number.isFinite(override) && override >= 0) return Math.round(Math.min(override, 3600));
+  return CATEGORY_DISPLAY_SECONDS[category] != null ? CATEGORY_DISPLAY_SECONDS[category] : 60;
+}
+
 function priorityRank(value) {
   const priority = String(value || "normal").toLowerCase();
   return {
@@ -1653,11 +1671,19 @@ function frameItemDisplayMs(item = {}, preferences = {}) {
   if ((role === "video" || role === "audio") && Number.isFinite(duration) && duration > 0) {
     return Math.round(Math.min(Math.max(duration, 2), 86400) * 1000);
   }
-  const imageSeconds = Number(preferences.imageDuration || preferences.staticDuration || 60);
-  const safeSeconds = Number.isFinite(imageSeconds) && imageSeconds > 0
+  const category = item.displayCategory || feedItemCategory(item);
+  const categorySeconds = categoryDisplaySeconds(category, preferences);
+  if (category === "broadcast" && categorySeconds === 0) {
+    const broadcastMax = Number(preferences.broadcastMaxDuration) || BROADCAST_MAX_DISPLAY_SECONDS;
+    return Math.round(Math.min(Math.max(broadcastMax, 10), 3600) * 1000);
+  }
+  if (categorySeconds === 0) return Math.round(60 * 1000);
+  const imageSeconds = Number(preferences.imageDuration || preferences.staticDuration || 0);
+  const fallbackSeconds = Number.isFinite(imageSeconds) && imageSeconds > 0
     ? Math.min(Math.max(imageSeconds, 5), 3600)
-    : 60;
-  return Math.round(safeSeconds * 1000);
+    : 0;
+  const seconds = categorySeconds || fallbackSeconds || 60;
+  return Math.round(seconds * 1000);
 }
 
 function publicFrameState() {
@@ -1719,6 +1745,11 @@ function publicFrameState() {
     playableItems: playableItems.length,
     cachedPlayableItems: playableItems.filter(item => item.media.cached).length,
     categories: feedCategoryCounts(displayQueue),
+    categoryDisplay: {
+      defaults: { ...CATEGORY_DISPLAY_SECONDS },
+      overrides: preferences.categoryDurations || {},
+      broadcastMaxSeconds: Number(preferences.broadcastMaxDuration) || BROADCAST_MAX_DISPLAY_SECONDS
+    },
     displayCursor: feedCursorSummary(),
     items: playableItems
   };
@@ -2986,7 +3017,12 @@ async function collectDiagnostics(options = {}) {
       cacheCachedItems: cacheIndex.cachedCount || 0,
       cacheFailedItems: cacheIndex.failedCount || 0,
       offlinePlayableItems: cachedOfflineItems().length,
-      displayCursor: feedCursorSummary()
+      displayCursor: feedCursorSummary(),
+      categoryDisplay: {
+        defaults: { ...CATEGORY_DISPLAY_SECONDS },
+        overrides: data.preferences.categoryDurations || {},
+        broadcastMaxSeconds: Number(data.preferences.broadcastMaxDuration) || BROADCAST_MAX_DISPLAY_SECONDS
+      }
     },
     broadcast: broadcast
       ? {
