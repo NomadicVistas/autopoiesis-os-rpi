@@ -1,5 +1,15 @@
 # Pulse Agent Notes
 
+## 2026-06-07 - Kiosk OS configuration helper and display diagnostics
+
+Date/time: 2026-06-07 20:35 UTC / 2026-06-07 22:35 Europe/Berlin
+Agent: Pulse
+Context: RPI APPLIANCE cron pass. The installer created the appliance user, installed the app tree, and rendered systemd units, but never configured the Raspberry Pi OS to actually boot into kiosk mode. Without OS-level configuration (graphical.target, auto-login, screen blanking disabled), the Pi would boot to a login screen or blank console instead of the Chromium kiosk. This was the gap between "app is installed" and "app is running as a kiosk".
+What changed: Added `scripts/configure-kiosk-os.sh`, a Pi OS kiosk configuration helper that enables graphical.target, configures auto-login (via raspi-config, lightdm, or gdm3), disables screen blanking (via raspi-config, kbd config, and an Xsession drop-in), and installs unclutter for cursor hiding. Added `displayDiagnostics()` to the local UI that detects display server state, graphical target, auto-login, screen blanking, and cursor hiding. Propagated through health (6 new issue codes), readiness (new display phase), compact health, and support bundle. Updated install.sh to guide users to run the config helper.
+What needs review: The configure script modifies system files and should be tested on physical Pi hardware. raspi-config behavior may differ across Pi OS versions (Bullseye vs Bookworm). The getty autologin user switching assumes `--autologin pi` format; some Pi OS versions may use `-a pi` instead.
+Next recommended action: Run `sudo scripts/configure-kiosk-os.sh` on the Pi 5 after install, reboot, and confirm the Pi boots into Chromium kiosk without manual login. Check `/local/diagnostics` display section for readiness status.
+
+
 ## 2026-06-07 - Online admin mock bridge for Profile/Admin bundle consistency
 
 Date/time: 2026-06-07 20:19 UTC / 2026-06-07 22:19 Europe/Berlin

@@ -33,5 +33,8 @@ AUTOPOIESIS_APP_DIR="$INSTALL_DIR/app" \
   AUTOPOIESIS_USER="$USER_NAME" \
   "$INSTALL_DIR/app/scripts/install-systemd-units.sh"
 
-echo "Installed. Start now with:"
-echo "  sudo systemctl start autopoiesis-setup.service autopoiesis-kiosk.service"
+echo "Installed. Next steps:"
+echo "  1. Configure kiosk OS mode (auto-login, screen blanking):"
+echo "     sudo $INSTALL_DIR/app/scripts/configure-kiosk-os.sh"
+echo "  2. Start the kiosk services:"
+echo "     sudo systemctl start autopoiesis-setup.service autopoiesis-kiosk.service"

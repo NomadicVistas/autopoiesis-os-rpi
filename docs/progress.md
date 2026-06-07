@@ -1,5 +1,45 @@
 # Progress
 
+## 2026-06-07 - Kiosk OS configuration helper and display diagnostics
+
+Date: 2026-06-07
+
+Milestone: RPI APPLIANCE - kiosk OS configuration and display readiness
+
+Changed files:
+
+- `scripts/configure-kiosk-os.sh`
+- `scripts/configure-kiosk-os-check.sh`
+- `local-ui/server.js`
+- `install.sh`
+- `docs/progress.md`
+- `docs/agent-notes/pulse.md`
+- `/data/.openclaw/workspace/autopoiesis-os-program/ROLLING-LOG.md`
+
+Implemented:
+
+- Added `scripts/configure-kiosk-os.sh`, a Raspberry Pi OS kiosk configuration helper that handles OS-level setup not covered by `install.sh`: enabling `graphical.target`, enabling auto-login for the appliance user, disabling console and X11 screen blanking, and installing `unclutter` for cursor hiding.
+- The helper supports `--dry-run` mode and is safe to re-run (all changes are idempotent).
+- Auto-login is configured through three methods: `raspi-config` (Raspberry Pi OS standard), lightdm (`/etc/lightdm/lightdm.conf`), and gdm3 (`/etc/gdm3/custom.conf`). After raspi-config enables auto-login for the default `pi` user, the helper switches it to the appliance user in getty, lightdm, and gdm3 configs.
+- Screen blanking is disabled through `raspi-config` (standard), `/etc/kbd/config` (Debian fallback), and an Xsession drop-in at `/etc/X11/Xsession.d/99-autopoiesis-disable-blanking`.
+- Added `displayDiagnostics()` to the local UI that detects: DISPLAY/WAYLAND_DISPLAY environment, X11 socket presence, Wayland socket presence, `graphical.target` default, auto-login configuration (lightdm, gdm3, getty), screen blanking status, and unclutter installation.
+- Propagated display diagnostics through the diagnostics, health (new issue codes: `display_no_env`, `display_x_socket_missing`, `display_wayland_socket_missing`, `display_not_graphical_target`, `display_no_autologin`, `display_blanking_enabled`), readiness (new `display` phase), compact health, and support bundle.
+- Updated `install.sh` post-install message to guide users to run `configure-kiosk-os.sh` before starting services.
+- Added `scripts/configure-kiosk-os-check.sh`, an 8-step isolated gate proving: script syntax, help output, dry-run output with custom user, lightdm autologin configuration and idempotency, gdm3 autologin configuration and idempotency, getty autologin user switching, X11 blanking drop-in creation, and dry-run non-modification of existing config.
+
+Verification:
+
+- `scripts/configure-kiosk-os-check.sh` passed all 8 tests.
+- `node --check local-ui/server.js` passed.
+- `bash -n install.sh update.sh uninstall-dev-tools.sh factory-reset.sh scripts/*.sh` passed.
+- `git diff --check` passed.
+- `scripts/security-smoke.sh` passed.
+
+Next step:
+
+- Run `sudo scripts/configure-kiosk-os.sh` on the Raspberry Pi 5 after `install.sh`, then reboot and confirm the Pi boots into Chromium kiosk without manual login. Check diagnostics `/local/diagnostics` for display/kiosk readiness status.
+
+
 ## 2026-06-07 - Online admin mock bridge for Profile/Admin bundle consistency
 
 Date: 2026-06-07

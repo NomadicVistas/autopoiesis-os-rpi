@@ -2244,6 +2244,121 @@ function inputDiagnostics() {
   }
 }
 
+function displayDiagnostics() {
+  const display = process.env.DISPLAY || null;
+  const waylandDisplay = process.env.WAYLAND_DISPLAY || null;
+  const xdgSessionType = process.env.XDG_SESSION_TYPE || null;
+  const displayServer = xdgSessionType === "wayland" ? "wayland" : xdgSessionType === "x11" ? "x11" : display ? "x11" : waylandDisplay ? "wayland" : "none";
+  const result = {
+    ok: true,
+    status: display ? "display_ready" : "no_display_env",
+    display,
+    waylandDisplay,
+    xdgSessionType,
+    displayServer
+  };
+
+  // Check X11 socket
+  if (display) {
+    const displayNum = display.replace(/^:/, "").replace(/\..*$/, "");
+    const xSocket = `/tmp/.X11-unix/X${displayNum}`;
+    try {
+      const stat = fs.statSync(xSocket);
+    result.xSocket = xSocket;
+      result.xSocketPresent = true;
+    } catch {
+      result.xSocket = xSocket;
+      result.xSocketPresent = false;
+      result.status = "x_socket_missing";
+    }
+  }
+
+  // Check Wayland socket
+  if (waylandDisplay && !display) {
+    const runtimeDir = process.env.XDG_RUNTIME_DIR || `/run/user/${process.getuid()}`;
+    const waylandSocket = `${runtimeDir}/${waylandDisplay}`;
+    try {
+      fs.statSync(waylandSocket);
+      result.waylandSocket = waylandSocket;
+      result.waylandSocketPresent = true;
+      result.status = "display_ready";
+    } catch {
+      result.waylandSocket = waylandSocket;
+      result.waylandSocketPresent = false;
+      result.status = "wayland_socket_missing";
+    }
+  }
+
+  // Check graphical.target default via symlink
+  try {
+    const defaultTarget = fs.readlinkSync("/etc/systemd/system/default.target");
+    result.graphicalTarget = defaultTarget.includes("graphical.target");
+    if (!result.graphicalTarget) {
+      result.defaultTarget = defaultTarget;
+    }
+  } catch {
+    result.graphicalTarget = null;
+  }
+
+  // Check auto-login configuration (lightdm)
+  try {
+    const lightdmConf = fs.readFileSync("/etc/lightdm/lightdm.conf", "utf8");
+    const match = lightdmConf.match(/^autologin-user=(.+)$/m);
+    result.lightdmAutologinUser = match ? match[1].trim() : null;
+  } catch {
+    result.lightdmAutologinUser = null;
+  }
+
+  // Check auto-login configuration (gdm3)
+  try {
+    const gdm3Conf = fs.readFileSync("/etc/gdm3/custom.conf", "utf8");
+    const enabled = gdm3Conf.match(/^AutomaticLoginEnable=true$/m);
+    const user = gdm3Conf.match(/^AutomaticLogin=(.+)$/m);
+    result.gdm3Autologin = Boolean(enabled);
+    result.gdm3AutologinUser = user ? user[1].trim() : null;
+  } catch {
+    result.gdm3Autologin = null;
+  }
+
+  // Check getty autologin override
+  try {
+    const gettyOverride = fs.readFileSync("/etc/systemd/system/getty@tty1.service.d/autologin.conf", "utf8");
+    const autologinUser = gettyOverride.match(/autologin=(\S+)/);
+    result.gettyAutologinUser = autologinUser ? autologinUser[1] : null;
+  } catch {
+    result.gettyAutologinUser = null;
+  }
+
+  // Check X11 screen blanking drop-in
+  try {
+    fs.statSync("/etc/X11/Xsession.d/99-autopoiesis-disable-blanking");
+    result.screenBlankingDisabled = true;
+  } catch {
+    result.screenBlankingDisabled = false;
+  }
+
+  // Check unclutter
+  try {
+    const stat = fs.statSync("/usr/bin/unclutter");
+    result.unclutterInstalled = true;
+  } catch {
+    result.unclutterInstalled = false;
+  }
+
+  // Overall kiosk readiness
+  const hasAutologin = Boolean(result.lightdmAutologinUser || result.gdm3Autologin || result.gettyAutologinUser);
+  const displayReady = result.status === "display_ready";
+  result.kioskReadiness = {
+    displayReady,
+    graphicalTarget: result.graphicalTarget,
+    autoLogin: hasAutologin,
+    screenBlankingDisabled: result.screenBlankingDisabled,
+    cursorHidden: result.unclutterInstalled
+  };
+
+  return result;
+}
+
 function parseSystemdBoolean(value) {
   if (value === true || value === false) return value;
   const normalized = String(value || "").trim().toLowerCase();
@@ -2636,6 +2751,29 @@ function diagnosticsHealth(diagnostics, data) {
     }
   }
 
+  if (diagnostics.display) {
+    const display = diagnostics.display;
+    if (display.status === "no_display_env") {
+      add("warning", "display_no_env", "DISPLAY environment variable is not set; Chromium kiosk may not be able to open a window.");
+    } else if (display.status === "x_socket_missing") {
+      add("warning", "display_x_socket_missing", "DISPLAY is set but the X11 socket is not present; the X server may not be running yet.");
+    } else if (display.status === "wayland_socket_missing") {
+      add("warning", "display_wayland_socket_missing", "WAYLAND_DISPLAY is set but the Wayland socket is not present; the compositor may not be running yet.");
+    }
+    if (display.graphicalTarget === false) {
+      add("warning", "display_not_graphical_target", "systemd default target is not graphical.target; the Pi may not boot into a graphical session.");
+    }
+    if (display.kioskReadiness) {
+      const kr = display.kioskReadiness;
+      if (!kr.autoLogin && kr.graphicalTarget !== false) {
+        add("warning", "display_no_autologin", "No graphical auto-login is configured for the appliance user; the kiosk may show a login screen on boot.");
+      }
+      if (!kr.screenBlankingDisabled) {
+        add("warning", "display_blanking_enabled", "Screen blanking is not disabled; the display may turn off during idle periods.");
+      }
+    }
+  }
+
   if (diagnostics.release && diagnostics.release.status === "error") {
     add("error", "release_error", "Last release/update attempt failed.");
   } else if (diagnostics.release && diagnostics.release.status === "in_progress") {
@@ -2737,6 +2875,7 @@ async function collectDiagnostics(options = {}) {
     clock,
     temperatureC: readTemperatureC(),
     input: inputDiagnostics(),
+    display: displayDiagnostics(),
     mode: data.state.currentMode || "setup",
     network: data.network || null,
     pairing: {
@@ -2916,6 +3055,31 @@ function readinessSummary(diagnostics) {
         totalDevices: input.totalDevices || 0
       }
     ),
+    display: (() => {
+      const d = diagnostics.display || {};
+      const kr = d.kioskReadiness || {};
+      const ready = d.status === "display_ready" || d.status === "no_display_env";
+      const issues = [];
+      if (d.status === "x_socket_missing") issues.push("X11 socket not present");
+      if (d.status === "wayland_socket_missing") issues.push("Wayland socket not present");
+      if (d.graphicalTarget === false) issues.push("default target is not graphical.target");
+      if (!kr.autoLogin) issues.push("no graphical auto-login");
+      if (!kr.screenBlankingDisabled) issues.push("screen blanking not disabled");
+      const statusLabel = d.status === "display_ready" ? "ready" : issues.length ? "kiosk_config_incomplete" : d.status || "unknown";
+      const summary = issues.length
+        ? "Display server checks: " + issues.join(", ") + "."
+        : d.status === "display_ready"
+          ? "Display server is accessible and kiosk OS configuration looks complete."
+          : d.status === "no_display_env"
+            ? "DISPLAY is not set (may be a development host or non-kiosk deployment)."
+            : "Display server status: " + (d.status || "unknown");
+      return phase(ready, statusLabel, summary, {
+        displayServer: d.displayServer || null,
+        graphicalTarget: d.graphicalTarget,
+        autoLogin: kr.autoLogin || false,
+        screenBlankingDisabled: kr.screenBlankingDisabled || false
+      });
+    })(),
     network: phase(
       networkOnline,
       networkOnline ? "ready" : "needs_network",
@@ -3286,6 +3450,7 @@ function healthSummary(diagnostics) {
       paired: Boolean(health.paired)
     },
     input: diagnostics.input || null,
+    display: diagnostics.display || null,
     storage: diagnostics.storage
       ? {
           runtime: diagnostics.storage.runtime || null,
@@ -3353,6 +3518,14 @@ async function supportBundle(options = {}) {
         keyboardPresent: diagnostics.input ? Boolean(diagnostics.input.keyboardPresent) : false,
         totalDevices: diagnostics.input ? diagnostics.input.totalDevices || 0 : 0
       },
+      display: diagnostics.display
+        ? {
+            status: diagnostics.display.status || null,
+            displayServer: diagnostics.display.displayServer || null,
+            graphicalTarget: diagnostics.display.graphicalTarget,
+            kioskReadiness: diagnostics.display.kioskReadiness || null
+          }
+        : null,
       hardware: diagnostics.hardware
         ? {
             status: diagnostics.hardware.status || null,
