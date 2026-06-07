@@ -27,9 +27,15 @@ The checker now rejects:
 - subscription rows whose user is absent from `adminFrames.users`
 - entitled subscriptions (`active`, `trialing`, `past_due`, `comped`) without a matching subscriber row
 - subscriber `subscriptionId` values absent from `adminFrames.subscriptions`
+- subscriber `subscriptionId` values whose referenced subscription belongs to another user
+- subscriber status, plan, or tier summaries that drift from the referenced subscription when both values are present
 - fleet device owners absent from `adminFrames.users`
 - device subscription ids absent from `adminFrames.subscriptions`
+- device subscription ids whose referenced subscription belongs to a different `ownerUserId`
+- device subscription status, plan, or tier summaries that drift from the referenced subscription when both values are present
 - page `total` values smaller than `items.length`
+
+Profile > Frames device rows should also expose `ownerUserId` matching `profileFrames.userId`. That duplicates the ownership evidence already implied by the enclosing profile response, but it keeps each row safe to render, cache, paginate, or reuse in support tooling without losing account context.
 
 ## Acceptance
 

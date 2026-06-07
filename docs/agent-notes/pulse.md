@@ -1,5 +1,14 @@
 # Pulse Agent Notes
 
+## 2026-06-07 - Online admin ownership and subscription joins
+
+Date/time: 2026-06-07 10:05 UTC / 2026-06-07 12:05 Europe/Berlin
+Agent: Pulse
+Context: ONLINE ADMIN cron pass. The hosted Profile/Admin bundle already rejected orphaned admin rows, but Profile devices could omit owner evidence and fleet device subscription summaries could point at a known subscription id without proving that row belonged to the same owner.
+What changed: Tightened scripts/online-admin-contract-check.sh so Profile device rows must expose ownerUserId matching profileFrames.userId. Admin fleet device subscription summaries must now reference a subscription owned by the device owner and must match referenced subscription status, plan, and tier when those fields are present. Subscriber summaries get the same status/plan/tier coherence check, while historical subscription rows are still allowed.
+What needs review: The hosted adapter should build subscribers, subscriptions, and device subscription summaries from one canonical account/subscription projection, then decorate devices from that projection rather than duplicating entitlement logic in the UI.
+Next recommended action: Run a staging online-admin bundle through the strict hosted suite before enabling subscription-gated remote actions or device fleet filters.
+
 ## 2026-06-07 - Hosted suite gate catalog
 
 Date/time: 2026-06-07 09:15 UTC / 2026-06-07 11:15 Europe/Berlin

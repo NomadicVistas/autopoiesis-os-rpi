@@ -328,11 +328,26 @@ function validateSubscription(subscription, field) {
   optionalBoolean(subscription.cancelAtPeriodEnd, field + ".cancelAtPeriodEnd");
 }
 
+function optionalComparableValue(value) {
+  if (value === undefined || value === null || value === "") return null;
+  return String(value);
+}
+
+function requireMatchingOptional(left, right, field) {
+  const leftValue = optionalComparableValue(left);
+  const rightValue = optionalComparableValue(right);
+  if (leftValue === null || rightValue === null) return;
+  if (leftValue !== rightValue) fail(field + " must match referenced subscription");
+}
+
 function validateDevice(device, field, ownerUserId = null, options = {}) {
   if (!isObject(device)) fail(field + " must be an object");
   requiredString(device.deviceId, field + ".deviceId");
   optionalString(device.deviceName, field + ".deviceName");
   optionalString(device.ownerUserId, field + ".ownerUserId");
+  if (ownerUserId && options.requireOwner && !device.ownerUserId) {
+    fail(field + ".ownerUserId is required for owned Profile > Frames devices");
+  }
   if (ownerUserId && device.ownerUserId && device.ownerUserId !== ownerUserId) {
     fail(field + ".ownerUserId does not match profile userId");
   }
@@ -584,7 +599,8 @@ function validateProfileFrames(profileFrames) {
   const devices = asArray(profileFrames.devices, "profileFrames.devices");
   for (const [index, device] of devices.entries()) {
     validateDevice(device, "profileFrames.devices[" + index + "]", profileFrames.userId, {
-      requireActions: true
+      requireActions: true,
+      requireOwner: true
     });
   }
 }
@@ -653,10 +669,6 @@ function validateAdminFrames(adminFrames) {
     if (entitledSubscriptionStatuses.has(subscription.status) && !subscribersByUserId.has(userId)) {
       fail(prefix + ".userId with entitled status must also appear in adminFrames.subscribers");
     }
-    const subscriber = subscribersByUserId.get(userId);
-    if (subscriber && subscriber.subscriptionId && subscriber.subscriptionId !== subscriptionId) {
-      fail(prefix + ".subscriptionId does not match subscriber.subscriptionId");
-    }
   }
 
   validateRemoteActions(adminFrames.remoteActions, "adminFrames.remoteActions");
@@ -680,12 +692,30 @@ function validateAdminFrames(adminFrames) {
       if (subscriptionId && !subscriptionsById.has(subscriptionId)) {
         fail("adminFrames.devices.items[" + index + "].subscription.subscriptionId must reference adminFrames.subscriptions");
       }
+      if (subscriptionId) {
+        const subscription = subscriptionsById.get(subscriptionId);
+        if (subscription.userId !== device.ownerUserId) {
+          fail("adminFrames.devices.items[" + index + "].subscription.subscriptionId must belong to device.ownerUserId");
+        }
+        requireMatchingOptional(device.subscription.status, subscription.status, "adminFrames.devices.items[" + index + "].subscription.status");
+        requireMatchingOptional(device.subscription.plan, subscription.plan, "adminFrames.devices.items[" + index + "].subscription.plan");
+        requireMatchingOptional(device.subscription.tier, subscription.tier, "adminFrames.devices.items[" + index + "].subscription.tier");
+      }
     }
   }
 
   for (const [userId, subscriber] of subscribersByUserId.entries()) {
     if (subscriber.subscriptionId && !subscriptionsById.has(subscriber.subscriptionId)) {
       fail("adminFrames.subscribers user " + userId + " references unknown subscriptionId");
+    }
+    if (subscriber.subscriptionId) {
+      const subscription = subscriptionsById.get(subscriber.subscriptionId);
+      if (subscription.userId !== userId) {
+        fail("adminFrames.subscribers user " + userId + " references a subscription owned by another user");
+      }
+      requireMatchingOptional(subscriber.status, subscription.status, "adminFrames.subscribers user " + userId + " status");
+      requireMatchingOptional(subscriber.plan, subscription.plan, "adminFrames.subscribers user " + userId + " plan");
+      requireMatchingOptional(subscriber.tier, subscription.tier, "adminFrames.subscribers user " + userId + " tier");
     }
     if (!subscriptionsByUserId.has(userId) && subscriber.status !== "test" && subscriber.status !== "inactive") {
       fail("adminFrames.subscribers user " + userId + " must have a matching adminFrames.subscriptions row");

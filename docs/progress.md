@@ -1,5 +1,47 @@
 # Progress
 
+## 2026-06-07 - Online admin ownership and subscription joins
+
+Date: 2026-06-07
+
+Milestone: ONLINE ADMIN - Profile/Admin ownership and entitlement coherence
+
+Changed files:
+
+- scripts/online-admin-contract-check.sh
+- README.md
+- docs/api-contract.md
+- docs/admin-system.md
+- docs/online-frames-profile.md
+- docs/database-schema.md
+- docs/agent-notes/backend-online-admin-subscription-consistency-issue.md
+- docs/agent-notes/pulse.md
+- docs/progress.md
+- /data/.openclaw/workspace/autopoiesis-os-program/ROLLING-LOG.md
+
+Implemented:
+
+- Tightened the hosted online-admin bundle gate so Profile > Frames device rows must expose ownerUserId matching profileFrames.userId.
+- Fleet device subscription summaries now must reference a subscription owned by the same device owner.
+- Subscriber and fleet-device subscription summaries must match referenced subscription status, plan, and tier when those fields are present.
+- Relaxed the subscriber/subscription join so users can expose historical subscription rows while subscriber.subscriptionId still points at the canonical current row.
+
+Verification:
+
+- Representative online-admin bundle acceptance passed.
+- Missing Profile device ownerUserId was rejected.
+- Fleet device subscription id owned by another user was rejected.
+- Subscriber summary status drift from the referenced subscription was rejected.
+- Hosted suite required-online-admin pass path passed.
+- node --check local-ui/server.js passed.
+- bash -n install.sh update.sh uninstall-dev-tools.sh factory-reset.sh scripts/*.sh passed.
+- git diff --check passed.
+- scripts/security-smoke.sh passed.
+
+Next step:
+
+Generate the online-admin bundle from staging with ownerUserId on every Profile device row and subscription summaries joined from one canonical account/subscription projection before enabling subscription-gated fleet actions.
+
 ## 2026-06-07 - Hosted suite gate catalog
 
 Date: 2026-06-07

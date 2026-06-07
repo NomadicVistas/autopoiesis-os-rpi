@@ -271,7 +271,7 @@ Profile/Admin bundle validation:
 - Optional adapter endpoint: GET /api/admin/frames/release-rollout-contract-bundle
 - Optional adapter endpoint: GET /api/admin/frames/command-ack-contract-bundle
 
-`scripts/online-admin-contract-check.sh` validates a saved or live bundle assembled from the online Profile > Frames and Admin > Frames surfaces. The bundle is intentionally a contract fixture, not a required production endpoint; the optional adapter endpoint can assemble the same shape for staging and CI.
+`scripts/online-admin-contract-check.sh` validates a saved or live bundle assembled from the online Profile > Frames and Admin > Frames surfaces. The bundle is intentionally a contract fixture, not a required production endpoint; the optional adapter endpoint can assemble the same shape for staging and CI. Profile device rows must carry ownerUserId matching the profile user, and subscription summaries in subscriber/fleet rows must point at subscription rows owned by the same user and match status/plan/tier when those fields are present.
 
 The bundle root should include `ok`, `kind: "autopoiesis_frames_online_admin_bundle"`, `schemaVersion: 1`, `generatedAt`, `profileFrames`, and `adminFrames`.
 
