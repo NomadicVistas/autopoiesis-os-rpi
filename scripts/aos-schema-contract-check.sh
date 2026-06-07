@@ -128,7 +128,7 @@ function normalizeTables(payload) {
       const table = addTable(tables, row.tableName || row.table_name || row.table || row.tbl_name);
       if (!table) continue;
 
-      if (rowType === "column" || row.columnName || row.column_name) {
+      if (rowType === "column") {
         const columnName = normalizeName(row.columnName || row.column_name || row.name);
         if (!columnName) continue;
         table.columns.set(columnName, {

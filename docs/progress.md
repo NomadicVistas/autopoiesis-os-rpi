@@ -1,5 +1,41 @@
 # Progress
 
+## 2026-06-07 - Canonical AOS initial database migration
+
+Date: 2026-06-07
+
+Milestone: API / DATABASE / SYNC - canonical migration foundation
+
+Changed files:
+
+- `migrations/20260607000001_initial_aos_frames.sql`
+- `scripts/aos-schema-sqlite-validation.sql`
+- `scripts/aos-schema-contract-check.sh`
+- `docs/agent-notes/pulse.md`
+- `docs/progress.md`
+- `/data/.openclaw/workspace/autopoiesis-os-program/ROLLING-LOG.md`
+
+Implemented:
+
+- Added `migrations/20260607000001_initial_aos_frames.sql`, the canonical initial AOS database migration that creates all 14 durable `aos_` tables from the documented schema.
+- Tables: `aos_frame_devices`, `aos_frame_pairing_codes` (with `pairing_code_hash`), `aos_frame_device_settings`, `aos_frame_user_preferences`, `aos_heartbeats`, `aos_device_commands`, `aos_admin_command_audits`, `aos_device_events`, `aos_artwork_likes`, `aos_broadcasts`, `aos_broadcast_deliveries`, `aos_releases`, `aos_release_rollouts`, `aos_subscriptions`.
+- Each table includes all columns required by `scripts/aos-schema-contract-check.sh`, plus appropriate primary keys, unique constraints, and index definitions.
+- Added `scripts/aos-schema-sqlite-validation.sql` for local SQLite schema contract validation (PostgreSQL-compatible types adapted for SQLite).
+- Fixed a bug in `scripts/aos-schema-contract-check.sh` where SQLite index rows with `column_name` could overwrite column primary key ordinal data, causing false-negative key validation failures.
+
+Verification:
+
+- `scripts/aos-migration-contract-check.sh migrations/` passed: 1 migration, 14 tables, no destructive SQL.
+- `scripts/aos-schema-contract-check.sh` passed against SQLite database built from the migration: 14 tables, 14 required, 0 extra.
+- `node --check local-ui/server.js` passed.
+- `bash -n install.sh update.sh uninstall-dev-tools.sh factory-reset.sh scripts/*.sh` passed.
+- `git diff --check` passed.
+- `scripts/security-smoke.sh` passed.
+
+Next step:
+
+- Import the canonical migration into the hosted backend database, then run `scripts/hosted-contract-suite-check.sh --strict` against the migrated staging database before enabling hosted stream, heartbeat, command, broadcast, and release endpoints.
+
 ## 2026-06-07 - Release update bridge for installed appliances
 
 Date: 2026-06-07

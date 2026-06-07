@@ -1,5 +1,14 @@
 # Pulse Agent Notes
 
+## 2026-06-07 - Canonical AOS initial database migration
+
+Date/time: 2026-06-07 19:13 UTC / 2026-06-07 21:13 Europe/Berlin
+Agent: Pulse
+Context: API / DATABASE / SYNC cron pass. The database schema document and migration/schema contract checkers existed, but no actual SQL migration file had been created. The hosted backend had no canonical `aos_` DDL to import. The migration contract checker was designed to validate migration files, but nothing existed to validate.
+What changed: Added `migrations/20260607000001_initial_aos_frames.sql` with CREATE TABLE statements for all 14 durable `aos_` tables. The migration targets PostgreSQL and includes primary keys, unique constraints, and index definitions matching the schema contract requirements. Also added `scripts/aos-schema-sqlite-validation.sql` for local SQLite schema validation. Fixed a bug in `scripts/aos-schema-contract-check.sh` where SQLite index introspection rows with `column_name` overwrote column primary key ordinal data, causing false-negative PK validation failures.
+What needs review: The migration uses TEXT ids rather than UUIDs. The hosted backend may prefer native UUID types — this should be decided before the first hosted import. The `pairing_code` column in `aos_frame_pairing_codes` is optional alongside the required `pairing_code_hash`; production should consider dropping the plaintext column after backend migration.
+Next recommended action: Import the canonical migration into the hosted staging database, then run `scripts/hosted-contract-suite-check.sh --strict` with real migration, schema, pairing, heartbeat, command, stream, admin, broadcast, and release fixtures before enabling hosted endpoints.
+
 ## 2026-06-07 - Release update bridge for installed appliances
 
 Date/time: 2026-06-07 19:07 UTC / 2026-06-07 21:07 Europe/Berlin
