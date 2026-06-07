@@ -1,5 +1,14 @@
 # Pulse Agent Notes
 
+## 2026-06-07 - Release update bridge for installed appliances
+
+Date/time: 2026-06-07 19:07 UTC / 2026-06-07 21:07 Europe/Berlin
+Agent: Pulse
+Context: RPI APPLIANCE cron pass. The systemd updater timer ran `update-from-github.sh` every hour, which silently exits on installed (non-git) appliances. After `install.sh` copies the app tree, there is no `.git` directory, so the timer was a no-op in production. The local UI already had `/local/release/check` and `/local/release/apply` endpoints that handle hosted release checking, manifest validation, and artifact apply, but nothing connected the timer to them.
+What changed: Added `scripts/check-release-update.sh`, a bridge between the updater timer and the local UI release system. It checks device auto-update preferences, calls the local UI health/release-check/apply endpoints, and logs outcomes. Updated `autopoiesis-updater.service` to call it instead of the git updater. Updated `update.sh` to dispatch to `check-release-update.sh` for installed appliances and fall back to `update-from-github.sh` only for git checkouts. Added `scripts/check-release-update-check.sh` with 8 isolated acceptance tests covering all paths.
+What needs review: The service unit now depends on `autopoiesis-setup.service` (local UI must be running). The timer already fires after boot with a 10-minute delay, which gives setup time to start.
+Next recommended action: After physical Pi install, confirm `journalctl -u autopoiesis-updater.service` shows the new bridge running, then trigger a real hosted release check via `sudo systemctl start autopoiesis-updater.service`.
+
 ## 2026-06-07 - Mock hosted API + device lifecycle integration gate
 
 Date/time: 2026-06-07 18:30 UTC / 2026-06-07 20:30 Europe/Berlin

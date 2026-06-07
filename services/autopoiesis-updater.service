@@ -1,6 +1,6 @@
 [Unit]
-Description=Autopoiesis GitHub updater
-After=network-online.target
+Description=Autopoiesis release updater
+After=network-online.target autopoiesis-setup.service
 Wants=network-online.target
 
 [Service]
@@ -11,4 +11,4 @@ Environment=AUTOPOIESIS_INSTALL_DIR=/opt/autopoiesis-os
 Environment=AUTOPOIESIS_DATA_DIR=/var/lib/autopoiesis-os
 Environment=AUTOPOIESIS_LOG_DIR=/var/log/autopoiesis-os
 Environment=AUTOPOIESIS_USER=frame
-ExecStart=/opt/autopoiesis-os/app/scripts/update-from-github.sh
+ExecStart=/opt/autopoiesis-os/app/scripts/check-release-update.sh

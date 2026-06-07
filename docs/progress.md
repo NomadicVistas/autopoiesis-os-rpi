@@ -1,5 +1,42 @@
 # Progress
 
+## 2026-06-07 - Release update bridge for installed appliances
+
+Date: 2026-06-07
+
+Milestone: RPI APPLIANCE - production updater path for installed devices
+
+Changed files:
+
+- `scripts/check-release-update.sh`
+- `scripts/check-release-update-check.sh`
+- `update.sh`
+- `services/autopoiesis-updater.service`
+- `docs/agent-notes/pulse.md`
+- `docs/progress.md`
+- `/data/.openclaw/workspace/autopoiesis-os-program/ROLLING-LOG.md`
+
+Implemented:
+
+- Added `scripts/check-release-update.sh`, a bridge between the systemd updater timer and the local UI hosted release system.
+- The bridge checks for curl, respects the device `autoUpdate` preference, probes the local UI health endpoint, calls the local UI release check, and applies the release when an update is available.
+- All outcomes are logged to `update.log`; dry-run mode reports what would happen without applying.
+- Updated `services/autopoiesis-updater.service` to call `check-release-update.sh` instead of `update-from-github.sh`, with an added dependency on `autopoiesis-setup.service` so the local UI is running when the timer fires.
+- Updated `update.sh` to dispatch to `check-release-update.sh` for installed (non-git) appliances, falling back to `update-from-github.sh` only when the app directory is a git checkout.
+- Added `scripts/check-release-update-check.sh`, an isolated gate proving: curl-unavailable skip, auto-update-disabled skip, no-update-available pass, successful apply, apply failure with non-zero exit, dry-run logging, and `update.sh` dispatch routing.
+
+Verification:
+
+- `scripts/check-release-update-check.sh` passed all 8 tests.
+- `node --check local-ui/server.js` passed.
+- `bash -n install.sh update.sh uninstall-dev-tools.sh factory-reset.sh scripts/*.sh` passed.
+- `git diff --check` passed.
+- `scripts/security-smoke.sh` passed.
+
+Next step:
+
+- After physical Pi install, confirm `journalctl -u autopoiesis-updater.service` shows the bridge executing, then test a real hosted release cycle.
+
 ## 2026-06-07 - Mock hosted API + device lifecycle integration gate
 
 Date: 2026-06-07

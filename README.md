@@ -66,6 +66,7 @@ Milestone 2 is scaffolded for physical Pi validation. The local UI can:
 - apply artifact releases and snapshot rollbacks through the same app-tree copy helper, preserving `rsync` when present and falling back to `tar` on lean Pi images
 - run a deliberate factory reset that clears identity, pairing, preferences, commands, feed/cache, and rollout state while preserving app code and logs
 - run a kiosk check that proves the Chromium launch command uses Pi-safe software rendering flags
+- bridge the hourly updater timer to the local UI hosted release check/apply system so installed appliances update automatically without a git checkout
 - run a hardware profile check that fails physical acceptance on underpowered Pi hardware while allowing x86_64 development hosts
 - run a fixture-backed hardware profile gate that proves Pi 5, Pi 4, Pi 3, and throttling classifications without physical hardware
 - run a local watchdog timer plus isolated acceptance gate that restarts setup/kiosk services only when liveness checks fail
