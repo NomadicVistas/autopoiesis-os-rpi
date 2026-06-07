@@ -1,5 +1,42 @@
 # Progress
 
+## 2026-06-07 - Hosted manifest source validation
+
+Date: 2026-06-07
+
+Milestone: LEAD / INTEGRATION - hosted contract orchestration
+
+Changed files:
+
+- `scripts/hosted-contract-suite-check.sh`
+- `README.md`
+- `docs/api-contract.md`
+- `docs/agent-notes/pulse.md`
+- `docs/progress.md`
+- `/data/.openclaw/workspace/autopoiesis-os-program/ROLLING-LOG.md`
+
+Implemented:
+
+- Added an early manifest source lint step to the hosted contract suite.
+- The suite now rejects unknown keys in `sources`, `contracts`, `gates`, and `contractSources` instead of silently skipping typoed gates.
+- Enabled object entries must provide `source`, `path`, `file`, or `url`; intentionally disabled entries can use `false` or `{ "enabled": false }`.
+- Plan mode and full execution now share the same manifest validation path before any individual contract checker runs.
+
+Verification:
+
+- Plan mode accepted a valid manifest source.
+- Plan mode rejected an unknown manifest source gate.
+- Plan mode rejected an enabled manifest source entry without a source value.
+- Disabled manifest source entries were skipped cleanly.
+- `node --check local-ui/server.js` passed.
+- `bash -n install.sh update.sh uninstall-dev-tools.sh factory-reset.sh scripts/*.sh` passed.
+- `git diff --check` passed.
+- `scripts/security-smoke.sh` passed.
+
+Next step:
+
+Have hosted CI treat manifest source lint failures as artifact-generation bugs before running the full suite or handing the bundle to physical Pi validation.
+
 ## 2026-06-07 - Hosted suite planning mode
 
 Date: 2026-06-07

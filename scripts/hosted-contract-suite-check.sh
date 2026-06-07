@@ -510,6 +510,173 @@ load_manifest() {
     exit 1
   }
 
+  node - "$MANIFEST_FILE" <<'NODE' || {
+const fs = require("fs");
+
+process.on("uncaughtException", error => {
+  console.error(error.message);
+  process.exit(1);
+});
+
+const file = process.argv[2];
+const allGates = new Set([
+  "migrations",
+  "schema",
+  "pairing",
+  "device-auth",
+  "settings",
+  "profile-ownership",
+  "heartbeat",
+  "command-poll",
+  "command-ack",
+  "command-state",
+  "stream",
+  "cache",
+  "online-admin",
+  "broadcast",
+  "release",
+  "release-rollout"
+]);
+const aliases = new Map([
+  ["migration", "migrations"],
+  ["migrations", "migrations"],
+  ["aos-migration", "migrations"],
+  ["aos_migration", "migrations"],
+  ["schema", "schema"],
+  ["aos-schema", "schema"],
+  ["aos_schema", "schema"],
+  ["pairing", "pairing"],
+  ["pairing-contract", "pairing"],
+  ["pairing_contract", "pairing"],
+  ["device-auth", "device-auth"],
+  ["device_auth", "device-auth"],
+  ["auth", "device-auth"],
+  ["device-auth-contract", "device-auth"],
+  ["device_auth_contract", "device-auth"],
+  ["settings", "settings"],
+  ["settings-sync", "settings"],
+  ["settings_sync", "settings"],
+  ["settings-contract", "settings"],
+  ["settings_contract", "settings"],
+  ["profile-ownership", "profile-ownership"],
+  ["profile_ownership", "profile-ownership"],
+  ["ownership", "profile-ownership"],
+  ["profile-auth", "profile-ownership"],
+  ["profile_auth", "profile-ownership"],
+  ["account-ownership", "profile-ownership"],
+  ["account_ownership", "profile-ownership"],
+  ["heartbeat", "heartbeat"],
+  ["heartbeat-contract", "heartbeat"],
+  ["heartbeat_contract", "heartbeat"],
+  ["event-ingestion", "heartbeat"],
+  ["event_ingestion", "heartbeat"],
+  ["command-poll", "command-poll"],
+  ["command_poll", "command-poll"],
+  ["commands", "command-poll"],
+  ["command-queue", "command-poll"],
+  ["command_queue", "command-poll"],
+  ["poll", "command-poll"],
+  ["polling", "command-poll"],
+  ["command-poll-contract", "command-poll"],
+  ["command_poll_contract", "command-poll"],
+  ["command-ack", "command-ack"],
+  ["command_ack", "command-ack"],
+  ["commands-ack", "command-ack"],
+  ["commands_ack", "command-ack"],
+  ["ack", "command-ack"],
+  ["acknowledgement", "command-ack"],
+  ["acknowledgment", "command-ack"],
+  ["command-ack-contract", "command-ack"],
+  ["command_ack_contract", "command-ack"],
+  ["command-state", "command-state"],
+  ["command_state", "command-state"],
+  ["commands-state", "command-state"],
+  ["commands_state", "command-state"],
+  ["command-lifecycle", "command-state"],
+  ["command_lifecycle", "command-state"],
+  ["outbox", "command-state"],
+  ["command-outbox", "command-state"],
+  ["command_outbox", "command-state"],
+  ["command-state-contract", "command-state"],
+  ["command_state_contract", "command-state"],
+  ["stream", "stream"],
+  ["stream-contract", "stream"],
+  ["stream_contract", "stream"],
+  ["cache", "cache"],
+  ["offline-cache", "cache"],
+  ["offline_cache", "cache"],
+  ["cache-contract", "cache"],
+  ["cache_contract", "cache"],
+  ["admin", "online-admin"],
+  ["online-admin", "online-admin"],
+  ["online_admin", "online-admin"],
+  ["online-admin-contract", "online-admin"],
+  ["online_admin_contract", "online-admin"],
+  ["broadcast", "broadcast"],
+  ["broadcasts", "broadcast"],
+  ["broadcast-contract", "broadcast"],
+  ["broadcast_contract", "broadcast"],
+  ["release", "release"],
+  ["release-manifest", "release"],
+  ["release_manifest", "release"],
+  ["release-rollout", "release-rollout"],
+  ["release_rollout", "release-rollout"],
+  ["rollout", "release-rollout"],
+  ["release-rollout-contract", "release-rollout"],
+  ["release_rollout_contract", "release-rollout"]
+]);
+
+function normalize(value) {
+  return aliases.get(String(value || "")) || String(value || "");
+}
+
+function sourceValue(entry) {
+  if (entry === false || entry === null || entry === undefined) return "";
+  if (typeof entry === "string") return entry;
+  if (typeof entry !== "object" || Array.isArray(entry)) return "";
+  if (entry.enabled === false) return "";
+  return entry.source || entry.path || entry.file || entry.url || "";
+}
+
+function validateSourceEntry(containerName, key, entry) {
+  const gate = normalize(key);
+  if (!allGates.has(gate)) {
+    throw new Error(`unknown source gate in manifest ${containerName}: ${key}`);
+  }
+  if (entry === false || entry === null || entry === undefined) return;
+  if (typeof entry === "string") {
+    if (!entry.trim()) throw new Error(`empty source for manifest gate ${gate}`);
+    return;
+  }
+  if (typeof entry !== "object" || Array.isArray(entry)) {
+    throw new Error(`invalid source entry for manifest gate ${gate}`);
+  }
+  if (entry.enabled === false) return;
+  if (!String(sourceValue(entry) || "").trim()) {
+    throw new Error(`enabled manifest gate ${gate} is missing source, path, file, or url`);
+  }
+}
+
+const manifest = JSON.parse(fs.readFileSync(file, "utf8"));
+for (const containerName of ["sources", "contracts", "gates", "contractSources"]) {
+  const container = manifest[containerName];
+  if (container === undefined || container === null) continue;
+  if (typeof container !== "object" || Array.isArray(container)) {
+    throw new Error(`manifest ${containerName} must be an object keyed by gate name`);
+  }
+  for (const [key, entry] of Object.entries(container)) {
+    validateSourceEntry(containerName, key, entry);
+  }
+}
+for (const [key, entry] of Object.entries(manifest)) {
+  if (allGates.has(normalize(key))) validateSourceEntry("top-level", key, entry);
+}
+NODE
+    FAILURE_REASON="manifest sources are invalid"
+    echo "hosted contract suite failed: manifest sources are invalid: $MANIFEST_SOURCE" >&2
+    exit 1
+  }
+
   local manifest_requirements
   manifest_requirements="$(node - "$MANIFEST_FILE" <<'NODE'
 const fs = require("fs");

@@ -1,5 +1,14 @@
 # Pulse Agent Notes
 
+## 2026-06-07 - Hosted manifest source validation
+
+Date/time: 2026-06-07 08:15 UTC / 2026-06-07 10:15 Europe/Berlin
+Agent: Pulse
+Context: LEAD / INTEGRATION cron pass. The hosted suite could consume a manifest and produce a plan report, but typoed source keys or enabled source entries without values could still degrade into skipped gates unless the same gate was also marked required.
+What changed: Added early source-container validation to `scripts/hosted-contract-suite-check.sh`. `sources`, `contracts`, `gates`, and `contractSources` must be objects keyed by normalized gate names; unknown keys and enabled entries without `source`, `path`, `file`, or `url` now fail before plan or execution.
+What needs review: Hosted artifact generation should emit `false` or `{ "enabled": false }` for deliberately disabled sources, rather than empty strings or placeholder objects.
+Next recommended action: Run suite `--plan` against every generated staging manifest and archive the redacted report before the full strict run.
+
 ## 2026-06-07 - Hosted command state contract
 
 Date/time: 2026-06-07 06:45 UTC / 2026-06-07 08:45 Europe/Berlin
