@@ -6,7 +6,7 @@ Wire `scripts/hosted-contract-suite-check.sh` into the hosted Frames staging or 
 
 ## Context
 
-The repo now has individual gates for migration plans, final `aos_` schema shape, pairing lifecycle evidence, device-route authentication evidence, settings conflict evidence, profile ownership evidence, heartbeat/event-ingestion evidence, stream responses, cache/offline evidence, Profile/Admin Frames bundles, broadcast lifecycle evidence, release manifests, and hosted release rollout evidence. Running them one-by-one is easy to forget and makes backend handoff ambiguous.
+The repo now has individual gates for migration plans, final `aos_` schema shape, pairing lifecycle evidence, device-route authentication evidence, settings conflict evidence, profile ownership evidence, heartbeat/event-ingestion evidence, command acknowledgement lifecycle evidence, stream responses, cache/offline evidence, Profile/Admin Frames bundles, broadcast lifecycle evidence, release manifests, and hosted release rollout evidence. Running them one-by-one is easy to forget and makes backend handoff ambiguous.
 
 The suite runner gives the hosted app one ordered contract pass:
 
@@ -17,12 +17,13 @@ The suite runner gives the hosted app one ordered contract pass:
 5. `scripts/settings-contract-check.sh`
 6. `scripts/profile-ownership-contract-check.sh`
 7. `scripts/heartbeat-contract-check.sh`
-8. `scripts/stream-contract-check.sh`
-9. `scripts/cache-contract-check.sh`
-10. `scripts/online-admin-contract-check.sh`
-11. `scripts/broadcast-contract-check.sh`
-12. `scripts/release-manifest-check.sh`
-13. `scripts/release-rollout-contract-check.sh`
+8. `scripts/command-ack-contract-check.sh`
+9. `scripts/stream-contract-check.sh`
+10. `scripts/cache-contract-check.sh`
+11. `scripts/online-admin-contract-check.sh`
+12. `scripts/broadcast-contract-check.sh`
+13. `scripts/release-manifest-check.sh`
+14. `scripts/release-rollout-contract-check.sh`
 
 ## Acceptance
 
@@ -33,6 +34,7 @@ The suite runner gives the hosted app one ordered contract pass:
 - Cache/offline staging exports `AUTOPOIESIS_CACHE_CONTRACT_SOURCE` with explicit cache policy, cache candidates, and ingested device cache summary evidence.
 - Broadcast staging exports `AUTOPOIESIS_BROADCAST_CONTRACT_SOURCE` with durable broadcast rows, queued `show_broadcast` command evidence, approved authorization/audit metadata, and delivery/display rows.
 - Release/update staging exports `AUTOPOIESIS_RELEASE_ROLLOUT_CONTRACT_SOURCE` with durable release rows, per-device rollout rows, queued `update_device` command evidence, approved authorization/audit metadata, and heartbeat-ingested `release_history` events.
+- Command acknowledgement staging exports `AUTOPOIESIS_COMMAND_ACK_CONTRACT_SOURCE` with durable command rows, ack attempts, mirrored admin audit rows, heartbeat-ingested `command_audit` events, and duplicate final-ack idempotency evidence.
 - The suite passes before Milestone 2 physical validation is treated as backend-ready.
 
 ## Open Questions
@@ -41,6 +43,7 @@ The suite runner gives the hosted app one ordered contract pass:
 - Should the profile ownership bundle be generated from route-level integration tests, a staging-only admin adapter, or both?
 - Should the device-auth bundle be generated from route-level integration tests, a staging-only admin adapter, or both?
 - Should the heartbeat bundle be generated from the same staged device used for pairing acceptance, or from a durable fixture seeded directly into `aos_device_events` and command queue rows?
+- Should the command acknowledgement bundle use route-level ack tests, seeded durable rows, or both to prove duplicate final ack idempotency?
 - Should cache summaries be generated only from heartbeat ingestion, or can support-bundle uploads backfill cache/offline status for support workflows?
 - Should the broadcast bundle come from a staging-only admin adapter, broadcast route integration tests, or a deterministic seeded `aos_broadcasts`/`aos_broadcast_deliveries` fixture?
 - Should release manifest validation run against the GitHub release adapter, the Frames API release endpoint, or both before the first production tag?

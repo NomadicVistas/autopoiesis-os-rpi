@@ -15,7 +15,7 @@ Usage:
 
 Environment:
   AUTOPOIESIS_HOSTED_CONTRACT_REQUIRE       comma-separated required gates
-                                            migrations,schema,pairing,device-auth,settings,profile-ownership,heartbeat,stream,cache,online-admin,broadcast,release,release-rollout
+                                            migrations,schema,pairing,device-auth,settings,profile-ownership,heartbeat,command-ack,stream,cache,online-admin,broadcast,release,release-rollout
   AUTOPOIESIS_AOS_MIGRATION_CONTRACT_SOURCE migration directory or manifest
   AUTOPOIESIS_AOS_SCHEMA_CONTRACT_SOURCE    schema JSON or SQLite database
   AUTOPOIESIS_PAIRING_CONTRACT_SOURCE       pairing lifecycle bundle file or URL
@@ -23,6 +23,7 @@ Environment:
   AUTOPOIESIS_SETTINGS_CONTRACT_SOURCE      settings conflict bundle file or URL
   AUTOPOIESIS_PROFILE_OWNERSHIP_CONTRACT_SOURCE Profile account ownership bundle file or URL
   AUTOPOIESIS_HEARTBEAT_CONTRACT_SOURCE     heartbeat bundle/response file or URL
+  AUTOPOIESIS_COMMAND_ACK_CONTRACT_SOURCE   command acknowledgement lifecycle bundle file or URL
   AUTOPOIESIS_STREAM_CONTRACT_SOURCE        stream response file or URL
   AUTOPOIESIS_CACHE_CONTRACT_SOURCE         cache/offline bundle file or URL
   AUTOPOIESIS_ONLINE_ADMIN_CONTRACT_SOURCE  Profile/Admin bundle file or URL
@@ -49,6 +50,7 @@ normalize_gate_name() {
     settings|settings-sync|settings_sync|settings-contract|settings_contract) echo "settings" ;;
     profile-ownership|profile_ownership|ownership|profile-auth|profile_auth|account-ownership|account_ownership) echo "profile-ownership" ;;
     heartbeat|heartbeat-contract|heartbeat_contract|event-ingestion|event_ingestion) echo "heartbeat" ;;
+    command-ack|command_ack|commands-ack|commands_ack|ack|acknowledgement|acknowledgment|command-ack-contract|command_ack_contract) echo "command-ack" ;;
     stream|stream-contract|stream_contract) echo "stream" ;;
     cache|offline-cache|offline_cache|cache-contract|cache_contract) echo "cache" ;;
     admin|online-admin|online_admin|online-admin-contract|online_admin_contract) echo "online-admin" ;;
@@ -61,7 +63,7 @@ normalize_gate_name() {
 
 required_gate_csv() {
   if [[ "$REQUIRE_ALL" == "1" ]]; then
-    echo "migrations,schema,pairing,device-auth,settings,profile-ownership,heartbeat,stream,cache,online-admin,broadcast,release,release-rollout"
+    echo "migrations,schema,pairing,device-auth,settings,profile-ownership,heartbeat,command-ack,stream,cache,online-admin,broadcast,release,release-rollout"
   else
     echo "$REQUIRED_LIST"
   fi
@@ -139,6 +141,7 @@ run_gate "device-auth" "AUTOPOIESIS_DEVICE_AUTH_CONTRACT_SOURCE" "device-auth-co
 run_gate "settings" "AUTOPOIESIS_SETTINGS_CONTRACT_SOURCE" "settings-contract-check.sh" "Hosted settings conflict contract"
 run_gate "profile-ownership" "AUTOPOIESIS_PROFILE_OWNERSHIP_CONTRACT_SOURCE" "profile-ownership-contract-check.sh" "Hosted profile ownership contract"
 run_gate "heartbeat" "AUTOPOIESIS_HEARTBEAT_CONTRACT_SOURCE" "heartbeat-contract-check.sh" "Hosted heartbeat contract"
+run_gate "command-ack" "AUTOPOIESIS_COMMAND_ACK_CONTRACT_SOURCE" "command-ack-contract-check.sh" "Hosted command acknowledgement contract"
 run_gate "stream" "AUTOPOIESIS_STREAM_CONTRACT_SOURCE" "stream-contract-check.sh" "Hosted stream contract"
 run_gate "cache" "AUTOPOIESIS_CACHE_CONTRACT_SOURCE" "cache-contract-check.sh" "Hosted cache/offline contract"
 run_gate "online-admin" "AUTOPOIESIS_ONLINE_ADMIN_CONTRACT_SOURCE" "online-admin-contract-check.sh" "Hosted Profile/Admin contract"

@@ -1,5 +1,47 @@
 # Progress
 
+## 2026-06-07 - Hosted command acknowledgement contract
+
+Date: 2026-06-07
+
+Milestone: API / DATABASE / SYNC - command acknowledgement durability
+
+Changed files:
+
+- `scripts/command-ack-contract-check.sh`
+- `scripts/hosted-contract-suite-check.sh`
+- `README.md`
+- `docs/api-contract.md`
+- `docs/database-schema.md`
+- `docs/agent-notes/backend-command-ack-contract-issue.md`
+- `docs/agent-notes/hosted-contract-suite-issue.md`
+- `docs/agent-notes/pulse.md`
+- `docs/progress.md`
+- `/data/.openclaw/workspace/autopoiesis-os-program/ROLLING-LOG.md`
+
+Implemented:
+
+- Added `scripts/command-ack-contract-check.sh`, a read-only saved-bundle/live-URL verifier for hosted command acknowledgement durability.
+- The checker validates durable command rows, acknowledgement attempts, terminal command timestamps, matching admin audit status, heartbeat-ingested `command_audit` events, duplicate final-ack idempotency, and sensitive/local-only redaction.
+- Wired `command-ack` into `scripts/hosted-contract-suite-check.sh` after heartbeat, so strict hosted readiness now proves explicit ack persistence before stream/cache/admin evidence is trusted.
+- Added a backend handoff note for generating the bundle from `aos_device_commands`, `aos_admin_command_audits`, `aos_device_events`, and route-level ack attempts.
+
+Verification:
+
+- `scripts/command-ack-contract-check.sh` passed against a representative command acknowledgement bundle.
+- `scripts/command-ack-contract-check.sh` rejected a final acknowledgement whose durable command row was not terminal.
+- `scripts/command-ack-contract-check.sh` rejected duplicate `deviceId + eventKey` command-audit event evidence.
+- `scripts/hosted-contract-suite-check.sh` passed with `AUTOPOIESIS_HOSTED_CONTRACT_REQUIRE=command-ack` and the command-ack source provided.
+- `scripts/hosted-contract-suite-check.sh` rejected a missing required command-ack source.
+- `node --check local-ui/server.js` passed.
+- `bash -n install.sh update.sh uninstall-dev-tools.sh factory-reset.sh scripts/*.sh` passed.
+- `git diff --check` passed.
+- `scripts/security-smoke.sh` passed.
+
+Next step:
+
+Generate the command-ack bundle from hosted staging or CI using real `POST /commands/{commandId}/ack` route tests plus durable `aos_` command, audit, and device-event rows before enabling broad remote command controls.
+
 ## 2026-06-07 - Factory reset contract gate
 
 Date: 2026-06-07

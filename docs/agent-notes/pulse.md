@@ -1,5 +1,14 @@
 # Pulse Agent Notes
 
+## 2026-06-07 - Hosted command acknowledgement contract
+
+Date/time: 2026-06-07 02:45 UTC / 2026-06-07 04:45 Europe/Berlin
+Agent: Pulse
+Context: API / DATABASE / SYNC cron pass. Device ack retry behavior and route authentication were covered, but hosted readiness still lacked one durable proof that `POST /commands/{commandId}/ack` updates command rows, mirrors admin audit status, and handles duplicate final acknowledgements harmlessly.
+What changed: Added `scripts/command-ack-contract-check.sh` and wired `command-ack` into `scripts/hosted-contract-suite-check.sh` immediately after heartbeat. Added backend handoff docs for a read-only bundle covering durable `aos_device_commands`, ack attempts, `aos_admin_command_audits`, heartbeat-ingested `command_audit` events, duplicate final-ack idempotency, and redaction boundaries.
+What needs review: Hosted staging should generate this bundle from route-level ack integration tests plus durable `aos_` projections. Decide whether duplicate final acks return 200/204 with idempotent metadata or 409 with the unchanged terminal row.
+Next recommended action: Run the strict hosted suite with `AUTOPOIESIS_COMMAND_ACK_CONTRACT_SOURCE` before enabling broad Profile/Admin remote command controls.
+
 ## 2026-06-07 - Factory reset contract gate
 
 Date/time: 2026-06-07 02:35 UTC / 2026-06-07 04:35 Europe/Berlin

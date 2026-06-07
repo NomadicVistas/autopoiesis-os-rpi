@@ -269,6 +269,7 @@ Profile/Admin bundle validation:
 - Optional adapter endpoint: GET /api/admin/frames/online-admin-bundle
 - Optional adapter endpoint: GET /api/admin/frames/broadcast-contract-bundle
 - Optional adapter endpoint: GET /api/admin/frames/release-rollout-contract-bundle
+- Optional adapter endpoint: GET /api/admin/frames/command-ack-contract-bundle
 
 `scripts/online-admin-contract-check.sh` validates a saved or live bundle assembled from the online Profile > Frames and Admin > Frames surfaces. The bundle is intentionally a contract fixture, not a required production endpoint; the optional adapter endpoint can assemble the same shape for staging and CI.
 
@@ -399,9 +400,9 @@ Durable migration gate:
 
 Hosted integration suite:
 
-- `scripts/hosted-contract-suite-check.sh` runs the hosted migration, schema, pairing, device-auth, settings, profile-ownership, heartbeat, stream, cache/offline, online-admin, broadcast, release, and release-rollout gates in dependency order.
+- `scripts/hosted-contract-suite-check.sh` runs the hosted migration, schema, pairing, device-auth, settings, profile-ownership, heartbeat, command-ack, stream, cache/offline, online-admin, broadcast, release, and release-rollout gates in dependency order.
 - Use `--strict` for staging or CI jobs that must provide every source before physical Pi acceptance.
-- Use `AUTOPOIESIS_HOSTED_CONTRACT_REQUIRE=migrations,schema,pairing,device-auth,settings,profile-ownership,heartbeat,stream,cache,online-admin,broadcast,release,release-rollout` when a partial job should require only selected gates while still running any other provided sources.
+- Use `AUTOPOIESIS_HOSTED_CONTRACT_REQUIRE=migrations,schema,pairing,device-auth,settings,profile-ownership,heartbeat,command-ack,stream,cache,online-admin,broadcast,release,release-rollout` when a partial job should require only selected gates while still running any other provided sources.
 - The suite does not invent or fetch endpoints by itself; CI/staging should pass saved fixtures or live URLs through the existing `AUTOPOIESIS_*_SOURCE` variables.
 
 Release manifest validation:
@@ -467,6 +468,15 @@ Online admin backend behavior:
 - `show_broadcast` and `update_device` commands created by admin broadcast/release endpoints use the same authorization/audit path as direct device commands.
 - Device acknowledgement updates the matching backend audit row status so Admin > Frames can show queued/acknowledged/completed/error state from durable `aos_` data.
 - Heartbeat `events` ingestion into broadcast delivery and release rollout rows should be proven with the broadcast and release-rollout contract gates before enabling broad Admin > Frames fleet actions.
+
+Hosted command acknowledgement contract:
+
+- Optional adapter endpoint: GET /api/admin/frames/command-ack-contract-bundle
+- `scripts/command-ack-contract-check.sh` validates read-only staging/CI evidence for `POST /api/frames/device/{deviceId}/commands/{commandId}/ack`.
+- The bundle root may use `kind: "autopoiesis_frames_command_ack_contract"` and `schemaVersion: 1`, and should include durable `commands`, `acknowledgements`/`ackAttempts`, matching `adminAudits`, and heartbeat-ingested `deviceEvents` from the `command_audit` source.
+- At least one acknowledgement must move a command to `acknowledged`, at least one final acknowledgement must move a command to `completed`, `error`, `failed`, or `denied`, and duplicate final acknowledgement evidence must be idempotent/no-change.
+- Durable command rows must preserve `acknowledgedAt` and terminal timestamp evidence, admin audit rows must mirror terminal command status, and command audit events must reference known command/device rows with unique `deviceId + eventKey` idempotency.
+- The checker rejects unknown command references, duplicate ids/event keys, non-terminal rows after final ack, raw command payload keys, stored credentials, tokens, release artifact details, checksums, stdout/stderr, and local appliance paths.
 
 Local command audit:
 

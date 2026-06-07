@@ -47,7 +47,7 @@ Milestone 2 is scaffolded for physical Pi validation. The local UI can:
 - expose a metadata-only `/local/release/history` trail for local release check/apply outcomes
 - verify command-delivered broadcasts for targeting, scheduling, display-time delivery logs, dismissal, expiry, and acknowledgements
 - validate release manifests for channel/tag/artifact/checksum/rollback metadata before an update mutates app code
-- run the hosted contract suite for migration, schema, pairing, device-auth, settings conflict, profile ownership, heartbeat, stream, cache, online-admin, broadcast, release, and rollout readiness before physical Pi testing
+- run the hosted contract suite for migration, schema, pairing, device-auth, settings conflict, profile ownership, heartbeat, command acknowledgement, stream, cache, online-admin, broadcast, release, and rollout readiness before physical Pi testing
 - verify the unified local event export contract for backend/admin ingestion readiness
 - verify heartbeat event ingestion cursor acknowledgements, replay overlap, stale ack rejection, and diagnostics/support visibility
 - run a local security smoke test that checks device API key redaction and tracked secret hygiene
@@ -214,6 +214,15 @@ Check heartbeat event ingestion cursor acknowledgement behavior:
 ./scripts/events-ingestion-check.sh
 ```
 
+Validate hosted command acknowledgement persistence before treating remote commands as staging-ready:
+
+```bash
+./scripts/command-ack-contract-check.sh /path/to/command-ack-contract-bundle.json
+AUTOPOIESIS_COMMAND_ACK_CONTRACT_TOKEN="$TOKEN" ./scripts/command-ack-contract-check.sh "https://autopoiesis.art/api/admin/frames/command-ack-contract-bundle"
+```
+
+The command ack contract check validates read-only staging/CI evidence that `POST /api/frames/device/{deviceId}/commands/{commandId}/ack` updates durable `aos_device_commands`, mirrors status into `aos_admin_command_audits`, ingests `command_audit` events idempotently by `deviceId + eventKey`, and handles duplicate final acknowledgements without creating duplicate effects. It rejects raw command payloads, credentials, tokens, release artifact details, checksums, stdout/stderr, and local appliance paths.
+
 Inspect the local frame playback queue:
 
 ```bash
@@ -330,6 +339,7 @@ AUTOPOIESIS_DEVICE_AUTH_CONTRACT_SOURCE=/path/to/device-auth-contract-bundle.jso
 AUTOPOIESIS_SETTINGS_CONTRACT_SOURCE=/path/to/settings-contract-bundle.json \
 AUTOPOIESIS_PROFILE_OWNERSHIP_CONTRACT_SOURCE=/path/to/profile-ownership-contract-bundle.json \
 AUTOPOIESIS_HEARTBEAT_CONTRACT_SOURCE=/path/to/heartbeat-contract-bundle.json \
+AUTOPOIESIS_COMMAND_ACK_CONTRACT_SOURCE=/path/to/command-ack-contract-bundle.json \
 AUTOPOIESIS_STREAM_CONTRACT_SOURCE=/path/to/stream-response.json \
 AUTOPOIESIS_CACHE_CONTRACT_SOURCE=/path/to/cache-contract-bundle.json \
 AUTOPOIESIS_ONLINE_ADMIN_CONTRACT_SOURCE=/path/to/online-admin-bundle.json \
@@ -339,7 +349,7 @@ AUTOPOIESIS_RELEASE_ROLLOUT_CONTRACT_SOURCE=/path/to/release-rollout-contract-bu
 ./scripts/hosted-contract-suite-check.sh --strict
 ```
 
-The suite runs the existing hosted gates in dependency order: migrations, final schema, pairing, device auth, settings conflict, profile ownership, heartbeat, stream, cache/offline, online admin, broadcast lifecycle, release manifest, then hosted release rollout evidence. In non-strict mode it runs every provided source and fails only if a gate named in `AUTOPOIESIS_HOSTED_CONTRACT_REQUIRE` is missing. Individual token and strictness variables are passed through to the underlying checkers unchanged.
+The suite runs the existing hosted gates in dependency order: migrations, final schema, pairing, device auth, settings conflict, profile ownership, heartbeat, command acknowledgement, stream, cache/offline, online admin, broadcast lifecycle, release manifest, then hosted release rollout evidence. In non-strict mode it runs every provided source and fails only if a gate named in `AUTOPOIESIS_HOSTED_CONTRACT_REQUIRE` is missing. Individual token and strictness variables are passed through to the underlying checkers unchanged.
 
 Validate the hosted broadcast lifecycle before treating Admin > Frames broadcasts as rollout-ready:
 
