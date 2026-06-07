@@ -5,7 +5,13 @@
 ```bash
 systemctl status autopoiesis-setup.service
 journalctl -u autopoiesis-setup.service -n 100 --no-pager
+/opt/autopoiesis-os/app/scripts/setup-launcher-check.sh
 ```
+
+If a custom install root is used, confirm the rendered unit and setup launcher
+agree on the same app path. The launcher check runs in dry-run mode and fails
+if `start-setup.sh` would fall back to `/opt/autopoiesis-os` or cannot find
+`local-ui/server.js`.
 
 ## Kiosk
 

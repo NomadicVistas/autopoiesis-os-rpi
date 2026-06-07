@@ -1,5 +1,42 @@
 # Progress
 
+## 2026-06-07 - Setup launcher custom path hardening
+
+Date: 2026-06-07
+
+Milestone: RPI APPLIANCE - custom install path fidelity
+
+Changed files:
+
+- `scripts/start-setup.sh`
+- `scripts/setup-launcher-check.sh`
+- `scripts/milestone2-verify.sh`
+- `README.md`
+- `docs/installation.md`
+- `docs/troubleshooting.md`
+- `docs/agent-notes/pulse.md`
+- `docs/progress.md`
+- `/data/.openclaw/workspace/autopoiesis-os-program/ROLLING-LOG.md`
+
+Implemented:
+
+- Reworked the setup/local UI launcher so it uses `AUTOPOIESIS_APP_DIR` when systemd provides it, or derives the app root from the installed script location when run directly.
+- Added a clear failure when `local-ui/server.js` is missing instead of silently attempting the default `/opt/autopoiesis-os` path.
+- Added `scripts/setup-launcher-check.sh`, an isolated dry-run gate proving custom app roots, default script-relative roots, and missing-server failures.
+- Wired the gate into Milestone 2 alongside the systemd unit render check.
+
+Verification:
+
+- `scripts/setup-launcher-check.sh` passed.
+- `node --check local-ui/server.js` passed.
+- `bash -n install.sh update.sh uninstall-dev-tools.sh factory-reset.sh scripts/*.sh` passed.
+- `git diff --check` passed.
+- `scripts/security-smoke.sh` passed.
+
+Next step:
+
+On physical Pi hardware, run `systemctl cat autopoiesis-setup.service` and full Milestone 2 after a default install and any custom-root install to confirm the rendered `AUTOPOIESIS_APP_DIR` and launcher dry run point at the same installed app tree.
+
 ## 2026-06-07 - Active-window stream contract hardening
 
 Date: 2026-06-07

@@ -23,6 +23,9 @@ configuration. If `AUTOPOIESIS_INSTALL_DIR`, `AUTOPOIESIS_DATA_DIR`,
 `AUTOPOIESIS_LOG_DIR`, `AUTOPOIESIS_USER`, or `AUTOPOIESIS_USER_HOME` are
 overridden, the installed units inherit those values instead of silently
 falling back to `/opt/autopoiesis-os`, `/var/lib/autopoiesis-os`, or `frame`.
+The setup launcher also uses `AUTOPOIESIS_APP_DIR` or its own installed
+location to find `local-ui/server.js`, so customized install roots do not
+start a rendered service that immediately jumps back to the default path.
 
 The preflight reports hard blockers such as an incomplete appliance app tree,
 a `local-ui/server.js` syntax failure, missing root privileges for install
@@ -59,7 +62,8 @@ sudo /opt/autopoiesis-os/app/scripts/milestone2-verify.sh
 
 This checks that the setup service is active, the kiosk service is active, the
 systemd unit renderer preserves configured appliance paths/users, the local
-launcher responds, runtime data/cache/log paths are writable, the heartbeat
+setup launcher honors the configured app path, the local launcher responds,
+runtime data/cache/log paths are writable, the heartbeat
 timer wrapper tolerates missing pre-pairing state and records local UI failures,
 Chromium is
 running with the expected kiosk flags, Linux sees a touchscreen-class input
@@ -75,6 +79,12 @@ Isolated systemd render verification:
 ```bash
 /opt/autopoiesis-os/app/scripts/systemd-units-install-check.sh
 ```
+
+Isolated setup launcher path verification:
+
+~~~bash
+/opt/autopoiesis-os/app/scripts/setup-launcher-check.sh
+~~~
 
 LAN setup:
 

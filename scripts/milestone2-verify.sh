@@ -22,6 +22,7 @@ echo "   autopoiesis-kiosk.service active"
 systemctl is-enabled --quiet autopoiesis-watchdog.timer
 echo "   autopoiesis-watchdog.timer enabled"
 "$(dirname "$0")/systemd-units-install-check.sh"
+"$(dirname "$0")/setup-launcher-check.sh"
 
 echo
 echo "2. Local launcher HTTP"

@@ -587,6 +587,15 @@ What changed: Added kiosk launcher dry-run support, `scripts/kiosk-check.sh`, an
 What needs review: Run the updated `milestone2-verify.sh` on physical Pi hardware after install/update and kiosk restart.
 Next recommended action: If the kiosk still blanks with these flags, capture `journalctl -u autopoiesis-kiosk.service -n 200 --no-pager` plus `scripts/kiosk-check.sh` output and tune `AUTOPOIESIS_CHROMIUM_FLAGS` per hardware revision.
 
+## 2026-06-07 - Setup launcher custom path hardening
+
+Date/time: 2026-06-07 06:35 UTC / 2026-06-07 08:35 Europe/Berlin
+Agent: Pulse
+Context: RPI APPLIANCE cron pass. The installer and systemd renderer already supported custom appliance paths, but `scripts/start-setup.sh` still changed into the default `/opt/autopoiesis-os/app/local-ui`, which could break customized installs after the service unit rendered correctly.
+What changed: `start-setup.sh` now uses `AUTOPOIESIS_APP_DIR` when systemd provides it, otherwise derives the app root from its installed script path. Added `scripts/setup-launcher-check.sh` to prove custom-root, script-relative default-root, and missing-server failure behavior without starting the local UI.
+What needs review: Physical Pi validation should compare `systemctl cat autopoiesis-setup.service` with the setup launcher dry run after default and custom-root installs.
+Next recommended action: Run full Milestone 2 on hardware after install/update and keep custom-root validation paired with `scripts/systemd-units-install-check.sh`.
+
 ## 2026-06-06 - Remote action authorization guard
 
 Date/time: 2026-06-06 01:05 UTC / 2026-06-06 03:05 Europe/Berlin
