@@ -47,7 +47,7 @@ Milestone 2 is scaffolded for physical Pi validation. The local UI can:
 - expose a metadata-only `/local/release/history` trail for local release check/apply outcomes
 - verify command-delivered broadcasts for targeting, scheduling, display-time delivery logs, dismissal, expiry, and acknowledgements
 - validate release manifests for channel/tag/artifact/checksum/rollback metadata before an update mutates app code
-- run the hosted contract suite for migration, schema, pairing, device-auth, settings conflict, heartbeat, stream, online-admin, broadcast, release, and rollout readiness before physical Pi testing
+- run the hosted contract suite for migration, schema, pairing, device-auth, settings conflict, profile ownership, heartbeat, stream, cache, online-admin, broadcast, release, and rollout readiness before physical Pi testing
 - verify the unified local event export contract for backend/admin ingestion readiness
 - verify heartbeat event ingestion cursor acknowledgements, replay overlap, stale ack rejection, and diagnostics/support visibility
 - run a local security smoke test that checks device API key redaction and tracked secret hygiene
@@ -283,6 +283,15 @@ AUTOPOIESIS_SETTINGS_CONTRACT_TOKEN="$TOKEN" ./scripts/settings-contract-check.s
 
 The settings contract check validates read-only staging evidence for `GET /api/frames/device/{deviceId}/settings`, `POST /api/frames/device/{deviceId}/settings`, and heartbeat settings handoff. It requires an initial authoritative read, a newer write that preserves or advances the submitted `updatedAt`, a stale write rejection or explicit conflict, a final read proving the stale write did not overwrite the newer row, and a heartbeat response that returns settings at least as current as the accepted write. The bundle must not expose device API keys, pairing codes/hashes, private tokens, secrets, or local appliance paths.
 
+Validate hosted Profile account ownership before exposing Profile > Frames account routes:
+
+```bash
+./scripts/profile-ownership-contract-check.sh /path/to/profile-ownership-contract-bundle.json
+AUTOPOIESIS_PROFILE_OWNERSHIP_CONTRACT_TOKEN="$TOKEN" ./scripts/profile-ownership-contract-check.sh "https://autopoiesis.art/api/admin/frames/profile-ownership-contract-bundle"
+```
+
+The profile ownership contract check validates read-only staging/CI evidence that authenticated Profile > Frames routes are scoped to the current account/session. It requires owner list/read/settings-write success, cross-owner read/settings-write/command rejection, anonymous profile rejection, admin fleet read separation, and redaction of device keys, pairing codes/hashes, private tokens, secrets, and local appliance paths. This gate sits between settings conflict behavior and heartbeat/admin evidence because owner scoping has to be correct before Profile controls can safely mutate device settings or queue owner actions.
+
 Validate the hosted heartbeat response before backend sync/admin evidence is treated as staging-ready:
 
 ```bash
@@ -318,6 +327,7 @@ AUTOPOIESIS_AOS_SCHEMA_CONTRACT_SOURCE=/path/to/schema-introspection.json \
 AUTOPOIESIS_PAIRING_CONTRACT_SOURCE=/path/to/pairing-contract-bundle.json \
 AUTOPOIESIS_DEVICE_AUTH_CONTRACT_SOURCE=/path/to/device-auth-contract-bundle.json \
 AUTOPOIESIS_SETTINGS_CONTRACT_SOURCE=/path/to/settings-contract-bundle.json \
+AUTOPOIESIS_PROFILE_OWNERSHIP_CONTRACT_SOURCE=/path/to/profile-ownership-contract-bundle.json \
 AUTOPOIESIS_HEARTBEAT_CONTRACT_SOURCE=/path/to/heartbeat-contract-bundle.json \
 AUTOPOIESIS_STREAM_CONTRACT_SOURCE=/path/to/stream-response.json \
 AUTOPOIESIS_CACHE_CONTRACT_SOURCE=/path/to/cache-contract-bundle.json \
@@ -328,7 +338,7 @@ AUTOPOIESIS_RELEASE_ROLLOUT_CONTRACT_SOURCE=/path/to/release-rollout-contract-bu
 ./scripts/hosted-contract-suite-check.sh --strict
 ```
 
-The suite runs the existing hosted gates in dependency order: migrations, final schema, pairing, device auth, settings conflict, heartbeat, stream, cache/offline, online admin, broadcast lifecycle, release manifest, then hosted release rollout evidence. In non-strict mode it runs every provided source and fails only if a gate named in `AUTOPOIESIS_HOSTED_CONTRACT_REQUIRE` is missing. Individual token and strictness variables are passed through to the underlying checkers unchanged.
+The suite runs the existing hosted gates in dependency order: migrations, final schema, pairing, device auth, settings conflict, profile ownership, heartbeat, stream, cache/offline, online admin, broadcast lifecycle, release manifest, then hosted release rollout evidence. In non-strict mode it runs every provided source and fails only if a gate named in `AUTOPOIESIS_HOSTED_CONTRACT_REQUIRE` is missing. Individual token and strictness variables are passed through to the underlying checkers unchanged.
 
 Validate the hosted broadcast lifecycle before treating Admin > Frames broadcasts as rollout-ready:
 

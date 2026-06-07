@@ -242,6 +242,17 @@ Hosted settings conflict validation:
 
 `scripts/settings-contract-check.sh` validates this read-only bundle. It closes the gap between device-side newest-`updatedAt` behavior and durable hosted `aos_` settings rows before heartbeat, Profile > Frames, or Admin > Frames evidence is trusted.
 
+Profile account ownership validation:
+
+- Optional adapter endpoint: GET /api/admin/frames/profile-ownership-contract-bundle
+- Required successful owner checks by default: Profile-owned device list, Profile-owned device read, and Profile-owned settings write.
+- Required rejection checks by default: cross-owner device read, cross-owner settings write, cross-owner owner-command enqueue, and anonymous Profile access.
+- Required admin boundary check by default: admin/support fleet read succeeds through Admin > Frames and returns devices from at least two owners, proving fleet visibility is explicit and separate from ordinary Profile ownership.
+- Profile list/read/write responses must only return devices owned by the authenticated actor. Cross-owner attempts should return 401, 403, or 404 and must not include device rows.
+- The bundle must not expose stored device API keys, raw pairing codes, pairing-code hashes, private/admin tokens, secrets, passwords, raw bearer tokens, or local appliance paths.
+
+`scripts/profile-ownership-contract-check.sh` validates this read-only bundle. It is intentionally separate from device-route authentication: device auth proves Pi credentials cannot cross device boundaries, while profile ownership proves account/session routes cannot cross user boundaries.
+
 Profile/Admin bundle validation:
 
 - GET /api/frames/user/devices
@@ -387,9 +398,9 @@ Durable migration gate:
 
 Hosted integration suite:
 
-- `scripts/hosted-contract-suite-check.sh` runs the hosted migration, schema, pairing, device-auth, settings, heartbeat, stream, cache/offline, online-admin, broadcast, release, and release-rollout gates in dependency order.
+- `scripts/hosted-contract-suite-check.sh` runs the hosted migration, schema, pairing, device-auth, settings, profile-ownership, heartbeat, stream, cache/offline, online-admin, broadcast, release, and release-rollout gates in dependency order.
 - Use `--strict` for staging or CI jobs that must provide every source before physical Pi acceptance.
-- Use `AUTOPOIESIS_HOSTED_CONTRACT_REQUIRE=migrations,schema,pairing,device-auth,settings,heartbeat,stream,cache,online-admin,broadcast,release,release-rollout` when a partial job should require only selected gates while still running any other provided sources.
+- Use `AUTOPOIESIS_HOSTED_CONTRACT_REQUIRE=migrations,schema,pairing,device-auth,settings,profile-ownership,heartbeat,stream,cache,online-admin,broadcast,release,release-rollout` when a partial job should require only selected gates while still running any other provided sources.
 - The suite does not invent or fetch endpoints by itself; CI/staging should pass saved fixtures or live URLs through the existing `AUTOPOIESIS_*_SOURCE` variables.
 
 Release manifest validation:

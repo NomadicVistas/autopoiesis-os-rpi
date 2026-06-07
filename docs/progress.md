@@ -1,5 +1,48 @@
 # Progress
 
+## 2026-06-07 - Hosted profile ownership contract
+
+Date: 2026-06-07
+
+Milestone: LEAD / INTEGRATION - Profile account ownership readiness
+
+Changed files:
+
+- `scripts/profile-ownership-contract-check.sh`
+- `scripts/hosted-contract-suite-check.sh`
+- `README.md`
+- `docs/api-contract.md`
+- `docs/database-schema.md`
+- `docs/online-frames-profile.md`
+- `docs/agent-notes/backend-profile-ownership-contract-issue.md`
+- `docs/agent-notes/hosted-contract-suite-issue.md`
+- `docs/agent-notes/pulse.md`
+- `docs/progress.md`
+- `/data/.openclaw/workspace/autopoiesis-os-program/ROLLING-LOG.md`
+
+Implemented:
+
+- Added `scripts/profile-ownership-contract-check.sh`, a read-only saved-bundle/live-URL verifier for hosted Profile > Frames account/session scoping.
+- The checker validates owned device list/read/settings-write success, cross-owner device read/settings-write/command rejection, anonymous Profile rejection, Admin fleet-read separation, duplicate check kinds, required check coverage, and redaction of device credentials, pairing codes/hashes, private/admin tokens, secrets, and local appliance paths.
+- Wired `profile-ownership` into `scripts/hosted-contract-suite-check.sh` after settings conflict validation so strict hosted readiness now proves both device-route auth and account-route ownership before heartbeat/admin evidence is trusted.
+- Added a backend handoff note for generating the bundle from canonical account/session tests plus durable `aos_frame_devices.owner_user_id` ownership rows.
+
+Verification:
+
+- `scripts/profile-ownership-contract-check.sh` passed against a representative Profile ownership bundle.
+- `scripts/profile-ownership-contract-check.sh` rejected a bundle where a cross-owner device read returned 200 with another owner's device row.
+- `scripts/profile-ownership-contract-check.sh` rejected a bundle missing the required Admin fleet-read boundary check.
+- `scripts/hosted-contract-suite-check.sh` passed with `AUTOPOIESIS_HOSTED_CONTRACT_REQUIRE=profile-ownership` and the profile-ownership source provided.
+- `scripts/hosted-contract-suite-check.sh` rejected a missing required profile-ownership source.
+- `node --check local-ui/server.js` passed.
+- `bash -n install.sh update.sh uninstall-dev-tools.sh factory-reset.sh scripts/*.sh` passed.
+- `git diff --check` passed.
+- `scripts/security-smoke.sh` passed.
+
+Next step:
+
+Generate the profile-ownership bundle from hosted staging or CI using real account/session authorization paths, then run the strict hosted suite before enabling destructive owner actions in Profile > Frames.
+
 ## 2026-06-07 - Hosted release rollout contract
 
 Date: 2026-06-07

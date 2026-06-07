@@ -1,5 +1,14 @@
 # Pulse Agent Notes
 
+## 2026-06-07 - Hosted profile ownership contract gate
+
+Date/time: 2026-06-07 02:15 UTC / 2026-06-07 04:15 Europe/Berlin
+Agent: Pulse
+Context: LEAD / INTEGRATION cron pass. Device-key auth and Profile/Admin bundle gates were in place, but ordinary Profile > Frames account routes still needed one executable proof that users cannot see or mutate another owner's frame.
+What changed: Added `scripts/profile-ownership-contract-check.sh` and wired `profile-ownership` into `scripts/hosted-contract-suite-check.sh` after settings conflict handling. Added backend handoff docs for a read-only ownership bundle covering owner list/read/write success, cross-owner read/settings/command rejection, anonymous profile rejection, and separate Admin fleet read evidence.
+What needs review: Hosted staging should generate this bundle from real account/session authorization tests or a staging-only adapter backed by canonical users plus `aos_frame_devices.owner_user_id`. Decide whether cross-owner misses normalize to 403 or 404.
+Next recommended action: Run the strict hosted suite with `AUTOPOIESIS_PROFILE_OWNERSHIP_CONTRACT_SOURCE` before exposing destructive Profile > Frames owner actions.
+
 ## 2026-06-07 - Install preflight app-tree gate
 
 Date/time: 2026-06-07 00:35 UTC / 2026-06-07 02:35 Europe/Berlin

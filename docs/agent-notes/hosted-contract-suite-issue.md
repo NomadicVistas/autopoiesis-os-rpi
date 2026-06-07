@@ -6,7 +6,7 @@ Wire `scripts/hosted-contract-suite-check.sh` into the hosted Frames staging or 
 
 ## Context
 
-The repo now has individual gates for migration plans, final `aos_` schema shape, pairing lifecycle evidence, device-route authentication evidence, settings conflict evidence, heartbeat/event-ingestion evidence, stream responses, cache/offline evidence, Profile/Admin Frames bundles, broadcast lifecycle evidence, release manifests, and hosted release rollout evidence. Running them one-by-one is easy to forget and makes backend handoff ambiguous.
+The repo now has individual gates for migration plans, final `aos_` schema shape, pairing lifecycle evidence, device-route authentication evidence, settings conflict evidence, profile ownership evidence, heartbeat/event-ingestion evidence, stream responses, cache/offline evidence, Profile/Admin Frames bundles, broadcast lifecycle evidence, release manifests, and hosted release rollout evidence. Running them one-by-one is easy to forget and makes backend handoff ambiguous.
 
 The suite runner gives the hosted app one ordered contract pass:
 
@@ -15,19 +15,21 @@ The suite runner gives the hosted app one ordered contract pass:
 3. `scripts/pairing-contract-check.sh`
 4. `scripts/device-auth-contract-check.sh`
 5. `scripts/settings-contract-check.sh`
-6. `scripts/heartbeat-contract-check.sh`
-7. `scripts/stream-contract-check.sh`
-8. `scripts/cache-contract-check.sh`
-9. `scripts/online-admin-contract-check.sh`
-10. `scripts/broadcast-contract-check.sh`
-11. `scripts/release-manifest-check.sh`
-12. `scripts/release-rollout-contract-check.sh`
+6. `scripts/profile-ownership-contract-check.sh`
+7. `scripts/heartbeat-contract-check.sh`
+8. `scripts/stream-contract-check.sh`
+9. `scripts/cache-contract-check.sh`
+10. `scripts/online-admin-contract-check.sh`
+11. `scripts/broadcast-contract-check.sh`
+12. `scripts/release-manifest-check.sh`
+13. `scripts/release-rollout-contract-check.sh`
 
 ## Acceptance
 
 - CI exports saved contract fixtures or staging URLs through the `AUTOPOIESIS_*_SOURCE` variables documented in the script usage.
 - Staging runs `scripts/hosted-contract-suite-check.sh --strict` before physical Pi acceptance.
 - Partial backend jobs use `AUTOPOIESIS_HOSTED_CONTRACT_REQUIRE` to require the gate(s) they own while still running any other provided sources.
+- Profile ownership staging exports `AUTOPOIESIS_PROFILE_OWNERSHIP_CONTRACT_SOURCE` with owned Profile success, cross-owner denial, anonymous denial, and admin-boundary evidence from real account/session checks.
 - Cache/offline staging exports `AUTOPOIESIS_CACHE_CONTRACT_SOURCE` with explicit cache policy, cache candidates, and ingested device cache summary evidence.
 - Broadcast staging exports `AUTOPOIESIS_BROADCAST_CONTRACT_SOURCE` with durable broadcast rows, queued `show_broadcast` command evidence, approved authorization/audit metadata, and delivery/display rows.
 - Release/update staging exports `AUTOPOIESIS_RELEASE_ROLLOUT_CONTRACT_SOURCE` with durable release rows, per-device rollout rows, queued `update_device` command evidence, approved authorization/audit metadata, and heartbeat-ingested `release_history` events.
@@ -36,6 +38,7 @@ The suite runner gives the hosted app one ordered contract pass:
 ## Open Questions
 
 - Which hosted CI job will own generating the pairing and online-admin contract bundles from real auth/session data?
+- Should the profile ownership bundle be generated from route-level integration tests, a staging-only admin adapter, or both?
 - Should the device-auth bundle be generated from route-level integration tests, a staging-only admin adapter, or both?
 - Should the heartbeat bundle be generated from the same staged device used for pairing acceptance, or from a durable fixture seeded directly into `aos_device_events` and command queue rows?
 - Should cache summaries be generated only from heartbeat ingestion, or can support-bundle uploads backfill cache/offline status for support workflows?

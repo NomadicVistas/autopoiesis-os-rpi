@@ -15,12 +15,13 @@ Usage:
 
 Environment:
   AUTOPOIESIS_HOSTED_CONTRACT_REQUIRE       comma-separated required gates
-                                            migrations,schema,pairing,device-auth,settings,heartbeat,stream,cache,online-admin,broadcast,release,release-rollout
+                                            migrations,schema,pairing,device-auth,settings,profile-ownership,heartbeat,stream,cache,online-admin,broadcast,release,release-rollout
   AUTOPOIESIS_AOS_MIGRATION_CONTRACT_SOURCE migration directory or manifest
   AUTOPOIESIS_AOS_SCHEMA_CONTRACT_SOURCE    schema JSON or SQLite database
   AUTOPOIESIS_PAIRING_CONTRACT_SOURCE       pairing lifecycle bundle file or URL
   AUTOPOIESIS_DEVICE_AUTH_CONTRACT_SOURCE   device route auth bundle file or URL
   AUTOPOIESIS_SETTINGS_CONTRACT_SOURCE      settings conflict bundle file or URL
+  AUTOPOIESIS_PROFILE_OWNERSHIP_CONTRACT_SOURCE Profile account ownership bundle file or URL
   AUTOPOIESIS_HEARTBEAT_CONTRACT_SOURCE     heartbeat bundle/response file or URL
   AUTOPOIESIS_STREAM_CONTRACT_SOURCE        stream response file or URL
   AUTOPOIESIS_CACHE_CONTRACT_SOURCE         cache/offline bundle file or URL
@@ -46,6 +47,7 @@ normalize_gate_name() {
     pairing|pairing-contract|pairing_contract) echo "pairing" ;;
     device-auth|device_auth|auth|device-auth-contract|device_auth_contract) echo "device-auth" ;;
     settings|settings-sync|settings_sync|settings-contract|settings_contract) echo "settings" ;;
+    profile-ownership|profile_ownership|ownership|profile-auth|profile_auth|account-ownership|account_ownership) echo "profile-ownership" ;;
     heartbeat|heartbeat-contract|heartbeat_contract|event-ingestion|event_ingestion) echo "heartbeat" ;;
     stream|stream-contract|stream_contract) echo "stream" ;;
     cache|offline-cache|offline_cache|cache-contract|cache_contract) echo "cache" ;;
@@ -59,7 +61,7 @@ normalize_gate_name() {
 
 required_gate_csv() {
   if [[ "$REQUIRE_ALL" == "1" ]]; then
-    echo "migrations,schema,pairing,device-auth,settings,heartbeat,stream,cache,online-admin,broadcast,release,release-rollout"
+    echo "migrations,schema,pairing,device-auth,settings,profile-ownership,heartbeat,stream,cache,online-admin,broadcast,release,release-rollout"
   else
     echo "$REQUIRED_LIST"
   fi
@@ -135,6 +137,7 @@ run_gate "schema" "AUTOPOIESIS_AOS_SCHEMA_CONTRACT_SOURCE" "aos-schema-contract-
 run_gate "pairing" "AUTOPOIESIS_PAIRING_CONTRACT_SOURCE" "pairing-contract-check.sh" "Hosted pairing contract"
 run_gate "device-auth" "AUTOPOIESIS_DEVICE_AUTH_CONTRACT_SOURCE" "device-auth-contract-check.sh" "Hosted device auth contract"
 run_gate "settings" "AUTOPOIESIS_SETTINGS_CONTRACT_SOURCE" "settings-contract-check.sh" "Hosted settings conflict contract"
+run_gate "profile-ownership" "AUTOPOIESIS_PROFILE_OWNERSHIP_CONTRACT_SOURCE" "profile-ownership-contract-check.sh" "Hosted profile ownership contract"
 run_gate "heartbeat" "AUTOPOIESIS_HEARTBEAT_CONTRACT_SOURCE" "heartbeat-contract-check.sh" "Hosted heartbeat contract"
 run_gate "stream" "AUTOPOIESIS_STREAM_CONTRACT_SOURCE" "stream-contract-check.sh" "Hosted stream contract"
 run_gate "cache" "AUTOPOIESIS_CACHE_CONTRACT_SOURCE" "cache-contract-check.sh" "Hosted cache/offline contract"
