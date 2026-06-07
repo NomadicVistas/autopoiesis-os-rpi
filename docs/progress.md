@@ -1,5 +1,40 @@
 # Progress
 
+## 2026-06-07 - Install preflight app-tree gate
+
+Date: 2026-06-07
+
+Milestone: RPI APPLIANCE - one-command install hardening
+
+Changed files:
+
+- `scripts/preflight.sh`
+- `README.md`
+- `docs/installation.md`
+- `docs/agent-notes/pulse.md`
+- `docs/progress.md`
+- `/data/.openclaw/workspace/autopoiesis-os-program/ROLLING-LOG.md`
+
+Implemented:
+
+- Added an appliance app-tree completeness gate to `scripts/preflight.sh`.
+- The gate validates required config, local UI, script, service, timer, and version files before install copies the checkout into `/opt/autopoiesis-os`.
+- Required runtime scripts must be executable, and `local-ui/server.js` must pass `node --check` when Node is available.
+- `AUTOPOIESIS_PREFLIGHT_APP_ROOT` can point the check at an installed app tree or isolated fixture for support/debug validation.
+
+Verification:
+
+- `node --check local-ui/server.js` passed.
+- `bash -n install.sh update.sh uninstall-dev-tools.sh factory-reset.sh scripts/*.sh` passed.
+- Targeted `scripts/preflight.sh --install` smoke passed with stubbed install prerequisites and `AUTOPOIESIS_PREFLIGHT_MIN_FREE_MB=1`.
+- Targeted app-tree failure smoke rejected a fixture missing `local-ui/server.js`.
+- `git diff --check` passed.
+- `scripts/security-smoke.sh` passed.
+
+Next step:
+
+Run the updated `sudo ./scripts/preflight.sh --install` from a clean release checkout and from the installed `/opt/autopoiesis-os/app` tree on physical Pi hardware before treating one-command install as production-ready.
+
 ## 2026-06-07 - Hosted cache/offline contract
 
 Date: 2026-06-07

@@ -53,7 +53,7 @@ Milestone 2 is scaffolded for physical Pi validation. The local UI can:
 - run a local security smoke test that checks device API key redaction and tracked secret hygiene
 - run a production cleanup audit that fails on app-tree secrets, Git metadata, Codex/OpenClaw/OpenAI homes, shell-history secret hints, development caches, and SSH exposure
 - validate a hosted pairing/register/claim/status contract before live account pairing is treated as rollout-ready
-- run an appliance preflight that checks root install mode, Node.js, rsync, curl, systemd, target volume free space, Chromium, NetworkManager, and whether the appliance user exists
+- run an appliance preflight that checks app-tree completeness, local UI syntax, root install mode, Node.js, rsync, curl, systemd, target volume free space, Chromium, NetworkManager, and whether the appliance user exists
 - create the appliance user during install/bootstrap before runtime directories are chowned
 - render systemd units during install/update from the configured app, data, log, user, and home paths instead of hard-coding the default appliance layout
 - keep rollback metadata and a pre-update app snapshot for release artifact installs
@@ -75,10 +75,13 @@ sudo /opt/autopoiesis-os/app/scripts/milestone2-verify.sh
 sudo /opt/autopoiesis-os/app/scripts/security-smoke.sh
 ```
 
-The install preflight fails if the selected install, data, or log volumes have
-less than 1024 MB free. Override with `AUTOPOIESIS_PREFLIGHT_MIN_FREE_MB` when
-building constrained test images, or set it to `0` to disable the disk-space
-gate deliberately.
+The install preflight fails if the appliance checkout is missing required
+config, local UI, script, service, timer, or version files, or if
+`local-ui/server.js` does not parse. It also fails when the selected install,
+data, or log volumes have less than 1024 MB free. Override the app tree with
+`AUTOPOIESIS_PREFLIGHT_APP_ROOT` for isolated fixtures. Override the disk
+threshold with `AUTOPOIESIS_PREFLIGHT_MIN_FREE_MB` when building constrained
+test images, or set it to `0` to disable the disk-space gate deliberately.
 
 During development you can run the local UI without installing:
 

@@ -1,5 +1,14 @@
 # Pulse Agent Notes
 
+## 2026-06-07 - Install preflight app-tree gate
+
+Date/time: 2026-06-07 00:35 UTC / 2026-06-07 02:35 Europe/Berlin
+Agent: Pulse
+Context: RPI APPLIANCE cron pass. The installer preflight caught OS dependencies and disk pressure, but a damaged or partial checkout could still reach the copy/bootstrap step and fail later as a kiosk, service, or heartbeat symptom.
+What changed: Added an app-tree completeness gate to `scripts/preflight.sh`. It validates required config, local UI, service, timer, version, and executable runtime script files, then runs `node --check` on `local-ui/server.js` when Node is available. `AUTOPOIESIS_PREFLIGHT_APP_ROOT` lets support point the same check at an installed app tree or isolated fixture.
+What needs review: Run the preflight from both a clean release checkout and the installed `/opt/autopoiesis-os/app` tree on physical Pi hardware. If a release artifact intentionally omits a file this gate names, update the gate and install docs in the same release.
+Next recommended action: Pair this with the disk-space preflight and production cleanup audit before cloning the first production image.
+
 ## 2026-06-07 - Hosted cache/offline contract
 
 Date/time: 2026-06-07 00:15 UTC / 2026-06-07 02:15 Europe/Berlin

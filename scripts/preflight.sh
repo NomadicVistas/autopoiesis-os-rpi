@@ -5,6 +5,8 @@ MODE="${1:-}"
 FAILURES=0
 WARNINGS=0
 MIN_FREE_MB="${AUTOPOIESIS_PREFLIGHT_MIN_FREE_MB:-1024}"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+APP_ROOT="${AUTOPOIESIS_PREFLIGHT_APP_ROOT:-$(cd "$SCRIPT_DIR/.." && pwd)}"
 
 fail() {
   echo "FAIL: $*" >&2
@@ -27,6 +29,113 @@ require_command() {
     pass "$command_name found"
   else
     fail "$command_name is required. $hint"
+  fi
+}
+
+require_path() {
+  local kind="$1"
+  local relative_path="$2"
+  local full_path="$APP_ROOT/$relative_path"
+
+  case "$kind" in
+    dir)
+      if [[ -d "$full_path" ]]; then
+        pass "app tree contains $relative_path/"
+      else
+        fail "app tree is missing required directory: $relative_path"
+      fi
+      ;;
+    file)
+      if [[ -f "$full_path" ]]; then
+        pass "app tree contains $relative_path"
+      else
+        fail "app tree is missing required file: $relative_path"
+      fi
+      ;;
+    executable)
+      if [[ -x "$full_path" && -f "$full_path" ]]; then
+        pass "app tree contains executable $relative_path"
+      elif [[ -f "$full_path" ]]; then
+        fail "app tree file is not executable: $relative_path"
+      else
+        fail "app tree is missing required executable: $relative_path"
+      fi
+      ;;
+  esac
+}
+
+check_app_tree() {
+  if [[ ! -d "$APP_ROOT" ]]; then
+    fail "appliance app tree does not exist: $APP_ROOT"
+    return
+  fi
+
+  pass "checking appliance app tree at $APP_ROOT"
+
+  local required_dirs=(
+    config
+    local-ui
+    scripts
+    services
+    timers
+  )
+
+  local required_files=(
+    VERSION
+    config/defaults.json
+    config/device.example.json
+    local-ui/package.json
+    local-ui/server.js
+    services/autopoiesis-setup.service
+    services/autopoiesis-kiosk.service
+    services/autopoiesis-heartbeat.service
+    services/autopoiesis-command-executor.service
+    services/autopoiesis-cache.service
+    services/autopoiesis-updater.service
+    services/autopoiesis-watchdog.service
+    timers/autopoiesis-heartbeat.timer
+    timers/autopoiesis-command-executor.timer
+    timers/autopoiesis-cache.timer
+    timers/autopoiesis-updater.timer
+    timers/autopoiesis-watchdog.timer
+  )
+
+  local required_executables=(
+    install.sh
+    update.sh
+    factory-reset.sh
+    scripts/bootstrap.sh
+    scripts/ensure-appliance-user.sh
+    scripts/generate-device-id.sh
+    scripts/install-systemd-units.sh
+    scripts/start-setup.sh
+    scripts/start-kiosk.sh
+    scripts/heartbeat.sh
+    scripts/process-commands.sh
+    scripts/cache-artworks.sh
+    scripts/update-from-github.sh
+    scripts/watchdog.sh
+  )
+
+  local path
+  for path in "${required_dirs[@]}"; do
+    require_path dir "$path"
+  done
+
+  for path in "${required_files[@]}"; do
+    require_path file "$path"
+  done
+
+  for path in "${required_executables[@]}"; do
+    require_path executable "$path"
+  done
+
+  if command -v node >/dev/null 2>&1 && [[ -f "$APP_ROOT/local-ui/server.js" ]]; then
+    if node --check "$APP_ROOT/local-ui/server.js" >/dev/null 2>&1; then
+      pass "local-ui/server.js parses"
+    else
+      fail "local-ui/server.js failed node --check"
+    fi
   fi
 }
 
@@ -92,6 +201,8 @@ check_node_version() {
 echo "Autopoiesis OS appliance preflight"
 echo "Date: $(date -Is)"
 echo
+
+check_app_tree
 
 if [[ "$MODE" == "--install" && "$(id -u)" -ne 0 ]]; then
   fail "install mode requires root. Run: sudo ./install.sh"

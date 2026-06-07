@@ -24,11 +24,16 @@ configuration. If `AUTOPOIESIS_INSTALL_DIR`, `AUTOPOIESIS_DATA_DIR`,
 overridden, the installed units inherit those values instead of silently
 falling back to `/opt/autopoiesis-os`, `/var/lib/autopoiesis-os`, or `frame`.
 
-The preflight reports hard blockers such as missing root privileges for install
-mode, `rsync`, `curl`, `systemctl`, Node.js older than 20, or less than 1024
-MB free on the selected install, data, or log volumes. It warns, but does not
-stop, when Chromium or NetworkManager are missing so support can still prepare
-an image and see exactly why kiosk or Wi-Fi setup will be limited.
+The preflight reports hard blockers such as an incomplete appliance app tree,
+a `local-ui/server.js` syntax failure, missing root privileges for install
+mode, `rsync`, `curl`, `systemctl`, Node.js older than 20, or less than
+1024 MB free on the selected install, data, or log volumes. It warns, but does
+not stop, when Chromium or NetworkManager are missing so support can still
+prepare an image and see exactly why kiosk or Wi-Fi setup will be limited.
+
+Use `AUTOPOIESIS_PREFLIGHT_APP_ROOT` to point the app-tree check at an
+installed app or isolated fixture. The default is the repository root that
+contains the running `scripts/preflight.sh`.
 
 Use `AUTOPOIESIS_PREFLIGHT_MIN_FREE_MB` to raise or lower the disk-space
 threshold for a build image. Set it to `0` only when intentionally bypassing
