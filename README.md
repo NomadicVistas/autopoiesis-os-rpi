@@ -331,6 +331,8 @@ AUTOPOIESIS_SETTINGS_CONTRACT_TOKEN="$TOKEN" ./scripts/settings-contract-check.s
 
 The settings contract check validates read-only staging evidence for `GET /api/frames/device/{deviceId}/settings`, `POST /api/frames/device/{deviceId}/settings`, and heartbeat settings handoff. It requires an initial authoritative read, a newer write that preserves or advances the submitted `updatedAt`, a stale write rejection or explicit conflict, a final read proving the stale write did not overwrite the newer row, and a heartbeat response that returns settings at least as current as the accepted write. The bundle must not expose device API keys, pairing codes/hashes, private tokens, secrets, or local appliance paths.
 
+For stricter backend staging, set `AUTOPOIESIS_REQUIRE_SETTINGS_USER_PREFERENCES=1` and include a nested `userPreferences` conflict flow with `userPreferencesRead`, `newerPreferenceWrite`, `stalePreferenceWrite`, `finalPreferencesRead`, and `heartbeat` sections. That proves `aos_frame_user_preferences` follows the same newest-`updatedAt` rule as `aos_frame_device_settings` and that the accepted user preference timestamp is reflected in the device heartbeat's effective settings.
+
 Validate hosted Profile account ownership before exposing Profile > Frames account routes:
 
 ```bash

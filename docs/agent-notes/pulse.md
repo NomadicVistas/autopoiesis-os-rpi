@@ -1,5 +1,14 @@
 # Pulse Agent Notes
 
+## 2026-06-07 - Settings user preference conflict coverage
+
+Date/time: 2026-06-07 10:45 UTC / 2026-06-07 12:45 Europe/Berlin
+Agent: Pulse
+Context: API / DATABASE / SYNC cron pass. The hosted settings gate proved newest-`updatedAt` behavior for one settings stream, but backend staging still needed a way to prove `aos_frame_device_settings` and `aos_frame_user_preferences` separately before preference cascades are trusted.
+What changed: Extended `scripts/settings-contract-check.sh` with optional nested `userPreferences` conflict-flow validation and `AUTOPOIESIS_REQUIRE_SETTINGS_USER_PREFERENCES=1`. The checker now reuses the same newest-`updatedAt` sequence for account preferences and requires heartbeat effective settings to be at least as current as the accepted user preference write.
+What needs review: Hosted staging should generate the nested flow from real `aos_frame_user_preferences` rows and the same effective-settings resolver used by device heartbeat responses.
+Next recommended action: Enable `AUTOPOIESIS_REQUIRE_SETTINGS_USER_PREFERENCES=1` in backend CI once the settings adapter emits both device-settings and user-preference evidence.
+
 ## 2026-06-07 - Hardware profile fixture gate
 
 Date/time: 2026-06-07 10:37 UTC / 2026-06-07 12:37 Europe/Berlin

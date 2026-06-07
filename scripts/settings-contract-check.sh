@@ -5,6 +5,7 @@ SOURCE="${1:-${AUTOPOIESIS_SETTINGS_CONTRACT_SOURCE:-}}"
 REQUIRE_STALE_REJECTION="${AUTOPOIESIS_REQUIRE_SETTINGS_STALE_REJECTION:-1}"
 REQUIRE_FINAL_READ="${AUTOPOIESIS_REQUIRE_SETTINGS_FINAL_READ:-1}"
 REQUIRE_HEARTBEAT_SETTINGS="${AUTOPOIESIS_REQUIRE_SETTINGS_HEARTBEAT:-1}"
+REQUIRE_USER_PREFERENCES="${AUTOPOIESIS_REQUIRE_SETTINGS_USER_PREFERENCES:-0}"
 TMP_FILE=""
 
 cleanup() {
@@ -31,11 +32,15 @@ Environment:
   AUTOPOIESIS_REQUIRE_SETTINGS_STALE_REJECTION require stale write conflict evidence, default 1
   AUTOPOIESIS_REQUIRE_SETTINGS_FINAL_READ    require final read after stale write, default 1
   AUTOPOIESIS_REQUIRE_SETTINGS_HEARTBEAT     require heartbeat settings evidence, default 1
+  AUTOPOIESIS_REQUIRE_SETTINGS_USER_PREFERENCES require separate user preference conflict evidence, default 0
 
 The bundle is read-only staging/CI evidence for hosted newest-updatedAt settings
 resolution. It should prove an initial read, a newer settings write, a stale
 write rejection/conflict, a final read that preserved the newer row, and a
-heartbeat response that returns authoritative settings.
+heartbeat response that returns authoritative settings. When user preference
+evidence is present, or AUTOPOIESIS_REQUIRE_SETTINGS_USER_PREFERENCES=1 is set,
+the bundle must also include a userPreferences conflict flow using the same
+newest-updatedAt rule for aos_frame_user_preferences.
 EOF
 }
 
@@ -56,13 +61,14 @@ fi
 
 [[ -f "$SOURCE" ]] || fail "settings contract bundle file not found: $SOURCE"
 
-node - "$SOURCE" "$REQUIRE_STALE_REJECTION" "$REQUIRE_FINAL_READ" "$REQUIRE_HEARTBEAT_SETTINGS" <<'NODE'
+node - "$SOURCE" "$REQUIRE_STALE_REJECTION" "$REQUIRE_FINAL_READ" "$REQUIRE_HEARTBEAT_SETTINGS" "$REQUIRE_USER_PREFERENCES" <<'NODE'
 const fs = require("fs");
 
-const [file, requireStaleRejectionValue, requireFinalReadValue, requireHeartbeatValue] = process.argv.slice(2);
+const [file, requireStaleRejectionValue, requireFinalReadValue, requireHeartbeatValue, requireUserPreferencesValue] = process.argv.slice(2);
 const requireStaleRejection = requireStaleRejectionValue !== "0";
 const requireFinalRead = requireFinalReadValue !== "0";
 const requireHeartbeat = requireHeartbeatValue !== "0";
+const requireUserPreferences = requireUserPreferencesValue === "1";
 
 const sensitiveKeyPatterns = [
   /^deviceApiKey$/i,
@@ -219,7 +225,7 @@ function settingsFrom(value) {
   if (!isObject(value)) return null;
   const unwrapped = unwrap(value);
   if (!isObject(unwrapped)) return null;
-  for (const key of ["settings", "deviceSettings", "preferences", "devicePreferences", "frameSettings"]) {
+  for (const key of ["settings", "deviceSettings", "preferences", "userPreferences", "devicePreferences", "frameSettings", "effectiveSettings"]) {
     if (isObject(unwrapped[key])) return unwrapped[key];
   }
   if (unwrapped.updatedAt || unwrapped.updated_at) return unwrapped;
@@ -287,6 +293,33 @@ function assertDeviceMatches(value, expectedDeviceId, field) {
   }
 }
 
+function userIdFrom(value) {
+  if (!isObject(value)) return "";
+  const unwrapped = unwrap(value);
+  const candidates = [
+    value.userId,
+    value.user_id,
+    value.ownerUserId,
+    value.owner_user_id,
+    unwrapped.userId,
+    unwrapped.user_id,
+    unwrapped.ownerUserId,
+    unwrapped.owner_user_id,
+    isObject(unwrapped.user) ? unwrapped.user.userId || unwrapped.user.user_id || unwrapped.user.id : null,
+    isObject(unwrapped.owner) ? unwrapped.owner.userId || unwrapped.owner.user_id || unwrapped.owner.id : null,
+    isObject(unwrapped.profile) ? unwrapped.profile.userId || unwrapped.profile.user_id || unwrapped.profile.id : null
+  ];
+  return candidates.find((candidate) => typeof candidate === "string" && candidate.trim()) || "";
+}
+
+function assertUserMatches(value, expectedUserId, field) {
+  if (!expectedUserId) return;
+  const found = userIdFrom(value);
+  if (found && found !== expectedUserId) {
+    fail(field + " returned userId " + found + " for bundle userId " + expectedUserId);
+  }
+}
+
 function requireSuccessful(response, field) {
   const status = statusFrom(response);
   if (status !== null && (status < 200 || status >= 300)) fail(field + ".status must be 2xx");
@@ -335,6 +368,88 @@ function requireStaleRejected(response, acceptedAt, field) {
   }
 }
 
+function validateConflictFlow(container, label, options = {}) {
+  const expectedDeviceId = options.expectedDeviceId || "";
+  const expectedUserId = options.expectedUserId || "";
+  const checkDevice = options.checkDevice !== false;
+  const checkUser = options.checkUser === true;
+  const initialAliases = options.initialAliases || ["settingsRead", "initialRead", "read", "currentSettings"];
+  const newerAliases = options.newerAliases || ["newerWrite", "settingsWrite", "acceptedWrite", "writeNewer"];
+  const staleAliases = options.staleAliases || ["staleWrite", "staleSettingsWrite", "conflictWrite", "olderWrite"];
+  const finalAliases = options.finalAliases || ["finalRead", "postConflictRead", "readAfterStale", "latestRead"];
+  const heartbeatAliases = options.heartbeatAliases || ["heartbeat", "heartbeatResponse", "settingsHeartbeat"];
+
+  function assertScope(value, field) {
+    if (checkDevice) assertDeviceMatches(value, expectedDeviceId, field);
+    if (checkUser) assertUserMatches(value, expectedUserId, field);
+  }
+
+  const initialRead = sectionFrom(container, initialAliases, label + ".settingsRead");
+  const initialResponse = responseFrom(initialRead, label + ".settingsRead");
+  requireSuccessful(initialResponse, label + ".settingsRead.response");
+  assertScope(initialResponse, label + ".settingsRead.response");
+  const initialSettings = settingsFrom(initialResponse);
+  if (!initialSettings) fail(label + ".settingsRead.response.settings is required");
+  validateSettings(initialSettings, label + ".settingsRead.response.settings");
+  const initialAt = timestamp(initialSettings, label + ".settingsRead.response.settings");
+
+  const newerWrite = sectionFrom(container, newerAliases, label + ".newerWrite");
+  const newerRequest = requestFrom(newerWrite, label + ".newerWrite");
+  const newerRequestSettings = settingsFrom(newerRequest);
+  if (!newerRequestSettings) fail(label + ".newerWrite.request.settings is required");
+  validateSettings(newerRequestSettings, label + ".newerWrite.request.settings");
+  const newerRequestAt = timestamp(newerRequestSettings, label + ".newerWrite.request.settings");
+  if (newerRequestAt <= initialAt) fail(label + ".newerWrite.request.settings.updatedAt must be newer than settingsRead");
+
+  const newerResponse = responseFrom(newerWrite, label + ".newerWrite");
+  requireSuccessful(newerResponse, label + ".newerWrite.response");
+  assertScope(newerResponse, label + ".newerWrite.response");
+  const newerResponseSettings = settingsFrom(newerResponse);
+  if (!newerResponseSettings) fail(label + ".newerWrite.response.settings is required");
+  validateSettings(newerResponseSettings, label + ".newerWrite.response.settings");
+  const acceptedAt = timestamp(newerResponseSettings, label + ".newerWrite.response.settings");
+  if (acceptedAt < newerRequestAt) fail(label + ".newerWrite.response.settings.updatedAt must preserve or advance the submitted updatedAt");
+
+  if (requireStaleRejection) {
+    const staleWrite = sectionFrom(container, staleAliases, label + ".staleWrite");
+    const staleRequest = requestFrom(staleWrite, label + ".staleWrite");
+    const staleRequestSettings = settingsFrom(staleRequest);
+    if (!staleRequestSettings) fail(label + ".staleWrite.request.settings is required");
+    validateSettings(staleRequestSettings, label + ".staleWrite.request.settings");
+    const staleRequestAt = timestamp(staleRequestSettings, label + ".staleWrite.request.settings");
+    if (staleRequestAt >= acceptedAt) fail(label + ".staleWrite.request.settings.updatedAt must be older than the accepted row");
+    const staleResponse = responseFrom(staleWrite, label + ".staleWrite");
+    assertScope(staleResponse, label + ".staleWrite.response");
+    requireStaleRejected(staleResponse, acceptedAt, label + ".staleWrite.response");
+  }
+
+  if (requireFinalRead) {
+    const finalRead = sectionFrom(container, finalAliases, label + ".finalRead");
+    const finalResponse = responseFrom(finalRead, label + ".finalRead");
+    requireSuccessful(finalResponse, label + ".finalRead.response");
+    assertScope(finalResponse, label + ".finalRead.response");
+    const finalSettings = settingsFrom(finalResponse);
+    if (!finalSettings) fail(label + ".finalRead.response.settings is required");
+    validateSettings(finalSettings, label + ".finalRead.response.settings");
+    const finalAt = timestamp(finalSettings, label + ".finalRead.response.settings");
+    if (finalAt < acceptedAt) fail(label + ".finalRead.response.settings.updatedAt must preserve the accepted newer row");
+  }
+
+  if (requireHeartbeat) {
+    const heartbeat = sectionFrom(container, heartbeatAliases, label + ".heartbeat");
+    const heartbeatResponse = responseFrom(heartbeat, label + ".heartbeat");
+    requireSuccessful(heartbeatResponse, label + ".heartbeat.response");
+    if (checkDevice) assertDeviceMatches(heartbeatResponse, expectedDeviceId, label + ".heartbeat.response");
+    const heartbeatSettings = settingsFrom(heartbeatResponse);
+    if (!heartbeatSettings) fail(label + ".heartbeat.response.settings is required");
+    validateSettings(heartbeatSettings, label + ".heartbeat.response.settings");
+    const heartbeatAt = timestamp(heartbeatSettings, label + ".heartbeat.response.settings");
+    if (heartbeatAt < acceptedAt) fail(label + ".heartbeat.response.settings.updatedAt must not lag behind the accepted row");
+  }
+
+  return acceptedAt;
+}
+
 const payload = readJson(file);
 if (!isObject(payload)) fail("settings contract bundle must be a JSON object");
 if (payload.ok === false) fail("settings contract bundle has ok=false");
@@ -348,67 +463,35 @@ if (payload.schemaVersion !== undefined && Number(payload.schemaVersion) !== 1) 
 }
 
 const expectedDeviceId = typeof payload.deviceId === "string" ? payload.deviceId : "";
-const initialRead = sectionFrom(payload, ["settingsRead", "initialRead", "read", "currentSettings"], "settingsRead");
-const initialResponse = responseFrom(initialRead, "settingsRead");
-requireSuccessful(initialResponse, "settingsRead.response");
-assertDeviceMatches(initialResponse, expectedDeviceId, "settingsRead.response");
-const initialSettings = settingsFrom(initialResponse);
-if (!initialSettings) fail("settingsRead.response.settings is required");
-validateSettings(initialSettings, "settingsRead.response.settings");
-const initialAt = timestamp(initialSettings, "settingsRead.response.settings");
+const expectedUserId = typeof payload.userId === "string" ? payload.userId : "";
 
-const newerWrite = sectionFrom(payload, ["newerWrite", "settingsWrite", "acceptedWrite", "writeNewer"], "newerWrite");
-const newerRequest = requestFrom(newerWrite, "newerWrite");
-const newerRequestSettings = settingsFrom(newerRequest);
-if (!newerRequestSettings) fail("newerWrite.request.settings is required");
-validateSettings(newerRequestSettings, "newerWrite.request.settings");
-const newerRequestAt = timestamp(newerRequestSettings, "newerWrite.request.settings");
-if (newerRequestAt <= initialAt) fail("newerWrite.request.settings.updatedAt must be newer than settingsRead");
+validateConflictFlow(payload, "deviceSettings", {
+  expectedDeviceId,
+  checkDevice: true
+});
 
-const newerResponse = responseFrom(newerWrite, "newerWrite");
-requireSuccessful(newerResponse, "newerWrite.response");
-assertDeviceMatches(newerResponse, expectedDeviceId, "newerWrite.response");
-const newerResponseSettings = settingsFrom(newerResponse);
-if (!newerResponseSettings) fail("newerWrite.response.settings is required");
-validateSettings(newerResponseSettings, "newerWrite.response.settings");
-const acceptedAt = timestamp(newerResponseSettings, "newerWrite.response.settings");
-if (acceptedAt < newerRequestAt) fail("newerWrite.response.settings.updatedAt must preserve or advance the submitted updatedAt");
+const userPreferences = sectionFrom(
+  payload,
+  ["userPreferences", "userPreferenceConflict", "preferencesConflict", "profilePreferences"],
+  "userPreferences",
+  { required: false }
+);
 
-if (requireStaleRejection) {
-  const staleWrite = sectionFrom(payload, ["staleWrite", "staleSettingsWrite", "conflictWrite", "olderWrite"], "staleWrite");
-  const staleRequest = requestFrom(staleWrite, "staleWrite");
-  const staleRequestSettings = settingsFrom(staleRequest);
-  if (!staleRequestSettings) fail("staleWrite.request.settings is required");
-  validateSettings(staleRequestSettings, "staleWrite.request.settings");
-  const staleRequestAt = timestamp(staleRequestSettings, "staleWrite.request.settings");
-  if (staleRequestAt >= acceptedAt) fail("staleWrite.request.settings.updatedAt must be older than the accepted row");
-  const staleResponse = responseFrom(staleWrite, "staleWrite");
-  assertDeviceMatches(staleResponse, expectedDeviceId, "staleWrite.response");
-  requireStaleRejected(staleResponse, acceptedAt, "staleWrite.response");
+if (requireUserPreferences && !userPreferences) {
+  fail("userPreferences section is required when AUTOPOIESIS_REQUIRE_SETTINGS_USER_PREFERENCES=1");
 }
 
-if (requireFinalRead) {
-  const finalRead = sectionFrom(payload, ["finalRead", "postConflictRead", "readAfterStale", "latestRead"], "finalRead");
-  const finalResponse = responseFrom(finalRead, "finalRead");
-  requireSuccessful(finalResponse, "finalRead.response");
-  assertDeviceMatches(finalResponse, expectedDeviceId, "finalRead.response");
-  const finalSettings = settingsFrom(finalResponse);
-  if (!finalSettings) fail("finalRead.response.settings is required");
-  validateSettings(finalSettings, "finalRead.response.settings");
-  const finalAt = timestamp(finalSettings, "finalRead.response.settings");
-  if (finalAt < acceptedAt) fail("finalRead.response.settings.updatedAt must preserve the accepted newer row");
-}
-
-if (requireHeartbeat) {
-  const heartbeat = sectionFrom(payload, ["heartbeat", "heartbeatResponse", "settingsHeartbeat"], "heartbeat");
-  const heartbeatResponse = responseFrom(heartbeat, "heartbeat");
-  requireSuccessful(heartbeatResponse, "heartbeat.response");
-  assertDeviceMatches(heartbeatResponse, expectedDeviceId, "heartbeat.response");
-  const heartbeatSettings = settingsFrom(heartbeatResponse);
-  if (!heartbeatSettings) fail("heartbeat.response.settings is required");
-  validateSettings(heartbeatSettings, "heartbeat.response.settings");
-  const heartbeatAt = timestamp(heartbeatSettings, "heartbeat.response.settings");
-  if (heartbeatAt < acceptedAt) fail("heartbeat.response.settings.updatedAt must not lag behind the accepted row");
+if (userPreferences) {
+  validateConflictFlow(userPreferences, "userPreferences", {
+    expectedUserId: typeof userPreferences.userId === "string" ? userPreferences.userId : expectedUserId,
+    checkDevice: false,
+    checkUser: true,
+    initialAliases: ["userPreferencesRead", "preferencesRead", "settingsRead", "initialRead", "read", "currentPreferences"],
+    newerAliases: ["newerPreferenceWrite", "newerPreferencesWrite", "newerWrite", "preferencesWrite", "acceptedWrite", "writeNewer"],
+    staleAliases: ["stalePreferenceWrite", "stalePreferencesWrite", "staleWrite", "conflictWrite", "olderWrite"],
+    finalAliases: ["finalPreferencesRead", "profileRead", "finalRead", "postConflictRead", "latestRead"],
+    heartbeatAliases: ["heartbeat", "heartbeatResponse", "settingsHeartbeat", "cascadeHeartbeat"]
+  });
 }
 
 console.log("settings contract ok");

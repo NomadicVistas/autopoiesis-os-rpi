@@ -1,5 +1,44 @@
 # Progress
 
+## 2026-06-07 - Settings user preference conflict coverage
+
+Date: 2026-06-07
+
+Milestone: API / DATABASE / SYNC - durable settings and preference conflict contract
+
+Changed files:
+
+- `scripts/settings-contract-check.sh`
+- `README.md`
+- `docs/api-contract.md`
+- `docs/database-schema.md`
+- `docs/agent-notes/backend-settings-contract-issue.md`
+- `docs/agent-notes/pulse.md`
+- `docs/progress.md`
+- `/data/.openclaw/workspace/autopoiesis-os-program/ROLLING-LOG.md`
+
+Implemented:
+
+- Refactored the hosted settings checker around a reusable newest-`updatedAt` conflict flow.
+- Added optional nested `userPreferences` validation for `aos_frame_user_preferences` evidence.
+- Added `AUTOPOIESIS_REQUIRE_SETTINGS_USER_PREFERENCES=1` so strict backend staging can require both device settings and user preference conflict flows.
+- The nested user-preference flow requires heartbeat effective settings to be at least as current as the accepted account-level preference write, proving cascade freshness before Profile/Admin sync evidence is trusted.
+
+Verification:
+
+- Representative settings bundle with required user-preference conflict flow passed.
+- Missing `userPreferences` evidence was rejected when `AUTOPOIESIS_REQUIRE_SETTINGS_USER_PREFERENCES=1`.
+- Stale user-preference overwrite evidence was rejected.
+- Hosted suite required-settings pass path accepted the stricter user-preference fixture.
+- `node --check local-ui/server.js` passed.
+- `bash -n install.sh update.sh uninstall-dev-tools.sh factory-reset.sh scripts/*.sh` passed.
+- `git diff --check` passed.
+- `scripts/security-smoke.sh` passed.
+
+Next step:
+
+Generate the hosted settings bundle from staging with both `aos_frame_device_settings` and `aos_frame_user_preferences` rows, then enable `AUTOPOIESIS_REQUIRE_SETTINGS_USER_PREFERENCES=1` in the hosted suite once the adapter emits both flows.
+
 ## 2026-06-07 - Hardware profile fixture gate
 
 Date: 2026-06-07

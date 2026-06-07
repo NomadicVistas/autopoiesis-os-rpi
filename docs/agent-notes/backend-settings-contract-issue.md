@@ -25,6 +25,7 @@ The bundle should include:
 - `staleWrite`
 - `finalRead`
 - `heartbeat`
+- optional `userPreferences` nested flow for account-level preference conflict evidence
 
 ## Required Evidence
 
@@ -35,6 +36,15 @@ The bundle should include:
 - `staleWrite.response` rejects the write with a 4xx status or returns an explicit conflict/not-applied marker.
 - `finalRead.response.settings.updatedAt` still points to the accepted newer row.
 - `heartbeat.response.settings.updatedAt` is at least as current as the accepted newer row.
+
+When `AUTOPOIESIS_REQUIRE_SETTINGS_USER_PREFERENCES=1` is enabled, the bundle must also include:
+
+- `userPreferences.userPreferencesRead.response.preferences.updatedAt` or `settings.updatedAt`
+- `userPreferences.newerPreferenceWrite.request.preferences.updatedAt` newer than the starting row
+- `userPreferences.newerPreferenceWrite.response.preferences.updatedAt` preserving or advancing the submitted timestamp
+- `userPreferences.stalePreferenceWrite.response` rejecting or explicitly conflicting an older preference write
+- `userPreferences.finalPreferencesRead.response.preferences.updatedAt` preserving the accepted newer preference row
+- `userPreferences.heartbeat.response.settings.updatedAt` at least as current as the accepted user preference row, proving cascade freshness into effective device settings
 
 The bundle must not expose device API keys, pairing codes or hashes, private/admin tokens, secrets, passwords, raw bearer tokens, or local appliance paths.
 
@@ -50,6 +60,8 @@ Use durable rows from:
 ## Acceptance
 
 ```bash
+scripts/settings-contract-check.sh /path/to/settings-contract-bundle.json
+AUTOPOIESIS_REQUIRE_SETTINGS_USER_PREFERENCES=1 \
 scripts/settings-contract-check.sh /path/to/settings-contract-bundle.json
 AUTOPOIESIS_SETTINGS_CONTRACT_SOURCE=/path/to/settings-contract-bundle.json \
 AUTOPOIESIS_HOSTED_CONTRACT_REQUIRE=settings \
