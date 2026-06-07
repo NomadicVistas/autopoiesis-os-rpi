@@ -111,4 +111,8 @@ echo "13. Heartbeat event ingestion cursor contract"
 "$(dirname "$0")/events-ingestion-check.sh"
 
 echo
+echo "14. Factory reset contract"
+"$(dirname "$0")/factory-reset-check.sh"
+
+echo
 echo "Milestone 2 verification passed."

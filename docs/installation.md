@@ -98,3 +98,12 @@ support-history JSON. It preserves the installed app code and
 `/var/log/autopoiesis-os`. Use `--keep-support-history` when support needs the
 recent diagnostics/audit/delivery/release JSON files for a handoff before
 re-pairing.
+
+Before exercising reset on real hardware state, run the isolated contract gate:
+
+```bash
+/opt/autopoiesis-os/app/scripts/factory-reset-check.sh
+```
+
+It uses temporary runtime directories and a stubbed `systemctl`, then proves the
+default reset, `--keep-support-history`, and `--dry-run` behavior.

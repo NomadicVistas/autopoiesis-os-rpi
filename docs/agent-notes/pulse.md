@@ -1,5 +1,14 @@
 # Pulse Agent Notes
 
+## 2026-06-07 - Factory reset contract gate
+
+Date/time: 2026-06-07 02:35 UTC / 2026-06-07 04:35 Europe/Berlin
+Agent: Pulse
+Context: RPI APPLIANCE cron pass. Factory reset is deliberately destructive on real device state, but until now the appliance only documented the behavior instead of proving it in an isolated acceptance gate.
+What changed: Added `scripts/factory-reset-check.sh` and wired it into Milestone 2 verification. The checker seeds paired identity/runtime/support/cache state in temporary directories, runs the real reset script with a stubbed `systemctl`, verifies regenerated unpaired identity, cleared runtime/cache/support state, restored install-cache directories, setup/kiosk restart intent, support-history preservation mode, and dry-run non-mutation.
+What needs review: Run the full Milestone 2 script on the physical Pi, then perform one real reset after collecting a support bundle so the screen, pairing flow, and new device identity are confirmed on hardware.
+Next recommended action: Treat this script as the pre-reset sanity gate in support workflows; if it fails, fix reset behavior before asking anyone to run `factory-reset.sh` against real appliance state.
+
 ## 2026-06-07 - Feed polling metadata contract
 
 Date/time: 2026-06-07 02:25 UTC / 2026-06-07 04:25 Europe/Berlin

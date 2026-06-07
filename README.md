@@ -52,6 +52,7 @@ Milestone 2 is scaffolded for physical Pi validation. The local UI can:
 - verify heartbeat event ingestion cursor acknowledgements, replay overlap, stale ack rejection, and diagnostics/support visibility
 - run a local security smoke test that checks device API key redaction and tracked secret hygiene
 - run a production cleanup audit that fails on app-tree secrets, Git metadata, Codex/OpenClaw/OpenAI homes, shell-history secret hints, development caches, and SSH exposure
+- run an isolated factory reset contract check that proves identity, pairing, runtime, cache, support-history, dry-run, and service-restart behavior before a real reset touches device state
 - validate a hosted pairing/register/claim/status contract before live account pairing is treated as rollout-ready
 - run an appliance preflight that checks app-tree completeness, local UI syntax, root install mode, Node.js, rsync, curl, systemd, target volume free space, Chromium, NetworkManager, and whether the appliance user exists
 - create the appliance user during install/bootstrap before runtime directories are chowned
@@ -403,6 +404,18 @@ Preview and run a local factory reset on a device:
 
     sudo /opt/autopoiesis-os/app/factory-reset.sh --dry-run
     sudo /opt/autopoiesis-os/app/factory-reset.sh
+
+Validate the factory reset contract without mutating installed device state:
+
+```bash
+./scripts/factory-reset-check.sh
+```
+
+The check runs the real reset script against temporary app/data/cache/log
+directories with a stubbed `systemctl`. It proves default reset clears local
+identity, pairing, runtime, cache, rollout, and support-history state;
+`--keep-support-history` preserves support JSON while still clearing paired
+runtime state; and `--dry-run` leaves seeded files untouched.
 
 Run one local cache refresh after a feed sync:
 

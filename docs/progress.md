@@ -1,5 +1,43 @@
 # Progress
 
+## 2026-06-07 - Factory reset contract gate
+
+Date: 2026-06-07
+
+Milestone: RPI APPLIANCE - reset safety and hardware acceptance
+
+Changed files:
+
+- `scripts/factory-reset-check.sh`
+- `scripts/milestone2-verify.sh`
+- `README.md`
+- `docs/installation.md`
+- `docs/troubleshooting.md`
+- `docs/agent-notes/pulse.md`
+- `docs/progress.md`
+- `/data/.openclaw/workspace/autopoiesis-os-program/ROLLING-LOG.md`
+
+Implemented:
+
+- Added `scripts/factory-reset-check.sh`, an isolated acceptance gate for the real `factory-reset.sh` behavior.
+- The gate seeds paired identity, preferences, state, pairing, commands, broadcast, feed/cache, release, event cursor, support-history, data-cache, and install-cache files in temporary directories.
+- It proves the default reset regenerates an unpaired device identity, restores default preferences/state, clears runtime/support/cache state, recreates install cache directories, and records setup/kiosk restart intent through a stubbed `systemctl`.
+- It separately verifies `--keep-support-history` preserves diagnostics/audit/delivery/release JSON while still clearing paired runtime state.
+- It verifies `--dry-run --no-restart` leaves seeded identity, runtime, support, and cache files untouched.
+- Wired the factory reset check into Milestone 2 verification so physical Pi acceptance catches reset drift before operators run the destructive reset on real appliance state.
+
+Verification:
+
+- `scripts/factory-reset-check.sh` passed.
+- `node --check local-ui/server.js` passed.
+- `bash -n install.sh update.sh uninstall-dev-tools.sh factory-reset.sh scripts/*.sh` passed.
+- `git diff --check` passed.
+- `scripts/security-smoke.sh` passed.
+
+Next step:
+
+Run full Milestone 2 on physical Pi hardware, then collect a support bundle, run `sudo /opt/autopoiesis-os/app/factory-reset.sh --dry-run`, run the real reset, confirm the setup screen returns with a new unpaired device id, and re-pair before the next staged rollout check.
+
 ## 2026-06-07 - Feed polling metadata contract
 
 Date: 2026-06-07

@@ -225,6 +225,18 @@ preserved. Add `--keep-support-history` if `diagnostics.json`,
 `command-audit.json`, `delivery-log.json`, and `release-log.json` should survive
 for a support handoff.
 
+If reset behavior is in doubt, validate the contract in isolation before
+touching the device's real state:
+
+```bash
+/opt/autopoiesis-os/app/scripts/factory-reset-check.sh
+```
+
+The check seeds paired device state in a temporary data directory, runs the real
+reset script with a stubbed `systemctl`, and verifies default clearing,
+support-history preservation, dry-run non-mutation, cache cleanup, and
+setup/kiosk restart intent.
+
 ## Security Smoke
 
 ```bash
