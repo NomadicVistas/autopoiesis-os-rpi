@@ -1,5 +1,49 @@
 # Progress
 
+## 2026-06-07 - Hosted cache/offline contract
+
+Date: 2026-06-07
+
+Milestone: LEAD / INTEGRATION - cache/offline staging readiness
+
+Changed files:
+
+- `scripts/cache-contract-check.sh`
+- `scripts/hosted-contract-suite-check.sh`
+- `README.md`
+- `docs/api-contract.md`
+- `docs/database-schema.md`
+- `docs/agent-notes/backend-cache-contract-issue.md`
+- `docs/agent-notes/hosted-contract-suite-issue.md`
+- `docs/agent-notes/pulse.md`
+- `docs/progress.md`
+- `/data/.openclaw/workspace/autopoiesis-os-program/ROLLING-LOG.md`
+
+Implemented:
+
+- Added `scripts/cache-contract-check.sh`, a read-only saved-bundle or live-URL verifier for hosted cache/offline readiness.
+- The checker validates explicit cache policy booleans and size limits, HTTP(S) cache candidate URLs, duplicate ids, supported cache status/category metadata, device cache/offline summary evidence, optional cache-relevant commands, and redaction of credentials plus local appliance/cache paths.
+- Wired `cache` into `scripts/hosted-contract-suite-check.sh` between stream and online-admin so strict hosted readiness now requires cache evidence before Profile/Admin cache controls are trusted.
+- Added a backend handoff note for generating the bundle from durable settings/preferences, stream/content/broadcast rows, and heartbeat/support-ingested cache summaries.
+
+Verification:
+
+- `scripts/cache-contract-check.sh` passed against a representative cache/offline bundle.
+- `scripts/cache-contract-check.sh` rejected a bundle missing the explicit `selectedArtists` cache-policy boolean.
+- `scripts/cache-contract-check.sh` rejected a bundle exposing a local cache path instead of an HTTP(S) media URL.
+- `scripts/cache-contract-check.sh` rejected a duplicate cache item id fixture.
+- `scripts/hosted-contract-suite-check.sh` passed with `AUTOPOIESIS_HOSTED_CONTRACT_REQUIRE=cache` and the cache source provided.
+- `scripts/hosted-contract-suite-check.sh` rejected a missing required cache source.
+- `node --check local-ui/server.js` passed.
+- `bash -n install.sh update.sh uninstall-dev-tools.sh factory-reset.sh scripts/*.sh` passed.
+- `git diff --check` passed.
+- `scripts/security-smoke.sh` passed.
+
+Next step:
+
+Generate the hosted cache bundle from staging or CI using durable `aos_` settings, stream/content/broadcast rows, and heartbeat-ingested cache summaries; decide whether support-bundle uploads can backfill cache/offline state before enabling Profile > Frames cache-management controls.
+
+
 ## 2026-06-07 - Hosted settings conflict contract
 
 Date: 2026-06-07

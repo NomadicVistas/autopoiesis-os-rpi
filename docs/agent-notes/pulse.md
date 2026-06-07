@@ -1,5 +1,14 @@
 # Pulse Agent Notes
 
+## 2026-06-07 - Hosted cache/offline contract
+
+Date/time: 2026-06-07 00:15 UTC / 2026-06-07 02:15 Europe/Berlin
+Agent: Pulse
+Context: LEAD / INTEGRATION cron pass. Stream and Profile/Admin contracts already name cache eligibility and cache preferences, but the strict hosted suite still lacked one bridge proving cache candidates, explicit cache policy, and ingested device offline summaries line up before physical Pi cache validation.
+What changed: Added `scripts/cache-contract-check.sh` and wired `cache` into `scripts/hosted-contract-suite-check.sh` between stream and online-admin. The gate validates explicit cache policy booleans and size limits, HTTP(S) cache candidate URLs, duplicate ids, cache status/category vocabulary, device cache evidence, optional cache-relevant commands, and redaction of credentials plus local cache paths.
+What needs review: Hosted staging should generate the bundle from durable `aos_` settings/preferences, stream/content/broadcast rows, and heartbeat/support-ingested cache summaries. Decide whether support-bundle uploads can backfill cache state or whether heartbeat is the only source.
+Next recommended action: Run the expanded hosted suite with a real cache bundle before enabling Profile > Frames cache-management controls or treating offline fallback as production-ready.
+
 ## 2026-06-07 - Hosted settings conflict contract
 
 Date/time: 2026-06-06 22:45 UTC / 2026-06-07 00:45 Europe/Berlin

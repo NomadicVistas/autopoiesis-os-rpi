@@ -114,6 +114,7 @@ Profile/Admin contract notes:
 - Pairing-code plaintext should be limited to active device-facing registration/status responses. Durable storage should prefer `pairingCodeHash`; Profile/Admin/user claim payloads must not expose device API keys or pairing-code hashes.
 - `scripts/device-auth-contract-check.sh` expects the hosted API to authenticate device-only routes against a stored hash or otherwise non-exposed representation of the per-device credential, then bind that credential to the route `deviceId`. Missing, invalid, and cross-device credentials must be rejected for pairing status, settings, heartbeat, stream, command polling/acknowledgement, and release routes before physical Pi acceptance.
 - `scripts/settings-contract-check.sh` expects durable `aos_frame_device_settings` and `aos_frame_user_preferences` writes to use newest-`updatedAt` conflict handling. Staging evidence should show an accepted newer settings write, a rejected or explicitly conflicted stale write, a final read preserving the newer row, and heartbeat settings at least as current as the accepted write.
+- `scripts/cache-contract-check.sh` expects the hosted cache/offline bundle to join explicit cache preferences from `aos_frame_user_preferences`/`aos_frame_device_settings`, cache-eligible stream rows from durable content/broadcast sources, and ingested device cache summaries from heartbeat/support data. The bundle must expose HTTP(S) candidate URLs and compact counts only, never local cache paths or stored device credentials.
 - `scripts/online-admin-contract-check.sh` expects the hosted Profile > Frames surface to derive owned devices from `aos_frame_devices`, user preferences from `aos_frame_user_preferences`, liked artworks from the canonical artwork-like table or an `aos_` mirror, active artists from canonical artist rows plus preference selections, and explicit cache preferences from user/device settings.
 - The Admin > Frames portion should derive users, subscribers, subscriptions, fleet devices, and remote action policies from durable `aos_` rows plus the canonical account/subscription models.
 - The contract intentionally rejects stored device API keys, pairing-code hashes, private tokens, secrets, passwords, and local Pi filesystem paths.
@@ -141,6 +142,7 @@ Query notes:
 - `GET /api/frames/device/{deviceId}/stream` should derive its `items` array from durable content rows plus active broadcasts and any mapped artwork/blog/exhibition source rows.
 - Device, owner, subscription, tier, region, country, test-device, explicit exclusion, `startsAt`, and `expiresAt` targeting should be applied in the backend before returning the stream response.
 - `scripts/stream-contract-check.sh` is the backend response gate for the stream shape before physical Pi validation.
+- `scripts/cache-contract-check.sh` is the hosted cache/offline gate for proving those stream rows can become a cache manifest and that heartbeat-ingested cache summaries are available for Profile/Admin rollout decisions.
 
 ### Broadcast
 

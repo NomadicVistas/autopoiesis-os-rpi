@@ -249,6 +249,7 @@ Profile/Admin bundle validation:
 - GET /api/frames/user/active-artists
 - GET /api/frames/user/liked-artworks
 - GET /api/frames/user/cache-preferences
+- Optional adapter endpoint: GET /api/admin/frames/cache-contract-bundle
 - GET /api/admin/frames/users
 - GET /api/admin/frames/subscribers
 - GET /api/admin/frames/subscriptions
@@ -309,6 +310,18 @@ Use `scripts/stream-contract-check.sh` to validate a saved or live stream respon
 Stream `settings` should mirror the device preferences that can be managed on both website and device: `displayMode`, `streamProfile`, `activeArtists`, `streamCategories`, `allowImages`, `allowVideos`, `allowSoundWorks`, `allowGenerativeWorks`, `autoplay`, `videoAutoplay`, `soundAutoplay`, `soundEnabled`, `volume`, `imageDuration`, `showArtworkInfoOnTap`, and `updatedAt`.
 
 Stream items should expose `id`, `type`, `title`, `artist`, `artistId`, `description` or `body`, `mediaUrl`, `thumbnailUrl`, `durationSeconds` when known, `cacheAllowed`, `priority`, scheduling fields, and remote links such as `url`, `infoUrl`, `blogUrl`, and `exhibitionUrl`. Video, audio, and generative works should be authored for direct autoplay, without activation buttons in the artwork payload.
+
+Hosted cache/offline contract:
+
+`scripts/cache-contract-check.sh` validates a saved or live cache contract bundle before cache-management UI, offline fallback rollout, or physical Pi cache validation is treated as staging-ready. The bundle root may use `kind: "autopoiesis_frames_cache_contract"` and `schemaVersion: 1`, and should include:
+
+- `device` or root `deviceId`: owner-safe device identity.
+- `cachePreferences`, `cachePolicy`, or `profileFrames.cachePreferences`: explicit `enabled`, `likedArtworks`, `recentArtworks`, `selectedArtists`, and `sizeLimitMb` values derived from durable user/device settings.
+- `cacheItems`, `cacheCandidates`, `cacheManifest`, `manifestItems`, or `items`: unique cache candidates with HTTP(S) media/source or thumbnail URLs, category/status metadata, optional size/duration timestamps, and no local filesystem paths.
+- `deviceCache`, `cacheSummary`, or `offlineCache`: hosted-ingested device cache/offline summary with cached/playable/failed counts and optional size/last-sync metadata.
+- Optional `commands`: cache-relevant `clear_cache` or `sync_settings` command evidence.
+
+The checker rejects duplicate item ids, candidates without media or thumbnail URLs, unsupported cache statuses/categories, missing explicit cache-policy booleans, missing device cache evidence when required, and sensitive/local-only fields including stored device credentials, pairing hashes, private/admin tokens, secrets, passwords, absolute appliance paths, and raw cache paths. Use `AUTOPOIESIS_REQUIRE_CACHE_ITEMS=0` or `AUTOPOIESIS_REQUIRE_CACHE_DEVICE_SUMMARY=0` only for narrow component tests; strict hosted readiness should keep the defaults.
 
 Local feed behavior:
 

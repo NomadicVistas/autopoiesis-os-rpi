@@ -235,6 +235,15 @@ AUTOPOIESIS_STREAM_CONTRACT_TOKEN="$TOKEN" ./scripts/stream-contract-check.sh "h
 
 The stream contract check validates the hosted `GET /api/frames/device/{deviceId}/stream` response before physical Pi testing. It checks schema version, generated timestamps, settings shape, item identity/media/cache/priority/schedule/targeting fields, duplicate ids, and redaction of local-only or sensitive fields.
 
+Validate the hosted cache/offline contract before enabling cache-management UI or production offline fallback:
+
+```bash
+./scripts/cache-contract-check.sh /path/to/cache-contract-bundle.json
+AUTOPOIESIS_CACHE_CONTRACT_TOKEN="$TOKEN" ./scripts/cache-contract-check.sh "https://autopoiesis.art/api/admin/frames/cache-contract-bundle"
+```
+
+The cache contract check validates read-only staging/CI evidence that hosted Profile > Frames cache preferences, stream cache candidates, and device cache/offline summaries line up. It requires explicit cache policy booleans and size limits, HTTP(S) cache candidate URLs, cache status counts, duplicate-id rejection, and redaction of credentials plus local appliance/cache paths.
+
 Validate the hosted Profile/Admin Frames contract before wiring UI or physical fleet actions:
 
 ```bash
@@ -308,13 +317,14 @@ AUTOPOIESIS_DEVICE_AUTH_CONTRACT_SOURCE=/path/to/device-auth-contract-bundle.jso
 AUTOPOIESIS_SETTINGS_CONTRACT_SOURCE=/path/to/settings-contract-bundle.json \
 AUTOPOIESIS_HEARTBEAT_CONTRACT_SOURCE=/path/to/heartbeat-contract-bundle.json \
 AUTOPOIESIS_STREAM_CONTRACT_SOURCE=/path/to/stream-response.json \
+AUTOPOIESIS_CACHE_CONTRACT_SOURCE=/path/to/cache-contract-bundle.json \
 AUTOPOIESIS_ONLINE_ADMIN_CONTRACT_SOURCE=/path/to/online-admin-bundle.json \
 AUTOPOIESIS_BROADCAST_CONTRACT_SOURCE=/path/to/broadcast-contract-bundle.json \
 AUTOPOIESIS_RELEASE_MANIFEST_SOURCE=/path/to/release.json \
 ./scripts/hosted-contract-suite-check.sh --strict
 ```
 
-The suite runs the existing hosted gates in dependency order: migrations, final schema, pairing, device auth, settings conflict, heartbeat, stream, online admin, broadcast lifecycle, then release manifest. In non-strict mode it runs every provided source and fails only if a gate named in `AUTOPOIESIS_HOSTED_CONTRACT_REQUIRE` is missing. Individual token and strictness variables are passed through to the underlying checkers unchanged.
+The suite runs the existing hosted gates in dependency order: migrations, final schema, pairing, device auth, settings conflict, heartbeat, stream, cache/offline, online admin, broadcast lifecycle, then release manifest. In non-strict mode it runs every provided source and fails only if a gate named in `AUTOPOIESIS_HOSTED_CONTRACT_REQUIRE` is missing. Individual token and strictness variables are passed through to the underlying checkers unchanged.
 
 Validate the hosted broadcast lifecycle before treating Admin > Frames broadcasts as rollout-ready:
 
