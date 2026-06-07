@@ -86,3 +86,13 @@ if [[ "$START_TIMERS" == "1" ]]; then
     autopoiesis-cache.timer \
     autopoiesis-watchdog.timer
 fi
+
+# Install logrotate configuration with custom paths
+LOGROTATE_SRC="$APP_DIR/config/autopoiesis-os.logrotate"
+LOGROTATE_DST="/etc/logrotate.d/autopoiesis-os"
+if [[ -f "$LOGROTATE_SRC" ]]; then
+  sed \
+    -e "s#/var/log/autopoiesis-os#$(sed_escape "$LOG_DIR")#g" \
+    "$LOGROTATE_SRC" >"$LOGROTATE_DST"
+  chmod 0644 "$LOGROTATE_DST"
+fi

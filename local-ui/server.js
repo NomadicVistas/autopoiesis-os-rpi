@@ -2561,6 +2561,46 @@ function runtimePathStatus(name, dirPath, options = {}) {
   return result;
 }
 
+function logDiagnostics() {
+  const logFiles = [
+    "heartbeat.log",
+    "heartbeat-error.log",
+    "update.log",
+    "commands.log",
+    "commands-error.log"
+  ];
+  const files = [];
+  let totalBytes = 0;
+  for (const name of logFiles) {
+    const fullPath = path.join(LOG_DIR, name);
+    try {
+      const stat = fs.statSync(fullPath);
+      totalBytes += stat.size;
+      files.push({ name, sizeBytes: stat.size, modifiedAt: stat.mtime.toISOString() });
+    } catch {
+      files.push({ name, sizeBytes: 0, modifiedAt: null });
+    }
+  }
+  // Check logrotate config
+  let logrotateConfigured = false;
+  try {
+    fs.statSync("/etc/logrotate.d/autopoiesis-os");
+    logrotateConfigured = true;
+  } catch {
+    logrotateConfigured = false;
+  }
+  return {
+    ok: true,
+    status: totalBytes > 50 * 1024 * 1024 ? "logs_large" : "ok",
+    logDir: LOG_DIR,
+    totalBytes,
+    totalMb: Math.round(totalBytes / 1024 / 1024 * 10) / 10,
+    fileCount: logFiles.length,
+    files,
+    logrotateConfigured
+  };
+}
+
 function runtimeStorageDiagnostics() {
   const entries = {
     dataDir: runtimePathStatus("dataDir", DATA_DIR, { ensureDirectory: true }),
@@ -2774,6 +2814,15 @@ function diagnosticsHealth(diagnostics, data) {
     }
   }
 
+  if (diagnostics.logs) {
+    if (!diagnostics.logs.logrotateConfigured) {
+      add("warning", "logs_no_rotation", "Log rotation is not configured; log files will grow without bound. Install config/autopoiesis-os.logrotate into /etc/logrotate.d/." );
+    }
+    if (diagnostics.logs.totalBytes > 50 * 1024 * 1024) {
+      add("warning", "logs_large", "Combined log files exceed 50 MB (" + diagnostics.logs.totalMb + " MB). Consider rotating or trimming old logs." );
+    }
+  }
+
   if (diagnostics.release && diagnostics.release.status === "error") {
     add("error", "release_error", "Last release/update attempt failed.");
   } else if (diagnostics.release && diagnostics.release.status === "in_progress") {
@@ -2876,6 +2925,7 @@ async function collectDiagnostics(options = {}) {
     temperatureC: readTemperatureC(),
     input: inputDiagnostics(),
     display: displayDiagnostics(),
+    logs: logDiagnostics(),
     mode: data.state.currentMode || "setup",
     network: data.network || null,
     pairing: {
@@ -3451,6 +3501,7 @@ function healthSummary(diagnostics) {
     },
     input: diagnostics.input || null,
     display: diagnostics.display || null,
+    logs: diagnostics.logs || null,
     storage: diagnostics.storage
       ? {
           runtime: diagnostics.storage.runtime || null,
@@ -3524,6 +3575,14 @@ async function supportBundle(options = {}) {
             displayServer: diagnostics.display.displayServer || null,
             graphicalTarget: diagnostics.display.graphicalTarget,
             kioskReadiness: diagnostics.display.kioskReadiness || null
+          }
+        : null,
+      logs: diagnostics.logs
+        ? {
+            status: diagnostics.logs.status || null,
+            totalMb: diagnostics.logs.totalMb || 0,
+            fileCount: diagnostics.logs.fileCount || 0,
+            logrotateConfigured: diagnostics.logs.logrotateConfigured || false
           }
         : null,
       hardware: diagnostics.hardware

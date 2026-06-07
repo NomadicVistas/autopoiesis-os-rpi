@@ -1,5 +1,14 @@
 # Pulse Agent Notes
 
+## 2026-06-07 - Log rotation and log diagnostics
+
+Date/time: 2026-06-07 20:35 UTC / 2026-06-07 22:35 Europe/Berlin
+Agent: Pulse
+Context: RPI APPLIANCE cron pass (second cycle this session). After adding kiosk OS configuration and display diagnostics, the next production-readiness gap was unbounded log growth. The heartbeat timer fires every 5 minutes, appending to heartbeat.log. At ~576 entries/day, this grows indefinitely without rotation. On a Pi with limited SD card storage, this is a disk-full risk that would eventually take the appliance down.
+What changed: Added `config/autopoiesis-os.logrotate` with daily rotation, 14-day retention, 10 MB max per file, copytruncate (no process disruption). Added `logDiagnostics()` to the local UI reporting per-file sizes, total MB, and logrotate config status. Propagated through health (2 new issue codes) and support bundle. Updated `install-systemd-units.sh` to install logrotate config with path templating. Updated preflight to validate logrotate and kiosk OS config in the app tree.
+What needs review: The logrotate config uses `copytruncate` which is safe for the shell-script append pattern. However, the local UI's `appendLog()` also appends to commands.log/commands-error.log from within the Node process. copytruncate handles this correctly (truncates after copy, so the fd continues writing). On Pi OS, logrotate should be installed by default; if not, the preflight should warn.
+Next recommended action: Verify logrotate runs on the Pi after install: `sudo logrotate -d /etc/logrotate.d/autopoiesis-os`. Add logrotate to preflight warnings if not installed.
+
 ## 2026-06-07 - Kiosk OS configuration helper and display diagnostics
 
 Date/time: 2026-06-07 20:35 UTC / 2026-06-07 22:35 Europe/Berlin

@@ -94,6 +94,7 @@ check_app_tree() {
     VERSION
     config/defaults.json
     config/device.example.json
+    config/autopoiesis-os.logrotate
     local-ui/package.json
     local-ui/server.js
     services/autopoiesis-setup.service
@@ -128,6 +129,7 @@ check_app_tree() {
     scripts/cache-artworks.sh
     scripts/update-from-github.sh
     scripts/watchdog.sh
+    scripts/configure-kiosk-os.sh
   )
 
   local path

@@ -1,5 +1,48 @@
 # Progress
 
+## 2026-06-07 - Log rotation and log diagnostics
+
+Date: 2026-06-07
+
+Milestone: RPI APPLIANCE - production log management
+
+Changed files:
+
+- `config/autopoiesis-os.logrotate`
+- `local-ui/server.js`
+- `install.sh`
+- `scripts/install-systemd-units.sh`
+- `scripts/preflight.sh`
+- `docs/progress.md`
+- `docs/agent-notes/pulse.md`
+- `/data/.openclaw/workspace/autopoiesis-os-program/ROLLING-LOG.md`
+
+Implemented:
+
+- Added `config/autopoiesis-os.logrotate` — daily rotation for all 5 appliance log files (heartbeat.log, heartbeat-error.log, update.log, commands.log, commands-error.log). Keeps 14 days of compressed archives, 10 MB per-file max size, uses `copytruncate` to avoid disrupting active processes.
+- Added `logDiagnostics()` to the local UI that reports: log directory path, per-file sizes and modification times, total log size in MB, and whether logrotate is configured.
+- Propagated log diagnostics through the diagnostics collection, health summary (new issue codes: `logs_no_rotation`, `logs_large`), and support bundle.
+- Updated `install-systemd-units.sh` to install the logrotate config into `/etc/logrotate.d/autopoiesis-os` with proper path templating (substitutes the LOG_DIR when customized).
+- Updated `scripts/preflight.sh` to validate that `config/autopoiesis-os.logrotate` and `scripts/configure-kiosk-os.sh` exist in the app tree.
+
+Why this matters:
+
+The heartbeat timer fires every 5 minutes, appending to heartbeat.log. At ~576 entries/day, the log grows unbounded without rotation. On a Raspberry Pi with limited SD card storage, unrotated logs are a disk-full risk. The logrotate config prevents this with daily rotation, 14-day retention, and 10 MB size limits.
+
+Verification:
+
+- `node --check local-ui/server.js` passed.
+- `bash -n install.sh update.sh uninstall-dev-tools.sh factory-reset.sh scripts/*.sh` passed.
+- `git diff --check` passed.
+- `scripts/security-smoke.sh` passed.
+- `scripts/configure-kiosk-os-check.sh` all 8 tests passed (no regression).
+- `scripts/systemd-units-install-check.sh` passed.
+
+Next step:
+
+- On the Pi, verify logrotate runs correctly after install: `sudo logrotate -d /etc/logrotate.d/autopoiesis-os`. Check `/local/diagnostics` for log sizes and logrotate status.
+
+
 ## 2026-06-07 - Kiosk OS configuration helper and display diagnostics
 
 Date: 2026-06-07

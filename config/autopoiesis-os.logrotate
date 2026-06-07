@@ -1,0 +1,15 @@
+/var/log/autopoiesis-os/heartbeat.log
+/var/log/autopoiesis-os/heartbeat-error.log
+/var/log/autopoiesis-os/update.log
+/var/log/autopoiesis-os/commands.log
+/var/log/autopoiesis-os/commands-error.log {
+    daily
+    rotate 14
+    maxage 14
+    compress
+    delaycompress
+    missingok
+    notifempty
+    copytruncate
+    maxsize 10M
+}
