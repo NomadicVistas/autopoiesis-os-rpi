@@ -1,5 +1,14 @@
 # Pulse Agent Notes
 
+## 2026-06-07 - Hosted suite manifest template
+
+Date/time: 2026-06-07 10:16 UTC / 2026-06-07 12:16 Europe/Berlin
+Agent: Pulse
+Context: LEAD / INTEGRATION cron pass. The hosted suite could list its gate catalog, but CI still had to transform that catalog into a manifest shape itself before filling staging evidence paths.
+What changed: Added `--manifest-template` / `--template` to `scripts/hosted-contract-suite-check.sh`. The command emits a disabled JSON manifest skeleton generated from the same `for_each_gate` table as execution, with each source entry carrying its source env, checker, and label metadata. Template output exits before manifest loading, checker execution, or report writing.
+What needs review: Hosted CI should use the generated template as the seed artifact, fill only the sources owned by each backend job, mark those entries enabled, add `require` or `strict` intent, then run `--plan` before the full hosted suite.
+Next recommended action: Wire staging artifact generation to `--manifest-template`, archive the filled manifest plus redacted plan report, and stop maintaining parallel gate lists in backend scripts.
+
 ## 2026-06-07 - Online admin ownership and subscription joins
 
 Date/time: 2026-06-07 10:05 UTC / 2026-06-07 12:05 Europe/Berlin

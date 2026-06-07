@@ -1,5 +1,42 @@
 # Progress
 
+## 2026-06-07 - Hosted suite manifest template
+
+Date: 2026-06-07
+
+Milestone: LEAD / INTEGRATION - hosted contract orchestration
+
+Changed files:
+
+- `scripts/hosted-contract-suite-check.sh`
+- `README.md`
+- `docs/api-contract.md`
+- `docs/agent-notes/hosted-contract-suite-issue.md`
+- `docs/agent-notes/pulse.md`
+- `docs/progress.md`
+- `/data/.openclaw/workspace/autopoiesis-os-program/ROLLING-LOG.md`
+
+Implemented:
+
+- Added `--manifest-template` / `--template` to the hosted contract suite.
+- The command prints a disabled JSON manifest skeleton generated from the same gate catalog used for strict mode and execution.
+- Each generated source entry includes source env, checker, and label metadata so CI can fill and enable owned evidence without maintaining a parallel gate list.
+- Template mode exits before loading manifests, running checkers, or writing readiness reports.
+
+Verification:
+
+- `scripts/hosted-contract-suite-check.sh --manifest-template` produced parseable JSON with the full 16-gate source skeleton.
+- Plan mode accepted the disabled generated template.
+- Plan mode accepted the generated template after enabling and requiring the `stream` gate.
+- `node --check local-ui/server.js` passed.
+- `bash -n install.sh update.sh uninstall-dev-tools.sh factory-reset.sh scripts/*.sh` passed.
+- `git diff --check` passed.
+- `scripts/security-smoke.sh` passed.
+
+Next step:
+
+Have hosted CI seed staging manifests from `--manifest-template`, fill owned sources, archive the filled manifest plus redacted `--plan` report, then run the full hosted suite from the same artifact before physical Pi validation.
+
 ## 2026-06-07 - Online admin ownership and subscription joins
 
 Date: 2026-06-07

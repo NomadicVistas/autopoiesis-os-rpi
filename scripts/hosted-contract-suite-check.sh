@@ -5,6 +5,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REQUIRE_ALL=0
 PLAN_ONLY=0
 LIST_GATES=0
+MANIFEST_TEMPLATE=0
 REQUIRED_LIST="${AUTOPOIESIS_HOSTED_CONTRACT_REQUIRE:-}"
 MANIFEST_SOURCE="${AUTOPOIESIS_HOSTED_CONTRACT_MANIFEST:-${AUTOPOIESIS_HOSTED_CONTRACT_BUNDLE:-}}"
 MANIFEST_FILE=""
@@ -29,7 +30,7 @@ cleanup() {
 
 write_report() {
   local exit_code="$1"
-  if [[ "$LIST_GATES" == "1" ]]; then
+  if [[ "$LIST_GATES" == "1" || "$MANIFEST_TEMPLATE" == "1" ]]; then
     return 0
   fi
   if [[ -z "$REPORT_PATH" ]]; then
@@ -148,6 +149,7 @@ usage() {
 Usage:
   scripts/hosted-contract-suite-check.sh [--strict] [--plan]
   scripts/hosted-contract-suite-check.sh --list-gates
+  scripts/hosted-contract-suite-check.sh --manifest-template
 
 Environment:
   AUTOPOIESIS_HOSTED_CONTRACT_MANIFEST      optional JSON manifest mapping gates to sources
@@ -186,6 +188,11 @@ and rollout annotations before fetching live fixtures or mutating staging state.
 manifest or running contract checkers. CI can use this to generate manifest
 templates, validate staging artifact coverage, or annotate rollout jobs without
 scraping README text.
+
+--manifest-template prints a disabled JSON manifest skeleton generated from the
+same hosted gate catalog and exits without loading an existing manifest or
+running contract checkers. CI can fill the source fields it owns, enable those
+gates, and then run --plan or the full suite against the generated manifest.
 
 When AUTOPOIESIS_HOSTED_CONTRACT_MANIFEST is set, the suite reads sources and
 optional requirements from a JSON object such as
@@ -280,6 +287,43 @@ process.stdout.write(JSON.stringify({
   schemaVersion: 1,
   suite: "hosted-contract-suite",
   gates
+}, null, 2) + "\n");
+NODE
+}
+
+print_manifest_template() {
+  GATE_CATALOG_ROWS="$(for_each_gate)" node - <<'NODE'
+const gates = String(process.env.GATE_CATALOG_ROWS || "")
+  .split("\n")
+  .filter(Boolean)
+  .map((line, index) => {
+    const [gate, sourceEnv, checker, ...labelParts] = line.split("|");
+    return {
+      gate,
+      order: index + 1,
+      sourceEnv,
+      checker,
+      label: labelParts.join("|")
+    };
+  });
+
+const sources = {};
+for (const gate of gates) {
+  sources[gate.gate] = {
+    enabled: false,
+    source: "",
+    sourceEnv: gate.sourceEnv,
+    checker: gate.checker,
+    label: gate.label
+  };
+}
+
+process.stdout.write(JSON.stringify({
+  schemaVersion: 1,
+  suite: "hosted-contract-suite",
+  strict: false,
+  require: [],
+  sources
 }, null, 2) + "\n");
 NODE
 }
@@ -974,6 +1018,9 @@ for arg in "$@"; do
     --list-gates|--catalog)
       LIST_GATES=1
       ;;
+    --manifest-template|--template)
+      MANIFEST_TEMPLATE=1
+      ;;
     -h|--help)
       usage
       exit 0
@@ -989,6 +1036,11 @@ done
 
 if [[ "$LIST_GATES" == "1" ]]; then
   print_gate_catalog
+  exit 0
+fi
+
+if [[ "$MANIFEST_TEMPLATE" == "1" ]]; then
+  print_manifest_template
   exit 0
 fi
 
