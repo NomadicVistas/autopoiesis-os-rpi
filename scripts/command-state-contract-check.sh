@@ -4,6 +4,7 @@ set -euo pipefail
 SOURCE="${1:-${AUTOPOIESIS_COMMAND_STATE_CONTRACT_SOURCE:-}}"
 REQUIRE_ADMIN_AUDITS="${AUTOPOIESIS_REQUIRE_COMMAND_STATE_ADMIN_AUDITS:-1}"
 REQUIRE_NEXT_POLL="${AUTOPOIESIS_REQUIRE_COMMAND_STATE_NEXT_POLL:-1}"
+REQUIRE_UPDATED_AT="${AUTOPOIESIS_REQUIRE_COMMAND_STATE_UPDATED_AT:-1}"
 TMP_FILE=""
 
 cleanup() {
@@ -29,11 +30,12 @@ Environment:
   AUTOPOIESIS_COMMAND_STATE_CONTRACT_TOKEN  optional bearer token for URL checks
   AUTOPOIESIS_REQUIRE_COMMAND_STATE_ADMIN_AUDITS require mirrored admin audit rows, default 1
   AUTOPOIESIS_REQUIRE_COMMAND_STATE_NEXT_POLL require post-terminal poll exclusion evidence, default 1
+  AUTOPOIESIS_REQUIRE_COMMAND_STATE_UPDATED_AT require monotonic durable updatedAt timestamps, default 1
 
 The bundle is read-only staging/CI evidence for hosted command outbox state:
 queued durable rows, post-poll delivered rows, post-ack terminal rows,
-mirrored admin audit rows, and a next poll proving terminal commands are no
-longer delivered.
+mirrored admin audit rows, monotonic updatedAt ordering, and a next poll proving
+terminal commands are no longer delivered.
 EOF
 }
 
@@ -54,12 +56,13 @@ fi
 
 [[ -f "$SOURCE" ]] || fail "command state contract bundle file not found: $SOURCE"
 
-node - "$SOURCE" "$REQUIRE_ADMIN_AUDITS" "$REQUIRE_NEXT_POLL" <<'NODE'
+node - "$SOURCE" "$REQUIRE_ADMIN_AUDITS" "$REQUIRE_NEXT_POLL" "$REQUIRE_UPDATED_AT" <<'NODE'
 const fs = require("fs");
 
 const file = process.argv[2];
 const requireAdminAudits = process.argv[3] !== "0";
 const requireNextPoll = process.argv[4] !== "0";
+const requireUpdatedAt = process.argv[5] !== "0";
 
 const supportedCommands = new Set([
   "sync_settings",
@@ -236,9 +239,27 @@ function commandMap(rows, field, expectedDeviceId) {
   return map;
 }
 
-function requireTimestamp(row, names, field) {
+function timestampValue(row, names, field, required) {
   const value = firstValue(row, names);
-  if (!validIso(value)) fail(field + " is required and must be an ISO timestamp");
+  if (value === undefined) {
+    if (required) fail(field + " is required and must be an ISO timestamp");
+    return null;
+  }
+  if (!validIso(value)) fail(field + " must be an ISO timestamp when present");
+  return Date.parse(value);
+}
+
+function requireTimestamp(row, names, field) {
+  return timestampValue(row, names, field, true);
+}
+
+function optionalTimestamp(row, names, field) {
+  return timestampValue(row, names, field, false);
+}
+
+function assertNotBefore(actual, expected, field, referenceField) {
+  if (actual === null || expected === null) return;
+  if (actual < expected) fail(field + " must not be earlier than " + referenceField);
 }
 
 function validateAudit(audit, field, expected) {
@@ -301,26 +322,43 @@ const terminalById = commandMap(terminalRows, "postAckCommands", deviceId);
 let lifecycleCount = 0;
 for (const queued of queuedById.values()) {
   if (!queuedStatuses.has(queued.status)) fail("beforePollCommands command is not queued: " + queued.commandId);
+  const queuedUpdatedAt = optionalTimestamp(
+    queued.row,
+    ["updatedAt", "updated_at", "createdAt", "created_at"],
+    "beforePollCommands[" + queued.commandId + "].updatedAt"
+  );
   const delivered = deliveredById.get(queued.commandId);
   if (!delivered) fail("postPollCommands missing queued command: " + queued.commandId);
   if (delivered.commandType !== queued.commandType) fail("postPollCommands command type drift: " + queued.commandId);
   if (!deliveredStatuses.has(delivered.status)) {
     fail("postPollCommands command must be delivered/sent/acknowledged/processing: " + queued.commandId);
   }
-  requireTimestamp(
+  const deliveredAt = requireTimestamp(
     delivered.row,
     ["deliveredAt", "delivered_at", "sentAt", "sent_at", "polledAt", "polled_at", "lastPollAt", "last_poll_at"],
     "postPollCommands[" + queued.commandId + "].deliveredAt"
   );
+  assertNotBefore(deliveredAt, queuedUpdatedAt, "postPollCommands[" + queued.commandId + "].deliveredAt", "beforePollCommands.updatedAt");
+  const deliveredUpdatedAt = requireUpdatedAt
+    ? requireTimestamp(delivered.row, ["updatedAt", "updated_at"], "postPollCommands[" + queued.commandId + "].updatedAt")
+    : optionalTimestamp(delivered.row, ["updatedAt", "updated_at"], "postPollCommands[" + queued.commandId + "].updatedAt");
+  assertNotBefore(deliveredUpdatedAt, deliveredAt, "postPollCommands[" + queued.commandId + "].updatedAt", "postPollCommands.deliveredAt");
+  assertNotBefore(deliveredUpdatedAt, queuedUpdatedAt, "postPollCommands[" + queued.commandId + "].updatedAt", "beforePollCommands.updatedAt");
   const terminal = terminalById.get(queued.commandId);
   if (!terminal) fail("postAckCommands missing delivered command: " + queued.commandId);
   if (terminal.commandType !== queued.commandType) fail("postAckCommands command type drift: " + queued.commandId);
   if (!terminalStatuses.has(terminal.status)) fail("postAckCommands command is not terminal: " + queued.commandId);
-  requireTimestamp(
+  const terminalAt = requireTimestamp(
     terminal.row,
     ["completedAt", "completed_at", "terminalAt", "terminal_at", "failedAt", "failed_at", "deniedAt", "denied_at", "lastAckAt", "last_ack_at"],
     "postAckCommands[" + queued.commandId + "].terminalAt"
   );
+  assertNotBefore(terminalAt, deliveredAt, "postAckCommands[" + queued.commandId + "].terminalAt", "postPollCommands.deliveredAt");
+  const terminalUpdatedAt = requireUpdatedAt
+    ? requireTimestamp(terminal.row, ["updatedAt", "updated_at"], "postAckCommands[" + queued.commandId + "].updatedAt")
+    : optionalTimestamp(terminal.row, ["updatedAt", "updated_at"], "postAckCommands[" + queued.commandId + "].updatedAt");
+  assertNotBefore(terminalUpdatedAt, terminalAt, "postAckCommands[" + queued.commandId + "].updatedAt", "postAckCommands.terminalAt");
+  assertNotBefore(terminalUpdatedAt, deliveredUpdatedAt, "postAckCommands[" + queued.commandId + "].updatedAt", "postPollCommands.updatedAt");
   lifecycleCount += 1;
 }
 

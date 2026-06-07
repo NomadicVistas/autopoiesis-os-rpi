@@ -259,7 +259,7 @@ Validate hosted command state transitions before treating remote commands as sta
 AUTOPOIESIS_COMMAND_STATE_CONTRACT_TOKEN="$TOKEN" ./scripts/command-state-contract-check.sh "https://autopoiesis.art/api/admin/frames/command-state-contract-bundle"
 ```
 
-The command state contract check validates read-only staging/CI evidence that a durable `aos_device_commands` row moves from queued before poll, to delivered/sent after poll, to terminal after acknowledgement, mirrors terminal status into `aos_admin_command_audits`, and is not returned by the next device poll. It rejects raw command payloads, credentials, tokens, release artifact details, checksums, stdout/stderr, and local appliance paths.
+The command state contract check validates read-only staging/CI evidence that a durable `aos_device_commands` row moves from queued before poll, to delivered/sent after poll, to terminal after acknowledgement, advances durable `updatedAt` timestamps monotonically across those transitions, mirrors terminal status into `aos_admin_command_audits`, and is not returned by the next device poll. It rejects raw command payloads, credentials, tokens, release artifact details, checksums, stdout/stderr, and local appliance paths. Set `AUTOPOIESIS_REQUIRE_COMMAND_STATE_UPDATED_AT=0` only for temporary legacy fixtures that cannot expose row update timestamps yet.
 
 Inspect the local frame playback queue:
 

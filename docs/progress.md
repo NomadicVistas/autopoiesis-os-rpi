@@ -1,5 +1,43 @@
 # Progress
 
+## 2026-06-07 - Command state updatedAt ordering
+
+Date: 2026-06-07
+
+Milestone: API / DATABASE / SYNC - durable command outbox state
+
+Changed files:
+
+- `scripts/command-state-contract-check.sh`
+- `README.md`
+- `docs/api-contract.md`
+- `docs/database-schema.md`
+- `docs/agent-notes/backend-command-state-contract-issue.md`
+- `docs/agent-notes/pulse.md`
+- `docs/progress.md`
+- `/data/.openclaw/workspace/autopoiesis-os-program/ROLLING-LOG.md`
+
+Implemented:
+
+- Tightened the hosted command-state checker so post-poll and post-ack `aos_device_commands` rows require durable `updatedAt` evidence by default.
+- Added monotonic ordering checks so delivered timestamps cannot precede queued row freshness, terminal timestamps cannot precede delivery, and row `updatedAt` cannot move backwards across poll and ack transitions.
+- Documented `deliveredAt` and `updatedAt` as part of the DeviceCommand schema reference.
+
+Verification:
+
+- Representative command-state bundle with monotonic `updatedAt` ordering passed.
+- Missing post-poll `updatedAt` evidence was rejected.
+- Backwards terminal timestamp ordering was rejected.
+- Hosted suite required-command-state pass path accepted the stricter command-state fixture.
+- `node --check local-ui/server.js` passed.
+- `bash -n install.sh update.sh uninstall-dev-tools.sh factory-reset.sh scripts/*.sh` passed.
+- `git diff --check` passed.
+- `scripts/security-smoke.sh` passed.
+
+Next step:
+
+Generate the hosted command-state bundle from staging with `deliveredAt` or equivalent poll timestamp plus `updatedAt` on every command row, then run it through the strict hosted suite before enabling broad command controls.
+
 ## 2026-06-07 - Settings user preference conflict coverage
 
 Date: 2026-06-07

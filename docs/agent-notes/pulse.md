@@ -777,6 +777,15 @@ What changed: Updated the main gallery backend Frames API to create `aos_admin_c
 What needs review: The main `autopoiesis` checkout is still too dirty for a clean scoped commit from this run, so the backend change is verified but uncommitted there. Review/stage only `app/backend/production.py` once that repo's unrelated backlog is under control.
 Next recommended action: Add backend heartbeat `events` ingestion into durable delivery/release/device-event rows using `deviceId + eventKey` idempotency, then wire Admin > Frames to render those rows.
 
+## 2026-06-07 - Command state updatedAt ordering
+
+Date/time: 2026-06-07 15:48 UTC / 2026-06-07 17:48 Europe/Berlin
+Agent: Pulse
+Context: API / DATABASE / SYNC cron pass. Hosted command polling and acknowledgement gates covered selection and terminal persistence, but command-state evidence could still pass with row timestamps that made Admin/Profile sync cursors unreliable.
+What changed: Tightened `scripts/command-state-contract-check.sh` so post-poll and post-ack command rows require durable `updatedAt` by default, and `updatedAt` must move forward with delivered and terminal timestamps.
+What needs review: Hosted staging should expose `deliveredAt`/equivalent plus `updatedAt` for `aos_device_commands` rows after poll and ack transitions.
+Next recommended action: Generate a command-state bundle from staging and run it with the hosted suite before enabling broad command controls.
+
 ## 2026-06-06 - Frame item delivery acknowledgement
 
 Date/time: 2026-06-06 10:27 UTC / 2026-06-06 12:27 Europe/Berlin

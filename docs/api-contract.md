@@ -508,6 +508,7 @@ Hosted command state contract:
 - `scripts/command-state-contract-check.sh` validates read-only staging/CI evidence that the durable command outbox moves through poll and ack transitions without re-delivering terminal commands.
 - The bundle root may use `kind: "autopoiesis_frames_command_state_contract"` and `schemaVersion: 1`, and should include `beforePollCommands`, `postPollCommands`, `postAckCommands`, `adminAudits`, and `nextPoll`.
 - At least one command must move from queued before poll, to delivered/sent after poll with delivered timestamp evidence, to terminal after acknowledgement with terminal timestamp evidence.
+- Post-poll and post-ack rows must expose durable `updatedAt` evidence by default. `updatedAt` must not move backwards relative to the queued row, delivered timestamp, or terminal timestamp, so Admin/Profile cursors can trust newest-row ordering.
 - Admin audit rows must mirror terminal command status, and a subsequent poll for the same device must not return terminal commands.
 - The checker rejects unknown command references, duplicate command ids, unsupported command types, terminal re-delivery, stored credentials, tokens, release artifact details, checksums, stdout/stderr, raw command payloads, and local appliance paths.
 

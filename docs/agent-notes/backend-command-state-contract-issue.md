@@ -48,6 +48,7 @@ The fixture should be derived from seeded staging rows or route-level integratio
 - At least one command is visible as queued before poll.
 - The same command is visible as delivered/sent after poll with delivered timestamp evidence.
 - The same command reaches terminal `completed`, `error`, `failed`, `denied`, `expired`, or `cancelled` after acknowledgement with terminal timestamp evidence.
+- Post-poll and post-ack command rows expose durable `updatedAt`; row update timestamps must not move backwards relative to the queued row, delivered timestamp, terminal timestamp, or previous row update.
 - Admin audit rows mirror terminal command status.
 - A subsequent poll for the same device no longer returns terminal commands.
 - The bundle omits raw command payloads, device credentials, tokens, pairing hashes, release artifact URLs/checksums, stdout/stderr, and local appliance paths.

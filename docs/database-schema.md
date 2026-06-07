@@ -204,11 +204,13 @@ Query notes:
 - payload
 - status
 - createdAt
+- deliveredAt
 - acknowledgedAt
 - completedAt
 - lastAckStatus
 - lastAckAt
 - error
+- updatedAt
 
 ### DeviceLog
 
