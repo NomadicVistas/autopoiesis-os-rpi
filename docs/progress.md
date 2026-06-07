@@ -1,5 +1,43 @@
 # Progress
 
+## 2026-06-07 - Hosted suite dependency readiness
+
+Date: 2026-06-07
+
+Milestone: LEAD / INTEGRATION - hosted contract orchestration
+
+Changed files:
+
+- `scripts/hosted-contract-suite-check.sh`
+- `README.md`
+- `docs/api-contract.md`
+- `docs/agent-notes/hosted-contract-suite-issue.md`
+- `docs/agent-notes/pulse.md`
+- `docs/progress.md`
+- `/data/.openclaw/workspace/autopoiesis-os-program/ROLLING-LOG.md`
+
+Implemented:
+
+- Added dependency metadata to the hosted suite gate catalog and generated manifest template.
+- Added advisory `dependencyBlockers` in the redacted readiness report when a required downstream gate is missing upstream evidence.
+- Added `--require-dependencies`, `AUTOPOIESIS_HOSTED_CONTRACT_REQUIRE_DEPENDENCIES=1`, and manifest `requireDependencies: true` support so staging can fail fast before trusting partial downstream evidence.
+- Cached manifest/env source resolution in one pass so plan/dependency checks do not repeatedly resolve manifest sources.
+
+Verification:
+
+- Gate catalog exposes dependencies for downstream gates such as `online-admin`.
+- Manifest template includes dependency metadata for entries such as `release-rollout`.
+- Required `online-admin` plan with only an online-admin source passed while reporting advisory dependency blockers.
+- Dependency-enforced CLI and manifest plans rejected the same incomplete online-admin evidence.
+- `node --check local-ui/server.js` passed.
+- `bash -n install.sh update.sh uninstall-dev-tools.sh factory-reset.sh scripts/*.sh` passed.
+- `git diff --check` passed.
+- `scripts/security-smoke.sh` passed.
+
+Next step:
+
+Have hosted CI run `--plan --require-dependencies` for readiness/rollout manifests before the full suite, while keeping narrow owner-specific contract jobs on advisory dependency reporting when they intentionally validate one fixture.
+
 ## 2026-06-07 - Profile action policy coherence
 
 Date: 2026-06-07

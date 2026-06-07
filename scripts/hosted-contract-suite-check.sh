@@ -12,6 +12,8 @@ MANIFEST_FILE=""
 MANIFEST_BASE=""
 MANIFEST_REQUIRE_ALL=0
 MANIFEST_REQUIRED_LIST=""
+MANIFEST_REQUIRE_DEPENDENCIES=0
+REQUIRE_DEPENDENCIES="${AUTOPOIESIS_HOSTED_CONTRACT_REQUIRE_DEPENDENCIES:-0}"
 REPORT_PATH="${AUTOPOIESIS_HOSTED_CONTRACT_REPORT:-}"
 TMP_FILES=()
 RAN_COUNT=0
@@ -19,6 +21,8 @@ SKIPPED=()
 PASSED=()
 PLANNED=()
 REPORT_ROWS=()
+DEPENDENCY_BLOCKERS=()
+declare -A SOURCE_BY_GATE=()
 FAILED_GATE=""
 FAILURE_REASON=""
 
@@ -53,13 +57,16 @@ write_report() {
   REPORT_PASSED_CSV="$passed_csv" \
   REPORT_SKIPPED_CSV="$skipped_csv" \
   REPORT_PLANNED_CSV="$planned_csv" \
+  REPORT_DEPENDENCY_BLOCKERS="$(printf '%s\n' "${DEPENDENCY_BLOCKERS[@]}")" \
   REPORT_EXIT_CODE="$exit_code" \
   REPORT_RAN_COUNT="$RAN_COUNT" \
   REPORT_FAILURE_REASON="$FAILURE_REASON" \
   REPORT_FAILED_GATE="$FAILED_GATE" \
   REPORT_MANIFEST_SOURCE_PROVIDED="$([[ -n "$MANIFEST_SOURCE" ]] && echo 1 || echo 0)" \
   REPORT_MANIFEST_REQUIRE_ALL="$MANIFEST_REQUIRE_ALL" \
+  REPORT_MANIFEST_REQUIRE_DEPENDENCIES="$MANIFEST_REQUIRE_DEPENDENCIES" \
   REPORT_CLI_REQUIRE_ALL="$REQUIRE_ALL" \
+  REPORT_CLI_REQUIRE_DEPENDENCIES="$REQUIRE_DEPENDENCIES" \
   REPORT_PLAN_ONLY="$PLAN_ONLY" \
   node - "$REPORT_PATH" <<'NODE'
 const fs = require("fs");
@@ -101,6 +108,13 @@ const planned = String(process.env.REPORT_PLANNED_CSV || "")
   .filter(Boolean);
 const failedGate = process.env.REPORT_FAILED_GATE || "";
 const failureReason = process.env.REPORT_FAILURE_REASON || "";
+const dependencyBlockers = String(process.env.REPORT_DEPENDENCY_BLOCKERS || "")
+  .split("\n")
+  .filter(Boolean)
+  .map(row => {
+    const [gate, dependency] = row.split("|");
+    return { gate, dependency };
+  });
 
 const report = {
   schemaVersion: 1,
@@ -110,10 +124,12 @@ const report = {
   exitCode,
   manifest: {
     provided: process.env.REPORT_MANIFEST_SOURCE_PROVIDED === "1",
-    requireAll: process.env.REPORT_MANIFEST_REQUIRE_ALL === "1"
+    requireAll: process.env.REPORT_MANIFEST_REQUIRE_ALL === "1",
+    requireDependencies: process.env.REPORT_MANIFEST_REQUIRE_DEPENDENCIES === "1"
   },
   cli: {
-    requireAll: process.env.REPORT_CLI_REQUIRE_ALL === "1"
+    requireAll: process.env.REPORT_CLI_REQUIRE_ALL === "1",
+    requireDependencies: process.env.REPORT_CLI_REQUIRE_DEPENDENCIES === "1"
   },
   mode: process.env.REPORT_PLAN_ONLY === "1" ? "plan" : "run",
   requiredGates: Array.from(required),
@@ -122,9 +138,11 @@ const report = {
     planned: planned.length,
     passed: passed.length,
     skipped: skipped.length,
-    failed: exitCode === 0 ? 0 : 1
+    failed: exitCode === 0 ? 0 : 1,
+    dependencyBlockers: dependencyBlockers.length
   },
   gates: rows,
+  dependencyBlockers,
   planned,
   passed,
   skipped
@@ -147,7 +165,7 @@ trap on_exit EXIT
 usage() {
   cat >&2 <<'EOF'
 Usage:
-  scripts/hosted-contract-suite-check.sh [--strict] [--plan]
+  scripts/hosted-contract-suite-check.sh [--strict] [--require-dependencies] [--plan]
   scripts/hosted-contract-suite-check.sh --list-gates
   scripts/hosted-contract-suite-check.sh --manifest-template
 
@@ -157,6 +175,8 @@ Environment:
   AUTOPOIESIS_HOSTED_CONTRACT_MANIFEST_TOKEN optional bearer token for manifest URL fetches
   AUTOPOIESIS_HOSTED_CONTRACT_REQUIRE       comma-separated required gates
                                             migrations,schema,pairing,device-auth,settings,profile-ownership,heartbeat,command-poll,command-ack,command-state,stream,cache,online-admin,broadcast,release,release-rollout
+  AUTOPOIESIS_HOSTED_CONTRACT_REQUIRE_DEPENDENCIES
+                                            when 1, required downstream gates must also have prerequisite sources or requirements
   AUTOPOIESIS_HOSTED_CONTRACT_REPORT        optional JSON report output path
   AUTOPOIESIS_AOS_MIGRATION_CONTRACT_SOURCE migration directory or manifest
   AUTOPOIESIS_AOS_SCHEMA_CONTRACT_SOURCE    schema JSON or SQLite database
@@ -183,6 +203,12 @@ is missing.
 redacted gate/source matrix without running the individual contract checkers.
 Required gates still fail when their source is missing. This is useful for CI
 and rollout annotations before fetching live fixtures or mutating staging state.
+
+--require-dependencies makes required downstream gates prove that their
+prerequisite gate sources are also present or required. Manifests can set
+`requireDependencies: true` or `require_dependencies: true` for the same
+behavior. Without this option, dependency blockers are reported but remain
+advisory so narrow owner-specific CI jobs can still run one contract fixture.
 
 --list-gates prints the hosted gate catalog as JSON and exits without loading a
 manifest or running contract checkers. CI can use this to generate manifest
@@ -279,9 +305,45 @@ const gates = String(process.env.GATE_CATALOG_ROWS || "")
       order: index + 1,
       sourceEnv,
       checker,
-      label: labelParts.join("|")
+      label: labelParts.join("|"),
+      dependencies: dependenciesFor(gate)
     };
   });
+
+function dependenciesFor(gate) {
+  switch (gate) {
+    case "schema":
+      return ["migrations"];
+    case "pairing":
+      return ["schema"];
+    case "device-auth":
+      return ["pairing"];
+    case "settings":
+      return ["device-auth"];
+    case "profile-ownership":
+      return ["settings"];
+    case "heartbeat":
+      return ["profile-ownership"];
+    case "command-poll":
+      return ["heartbeat"];
+    case "command-ack":
+      return ["command-poll"];
+    case "command-state":
+      return ["command-ack"];
+    case "stream":
+      return ["heartbeat"];
+    case "cache":
+      return ["stream"];
+    case "online-admin":
+      return ["cache", "command-state"];
+    case "broadcast":
+      return ["online-admin"];
+    case "release-rollout":
+      return ["release", "online-admin"];
+    default:
+      return [];
+  }
+}
 
 process.stdout.write(JSON.stringify({
   schemaVersion: 1,
@@ -314,8 +376,44 @@ for (const gate of gates) {
     source: "",
     sourceEnv: gate.sourceEnv,
     checker: gate.checker,
-    label: gate.label
+    label: gate.label,
+    dependencies: dependenciesFor(gate.gate)
   };
+}
+
+function dependenciesFor(gate) {
+  switch (gate) {
+    case "schema":
+      return ["migrations"];
+    case "pairing":
+      return ["schema"];
+    case "device-auth":
+      return ["pairing"];
+    case "settings":
+      return ["device-auth"];
+    case "profile-ownership":
+      return ["settings"];
+    case "heartbeat":
+      return ["profile-ownership"];
+    case "command-poll":
+      return ["heartbeat"];
+    case "command-ack":
+      return ["command-poll"];
+    case "command-state":
+      return ["command-ack"];
+    case "stream":
+      return ["heartbeat"];
+    case "cache":
+      return ["stream"];
+    case "online-admin":
+      return ["cache", "command-state"];
+    case "broadcast":
+      return ["online-admin"];
+    case "release-rollout":
+      return ["release", "online-admin"];
+    default:
+      return [];
+  }
 }
 
 process.stdout.write(JSON.stringify({
@@ -415,16 +513,276 @@ gate_is_required() {
   return 1
 }
 
+gate_dependencies_csv() {
+  case "$1" in
+    schema) echo "migrations" ;;
+    pairing) echo "schema" ;;
+    device-auth) echo "pairing" ;;
+    settings) echo "device-auth" ;;
+    profile-ownership) echo "settings" ;;
+    heartbeat) echo "profile-ownership" ;;
+    command-poll) echo "heartbeat" ;;
+    command-ack) echo "command-poll" ;;
+    command-state) echo "command-ack" ;;
+    stream) echo "heartbeat" ;;
+    cache) echo "stream" ;;
+    online-admin) echo "cache,command-state" ;;
+    broadcast) echo "online-admin" ;;
+    release-rollout) echo "release,online-admin" ;;
+    *) echo "" ;;
+  esac
+}
+
+gate_source_present() {
+  local target_gate="$1"
+  local gate env_name script label
+  while IFS='|' read -r gate env_name script label; do
+    [[ "$gate" == "$target_gate" ]] || continue
+    if [[ -n "$(source_value "$env_name" "$gate")" ]]; then
+      return 0
+    fi
+    return 1
+  done < <(for_each_gate)
+  return 1
+}
+
+add_dependency_blocker() {
+  local gate="$1"
+  local dependency="$2"
+  local blocker="$gate|$dependency"
+  local existing
+  for existing in "${DEPENDENCY_BLOCKERS[@]}"; do
+    [[ "$existing" == "$blocker" ]] && return 0
+  done
+  DEPENDENCY_BLOCKERS+=("$blocker")
+}
+
+collect_gate_dependency_blockers() {
+  local root_gate="$1"
+  local current_gate="$2"
+  local seen_csv="${3:-}"
+  local dependencies dependency
+  dependencies="$(gate_dependencies_csv "$current_gate")"
+  [[ -n "$dependencies" ]] || return 0
+
+  IFS=',' read -ra dependency_entries <<<"$dependencies"
+  for dependency in "${dependency_entries[@]}"; do
+    dependency="${dependency//[[:space:]]/}"
+    [[ -n "$dependency" ]] || continue
+    case ",$seen_csv," in
+      *",$dependency,"*) continue ;;
+    esac
+    if ! gate_is_required "$dependency" && ! gate_source_present "$dependency"; then
+      add_dependency_blocker "$root_gate" "$dependency"
+    fi
+    collect_gate_dependency_blockers "$root_gate" "$dependency" "$seen_csv,$dependency"
+  done
+}
+
+collect_dependency_blockers() {
+  DEPENDENCY_BLOCKERS=()
+  local required_csv entry gate
+  required_csv="$(normalized_required_gate_csv)"
+  [[ -n "$required_csv" ]] || return 0
+
+  IFS=',' read -ra required_entries <<<"$required_csv"
+  for entry in "${required_entries[@]}"; do
+    gate="${entry//[[:space:]]/}"
+    [[ -n "$gate" ]] || continue
+    collect_gate_dependency_blockers "$gate" "$gate" "$gate"
+  done
+}
+
+dependency_enforcement_enabled() {
+  [[ "$REQUIRE_DEPENDENCIES" == "1" || "$REQUIRE_DEPENDENCIES" == "true" || "$REQUIRE_DEPENDENCIES" == "yes" || "$MANIFEST_REQUIRE_DEPENDENCIES" == "1" ]]
+}
+
 source_value() {
   local env_name="$1"
   local gate="$2"
   local env_value
+  if [[ -n "${SOURCE_BY_GATE[$gate]+set}" ]]; then
+    printf '%s' "${SOURCE_BY_GATE[$gate]}"
+    return 0
+  fi
   env_value="${!env_name:-}"
   if [[ -n "$env_value" ]]; then
     printf '%s' "$env_value"
     return 0
   fi
   manifest_source_value "$gate"
+}
+
+resolve_gate_sources() {
+  local gate resolved_source
+  while IFS=$'\t' read -r gate resolved_source; do
+    [[ -n "$gate" ]] || continue
+    SOURCE_BY_GATE["$gate"]="$resolved_source"
+  done < <(GATE_CATALOG_ROWS="$(for_each_gate)" RESOLVE_MANIFEST_FILE="$MANIFEST_FILE" RESOLVE_MANIFEST_BASE="$MANIFEST_BASE" node - <<'NODE'
+const fs = require("fs");
+const path = require("path");
+
+const manifestFile = process.env.RESOLVE_MANIFEST_FILE || "";
+const base = process.env.RESOLVE_MANIFEST_BASE || "";
+const manifest = manifestFile ? JSON.parse(fs.readFileSync(manifestFile, "utf8")) : {};
+const gates = String(process.env.GATE_CATALOG_ROWS || "")
+  .split("\n")
+  .filter(Boolean)
+  .map(line => {
+    const [gate, sourceEnv] = line.split("|");
+    return { gate, sourceEnv };
+  });
+
+function normalize(value) {
+  switch (String(value || "")) {
+    case "migration":
+    case "migrations":
+    case "aos-migration":
+    case "aos_migration":
+      return "migrations";
+    case "schema":
+    case "aos-schema":
+    case "aos_schema":
+      return "schema";
+    case "pairing":
+    case "pairing-contract":
+    case "pairing_contract":
+      return "pairing";
+    case "device-auth":
+    case "device_auth":
+    case "auth":
+    case "device-auth-contract":
+    case "device_auth_contract":
+      return "device-auth";
+    case "settings":
+    case "settings-sync":
+    case "settings_sync":
+    case "settings-contract":
+    case "settings_contract":
+      return "settings";
+    case "profile-ownership":
+    case "profile_ownership":
+    case "ownership":
+    case "profile-auth":
+    case "profile_auth":
+    case "account-ownership":
+    case "account_ownership":
+      return "profile-ownership";
+    case "heartbeat":
+    case "heartbeat-contract":
+    case "heartbeat_contract":
+    case "event-ingestion":
+    case "event_ingestion":
+      return "heartbeat";
+    case "command-poll":
+    case "command_poll":
+    case "commands":
+    case "command-queue":
+    case "command_queue":
+    case "poll":
+    case "polling":
+    case "command-poll-contract":
+    case "command_poll_contract":
+      return "command-poll";
+    case "command-ack":
+    case "command_ack":
+    case "commands-ack":
+    case "commands_ack":
+    case "ack":
+    case "acknowledgement":
+    case "acknowledgment":
+    case "command-ack-contract":
+    case "command_ack_contract":
+      return "command-ack";
+    case "command-state":
+    case "command_state":
+    case "commands-state":
+    case "commands_state":
+    case "command-lifecycle":
+    case "command_lifecycle":
+    case "outbox":
+    case "command-outbox":
+    case "command_outbox":
+    case "command-state-contract":
+    case "command_state_contract":
+      return "command-state";
+    case "stream":
+    case "stream-contract":
+    case "stream_contract":
+      return "stream";
+    case "cache":
+    case "offline-cache":
+    case "offline_cache":
+    case "cache-contract":
+    case "cache_contract":
+      return "cache";
+    case "admin":
+    case "online-admin":
+    case "online_admin":
+    case "online-admin-contract":
+    case "online_admin_contract":
+      return "online-admin";
+    case "broadcast":
+    case "broadcasts":
+    case "broadcast-contract":
+    case "broadcast_contract":
+      return "broadcast";
+    case "release":
+    case "release-manifest":
+    case "release_manifest":
+      return "release";
+    case "release-rollout":
+    case "release_rollout":
+    case "rollout":
+    case "release-rollout-contract":
+    case "release_rollout_contract":
+      return "release-rollout";
+    default:
+      return String(value || "");
+  }
+}
+
+function sourceFrom(entry) {
+  if (entry === false || entry === null || entry === undefined) return "";
+  if (typeof entry === "string") return entry;
+  if (typeof entry !== "object" || Array.isArray(entry)) return "";
+  if (entry.enabled === false) return "";
+  return entry.source || entry.path || entry.file || entry.url || "";
+}
+
+function resolveSource(source) {
+  if (!source || typeof source !== "string") return "";
+  if (/^https?:\/\//i.test(source) || path.isAbsolute(source)) return source;
+  if (/^https?:\/\//i.test(base)) return new URL(source, base).toString();
+  return path.resolve(base || process.cwd(), source);
+}
+
+function manifestSource(gate) {
+  const containers = [
+    manifest.sources,
+    manifest.contracts,
+    manifest.gates,
+    manifest.contractSources,
+    manifest
+  ].filter(value => value && typeof value === "object" && !Array.isArray(value));
+
+  for (const container of containers) {
+    for (const [key, entry] of Object.entries(container)) {
+      if (normalize(key) !== gate) continue;
+      const source = sourceFrom(entry);
+      return source ? resolveSource(source) : "";
+    }
+  }
+  return "";
+}
+
+for (const gate of gates) {
+  const envSource = process.env[gate.sourceEnv] || "";
+  const source = envSource || manifestSource(gate.gate);
+  process.stdout.write(gate.gate + "\t" + source + "\n");
+}
+NODE
+)
 }
 
 manifest_source_value() {
@@ -933,6 +1291,7 @@ function requirementEntries(value) {
 
 const manifest = JSON.parse(fs.readFileSync(file, "utf8"));
 const strict = manifest.strict === true || manifest.requireAll === true || manifest.require_all === true ? "1" : "0";
+const requireDependencies = manifest.requireDependencies === true || manifest.require_dependencies === true ? "1" : "0";
 const rawEntries = [
   ...requirementEntries(manifest.require),
   ...requirementEntries(manifest.required),
@@ -950,7 +1309,7 @@ for (const entry of rawEntries) {
   if (!normalized.includes(gate)) normalized.push(gate);
 }
 
-process.stdout.write(strict + "\n" + normalized.join(","));
+process.stdout.write(strict + "\n" + normalized.join(",") + "\n" + requireDependencies);
 NODE
 )" || {
     FAILURE_REASON="manifest requirements are invalid"
@@ -959,6 +1318,7 @@ NODE
   }
   MANIFEST_REQUIRE_ALL="$(printf '%s\n' "$manifest_requirements" | sed -n '1p')"
   MANIFEST_REQUIRED_LIST="$(printf '%s\n' "$manifest_requirements" | sed -n '2p')"
+  MANIFEST_REQUIRE_DEPENDENCIES="$(printf '%s\n' "$manifest_requirements" | sed -n '3p')"
 }
 
 run_gate() {
@@ -1012,6 +1372,9 @@ for arg in "$@"; do
     --strict|--require-all)
       REQUIRE_ALL=1
       ;;
+    --require-dependencies|--dependencies)
+      REQUIRE_DEPENDENCIES=1
+      ;;
     --plan|--dry-run)
       PLAN_ONLY=1
       ;;
@@ -1046,6 +1409,16 @@ fi
 
 load_manifest
 validate_required_gates
+resolve_gate_sources
+collect_dependency_blockers
+
+if dependency_enforcement_enabled && [[ "${#DEPENDENCY_BLOCKERS[@]}" -gt 0 ]]; then
+  local_blockers="$(printf '%s, ' "${DEPENDENCY_BLOCKERS[@]}")"
+  FAILURE_REASON="required gate dependencies are missing"
+  FAILED_GATE="$(printf '%s' "${DEPENDENCY_BLOCKERS[0]}" | cut -d'|' -f1)"
+  echo "hosted contract suite failed: required gate dependencies are missing: ${local_blockers%, }" >&2
+  exit 1
+fi
 
 while IFS='|' read -r gate env_name script label; do
   [[ -n "$gate" ]] || continue

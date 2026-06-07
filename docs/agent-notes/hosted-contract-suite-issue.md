@@ -1,5 +1,17 @@
 # Hosted Contract Suite CI Gate
 
+## Dependency readiness addition
+
+2026-06-07 update: the hosted suite now includes dependency metadata in `--list-gates` and `--manifest-template` output, and reports `dependencyBlockers` when a required downstream gate is missing upstream evidence. For readiness/rollout manifests, run:
+
+```bash
+AUTOPOIESIS_HOSTED_CONTRACT_MANIFEST=/path/to/hosted-contract-manifest.json \
+AUTOPOIESIS_HOSTED_CONTRACT_REPORT=/path/to/hosted-contract-plan-report.json \
+  ./scripts/hosted-contract-suite-check.sh --plan --require-dependencies
+```
+
+Manifests can also set `"requireDependencies": true`. Keep narrow owner-specific CI jobs advisory when they intentionally validate only one fixture, but use dependency enforcement before treating downstream Admin/Profile/broadcast/rollout evidence as system-ready.
+
 ## Summary
 
 Wire `scripts/hosted-contract-suite-check.sh` into the hosted Frames staging or CI path so backend readiness is proven once before physical Raspberry Pi validation.

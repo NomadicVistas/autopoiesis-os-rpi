@@ -1,5 +1,14 @@
 # Pulse Agent Notes
 
+## 2026-06-07 - Hosted suite dependency readiness
+
+Date/time: 2026-06-07 16:18 UTC / 2026-06-07 18:18 Europe/Berlin
+Agent: Pulse
+Context: LEAD / INTEGRATION cron pass. The hosted suite could require downstream gates such as online-admin or release-rollout, but partial manifests could omit upstream evidence and still look green when a job only owned the downstream fixture.
+What changed: Added dependency metadata to the hosted gate catalog and manifest template, report-level `dependencyBlockers`, and opt-in enforcement through `--require-dependencies`, `AUTOPOIESIS_HOSTED_CONTRACT_REQUIRE_DEPENDENCIES=1`, or manifest `requireDependencies: true`. Source resolution is now cached in one pass so plan/dependency checks avoid repeated manifest lookups.
+What needs review: Hosted staging should use dependency enforcement for readiness and rollout artifacts, but leave narrow per-contract jobs advisory when they deliberately validate one owned fixture.
+Next recommended action: Generate the staging manifest from `--manifest-template`, fill sources, run `--plan --require-dependencies` with a redacted report, then run the full suite from the same manifest before physical Pi validation.
+
 ## 2026-06-07 - Profile action policy coherence
 
 Date/time: 2026-06-07 16:05 UTC / 2026-06-07 18:05 Europe/Berlin
