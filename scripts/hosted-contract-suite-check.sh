@@ -4,6 +4,7 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REQUIRE_ALL=0
 PLAN_ONLY=0
+LIST_GATES=0
 REQUIRED_LIST="${AUTOPOIESIS_HOSTED_CONTRACT_REQUIRE:-}"
 MANIFEST_SOURCE="${AUTOPOIESIS_HOSTED_CONTRACT_MANIFEST:-${AUTOPOIESIS_HOSTED_CONTRACT_BUNDLE:-}}"
 MANIFEST_FILE=""
@@ -28,6 +29,9 @@ cleanup() {
 
 write_report() {
   local exit_code="$1"
+  if [[ "$LIST_GATES" == "1" ]]; then
+    return 0
+  fi
   if [[ -z "$REPORT_PATH" ]]; then
     return 0
   fi
@@ -143,6 +147,7 @@ usage() {
   cat >&2 <<'EOF'
 Usage:
   scripts/hosted-contract-suite-check.sh [--strict] [--plan]
+  scripts/hosted-contract-suite-check.sh --list-gates
 
 Environment:
   AUTOPOIESIS_HOSTED_CONTRACT_MANIFEST      optional JSON manifest mapping gates to sources
@@ -176,6 +181,11 @@ is missing.
 redacted gate/source matrix without running the individual contract checkers.
 Required gates still fail when their source is missing. This is useful for CI
 and rollout annotations before fetching live fixtures or mutating staging state.
+
+--list-gates prints the hosted gate catalog as JSON and exits without loading a
+manifest or running contract checkers. CI can use this to generate manifest
+templates, validate staging artifact coverage, or annotate rollout jobs without
+scraping README text.
 
 When AUTOPOIESIS_HOSTED_CONTRACT_MANIFEST is set, the suite reads sources and
 optional requirements from a JSON object such as
@@ -215,8 +225,63 @@ normalize_gate_name() {
   esac
 }
 
+for_each_gate() {
+  cat <<'EOF'
+migrations|AUTOPOIESIS_AOS_MIGRATION_CONTRACT_SOURCE|aos-migration-contract-check.sh|AOS migration contract
+schema|AUTOPOIESIS_AOS_SCHEMA_CONTRACT_SOURCE|aos-schema-contract-check.sh|AOS schema contract
+pairing|AUTOPOIESIS_PAIRING_CONTRACT_SOURCE|pairing-contract-check.sh|Hosted pairing contract
+device-auth|AUTOPOIESIS_DEVICE_AUTH_CONTRACT_SOURCE|device-auth-contract-check.sh|Hosted device auth contract
+settings|AUTOPOIESIS_SETTINGS_CONTRACT_SOURCE|settings-contract-check.sh|Hosted settings conflict contract
+profile-ownership|AUTOPOIESIS_PROFILE_OWNERSHIP_CONTRACT_SOURCE|profile-ownership-contract-check.sh|Hosted profile ownership contract
+heartbeat|AUTOPOIESIS_HEARTBEAT_CONTRACT_SOURCE|heartbeat-contract-check.sh|Hosted heartbeat contract
+command-poll|AUTOPOIESIS_COMMAND_POLL_CONTRACT_SOURCE|command-poll-contract-check.sh|Hosted command polling contract
+command-ack|AUTOPOIESIS_COMMAND_ACK_CONTRACT_SOURCE|command-ack-contract-check.sh|Hosted command acknowledgement contract
+command-state|AUTOPOIESIS_COMMAND_STATE_CONTRACT_SOURCE|command-state-contract-check.sh|Hosted command state contract
+stream|AUTOPOIESIS_STREAM_CONTRACT_SOURCE|stream-contract-check.sh|Hosted stream contract
+cache|AUTOPOIESIS_CACHE_CONTRACT_SOURCE|cache-contract-check.sh|Hosted cache/offline contract
+online-admin|AUTOPOIESIS_ONLINE_ADMIN_CONTRACT_SOURCE|online-admin-contract-check.sh|Hosted Profile/Admin contract
+broadcast|AUTOPOIESIS_BROADCAST_CONTRACT_SOURCE|broadcast-contract-check.sh|Hosted broadcast contract
+release|AUTOPOIESIS_RELEASE_MANIFEST_SOURCE|release-manifest-check.sh|Release manifest contract
+release-rollout|AUTOPOIESIS_RELEASE_ROLLOUT_CONTRACT_SOURCE|release-rollout-contract-check.sh|Hosted release rollout contract
+EOF
+}
+
 all_gate_csv() {
-  echo "migrations,schema,pairing,device-auth,settings,profile-ownership,heartbeat,command-poll,command-ack,command-state,stream,cache,online-admin,broadcast,release,release-rollout"
+  local gate env_name script label output
+  output=""
+  while IFS='|' read -r gate env_name script label; do
+    [[ -n "$gate" ]] || continue
+    if [[ -n "$output" ]]; then
+      output="$output,$gate"
+    else
+      output="$gate"
+    fi
+  done < <(for_each_gate)
+  echo "$output"
+}
+
+print_gate_catalog() {
+  GATE_CATALOG_ROWS="$(for_each_gate)" node - <<'NODE'
+const gates = String(process.env.GATE_CATALOG_ROWS || "")
+  .split("\n")
+  .filter(Boolean)
+  .map((line, index) => {
+    const [gate, sourceEnv, checker, ...labelParts] = line.split("|");
+    return {
+      gate,
+      order: index + 1,
+      sourceEnv,
+      checker,
+      label: labelParts.join("|")
+    };
+  });
+
+process.stdout.write(JSON.stringify({
+  schemaVersion: 1,
+  suite: "hosted-contract-suite",
+  gates
+}, null, 2) + "\n");
+NODE
 }
 
 gate_exists() {
@@ -906,6 +971,9 @@ for arg in "$@"; do
     --plan|--dry-run)
       PLAN_ONLY=1
       ;;
+    --list-gates|--catalog)
+      LIST_GATES=1
+      ;;
     -h|--help)
       usage
       exit 0
@@ -919,25 +987,18 @@ for arg in "$@"; do
   esac
 done
 
+if [[ "$LIST_GATES" == "1" ]]; then
+  print_gate_catalog
+  exit 0
+fi
+
 load_manifest
 validate_required_gates
 
-run_gate "migrations" "AUTOPOIESIS_AOS_MIGRATION_CONTRACT_SOURCE" "aos-migration-contract-check.sh" "AOS migration contract"
-run_gate "schema" "AUTOPOIESIS_AOS_SCHEMA_CONTRACT_SOURCE" "aos-schema-contract-check.sh" "AOS schema contract"
-run_gate "pairing" "AUTOPOIESIS_PAIRING_CONTRACT_SOURCE" "pairing-contract-check.sh" "Hosted pairing contract"
-run_gate "device-auth" "AUTOPOIESIS_DEVICE_AUTH_CONTRACT_SOURCE" "device-auth-contract-check.sh" "Hosted device auth contract"
-run_gate "settings" "AUTOPOIESIS_SETTINGS_CONTRACT_SOURCE" "settings-contract-check.sh" "Hosted settings conflict contract"
-run_gate "profile-ownership" "AUTOPOIESIS_PROFILE_OWNERSHIP_CONTRACT_SOURCE" "profile-ownership-contract-check.sh" "Hosted profile ownership contract"
-run_gate "heartbeat" "AUTOPOIESIS_HEARTBEAT_CONTRACT_SOURCE" "heartbeat-contract-check.sh" "Hosted heartbeat contract"
-run_gate "command-poll" "AUTOPOIESIS_COMMAND_POLL_CONTRACT_SOURCE" "command-poll-contract-check.sh" "Hosted command polling contract"
-run_gate "command-ack" "AUTOPOIESIS_COMMAND_ACK_CONTRACT_SOURCE" "command-ack-contract-check.sh" "Hosted command acknowledgement contract"
-run_gate "command-state" "AUTOPOIESIS_COMMAND_STATE_CONTRACT_SOURCE" "command-state-contract-check.sh" "Hosted command state contract"
-run_gate "stream" "AUTOPOIESIS_STREAM_CONTRACT_SOURCE" "stream-contract-check.sh" "Hosted stream contract"
-run_gate "cache" "AUTOPOIESIS_CACHE_CONTRACT_SOURCE" "cache-contract-check.sh" "Hosted cache/offline contract"
-run_gate "online-admin" "AUTOPOIESIS_ONLINE_ADMIN_CONTRACT_SOURCE" "online-admin-contract-check.sh" "Hosted Profile/Admin contract"
-run_gate "broadcast" "AUTOPOIESIS_BROADCAST_CONTRACT_SOURCE" "broadcast-contract-check.sh" "Hosted broadcast contract"
-run_gate "release" "AUTOPOIESIS_RELEASE_MANIFEST_SOURCE" "release-manifest-check.sh" "Release manifest contract"
-run_gate "release-rollout" "AUTOPOIESIS_RELEASE_ROLLOUT_CONTRACT_SOURCE" "release-rollout-contract-check.sh" "Hosted release rollout contract"
+while IFS='|' read -r gate env_name script label; do
+  [[ -n "$gate" ]] || continue
+  run_gate "$gate" "$env_name" "$script" "$label"
+done < <(for_each_gate)
 
 if [[ "$PLAN_ONLY" == "1" ]]; then
   echo

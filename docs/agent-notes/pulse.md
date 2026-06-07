@@ -1,5 +1,14 @@
 # Pulse Agent Notes
 
+## 2026-06-07 - Hosted suite gate catalog
+
+Date/time: 2026-06-07 09:15 UTC / 2026-06-07 11:15 Europe/Berlin
+Agent: Pulse
+Context: LEAD / INTEGRATION cron pass. The hosted suite had accumulated a long ordered gate list used by strict mode, execution, docs, and backend manifest generation. That made CI jobs likely to drift as new hosted gates were added.
+What changed: Added `--list-gates` to `scripts/hosted-contract-suite-check.sh`, returning a JSON catalog with gate name, order, source environment variable, checker script, and label. The shell runner now uses one `for_each_gate` table for both `--strict` all-gate generation and execution order, so those two paths cannot diverge.
+What needs review: The embedded manifest alias validation still has duplicated gate/alias metadata; a later cleanup should move alias normalization into one generated helper if the suite keeps growing.
+Next recommended action: Have hosted CI generate manifest templates and rollout annotations from `scripts/hosted-contract-suite-check.sh --list-gates`, then run `--plan` and the full suite from the generated manifest.
+
 ## 2026-06-07 - Watchdog restart policy gate
 
 Date/time: 2026-06-07 08:35 UTC / 2026-06-07 10:35 Europe/Berlin

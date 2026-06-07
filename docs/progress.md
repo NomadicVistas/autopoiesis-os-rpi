@@ -1,5 +1,42 @@
 # Progress
 
+## 2026-06-07 - Hosted suite gate catalog
+
+Date: 2026-06-07
+
+Milestone: LEAD / INTEGRATION - hosted contract orchestration
+
+Changed files:
+
+- `scripts/hosted-contract-suite-check.sh`
+- `README.md`
+- `docs/api-contract.md`
+- `docs/agent-notes/hosted-contract-suite-issue.md`
+- `docs/agent-notes/pulse.md`
+- `docs/progress.md`
+- `/data/.openclaw/workspace/autopoiesis-os-program/ROLLING-LOG.md`
+
+Implemented:
+
+- Added `--list-gates` / `--catalog` to the hosted contract suite.
+- The command prints JSON with each hosted gate's name, order, source environment variable, checker script, and label, then exits without loading manifests, running checkers, or writing readiness reports.
+- Reworked the shell runner so strict all-gate requirements and execution order use the same `for_each_gate` table.
+- Documented the catalog as the source of truth for CI manifest generation and rollout annotations.
+
+Verification:
+
+- `scripts/hosted-contract-suite-check.sh --list-gates` produced the expected 16-gate JSON catalog.
+- Plan mode still accepted a manifest-required `stream` source and wrote a matching redacted report.
+- Unknown required gates still failed before checker execution.
+- `node --check local-ui/server.js` passed.
+- `bash -n install.sh update.sh uninstall-dev-tools.sh factory-reset.sh scripts/*.sh` passed.
+- `git diff --check` passed.
+- `scripts/security-smoke.sh` passed.
+
+Next step:
+
+Have hosted CI generate the contract manifest from `--list-gates`, then run `--plan` and the full suite from that generated manifest so backend readiness and physical Pi handoff share one gate catalog.
+
 ## 2026-06-07 - Watchdog restart policy gate
 
 Date: 2026-06-07

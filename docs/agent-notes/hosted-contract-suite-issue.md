@@ -30,6 +30,7 @@ The suite runner gives the hosted app one ordered contract pass:
 ## Acceptance
 
 - CI exports saved contract fixtures or staging URLs through the `AUTOPOIESIS_*_SOURCE` variables documented in the script usage, or through one `AUTOPOIESIS_HOSTED_CONTRACT_MANIFEST` JSON file with a `sources` object keyed by gate name.
+- CI uses `scripts/hosted-contract-suite-check.sh --list-gates` as the authoritative gate catalog for manifest generation and rollout annotations instead of duplicating gate order or source env names in backend jobs.
 - Manifest-relative paths resolve from the manifest directory, and per-gate `AUTOPOIESIS_*_SOURCE` variables override manifest entries for targeted reruns.
 - Staging runs `scripts/hosted-contract-suite-check.sh --strict`, or emits a manifest with `strict: true` / `requireAll: true`, before physical Pi acceptance.
 - Partial backend jobs use manifest `require`/`requiredGates` or `AUTOPOIESIS_HOSTED_CONTRACT_REQUIRE` to require the gate(s) they own while still running any other provided sources.
