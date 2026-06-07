@@ -12,6 +12,8 @@ AUTOPOIESIS_HOSTED_CONTRACT_REPORT=/path/to/hosted-contract-plan-report.json \
 
 Manifests can also set `"requireDependencies": true`. Keep narrow owner-specific CI jobs advisory when they intentionally validate only one fixture, but use dependency enforcement before treating downstream Admin/Profile/broadcast/rollout evidence as system-ready.
 
+2026-06-07 follow-up: dependency metadata now comes from one in-script prerequisite catalog used by runtime blocker collection, `--list-gates`, and `--manifest-template`. CI should continue generating manifests and rollout annotations from those commands rather than keeping a parallel dependency graph.
+
 ## Summary
 
 Wire `scripts/hosted-contract-suite-check.sh` into the hosted Frames staging or CI path so backend readiness is proven once before physical Raspberry Pi validation.
@@ -44,6 +46,7 @@ The suite runner gives the hosted app one ordered contract pass:
 - CI exports saved contract fixtures or staging URLs through the `AUTOPOIESIS_*_SOURCE` variables documented in the script usage, or through one `AUTOPOIESIS_HOSTED_CONTRACT_MANIFEST` JSON file with a `sources` object keyed by gate name.
 - CI uses `scripts/hosted-contract-suite-check.sh --list-gates` as the authoritative gate catalog for manifest generation and rollout annotations instead of duplicating gate order or source env names in backend jobs.
 - CI can start manifest generation with `scripts/hosted-contract-suite-check.sh --manifest-template`, which emits a disabled source entry for every catalog gate plus source env, checker, and label metadata.
+- CI treats catalog/template dependency metadata as authoritative because it is emitted from the same prerequisite catalog used by dependency blocker enforcement.
 - Manifest-relative paths resolve from the manifest directory, and per-gate `AUTOPOIESIS_*_SOURCE` variables override manifest entries for targeted reruns.
 - Staging runs `scripts/hosted-contract-suite-check.sh --strict`, or emits a manifest with `strict: true` / `requireAll: true`, before physical Pi acceptance.
 - Partial backend jobs use manifest `require`/`requiredGates` or `AUTOPOIESIS_HOSTED_CONTRACT_REQUIRE` to require the gate(s) they own while still running any other provided sources.

@@ -1,5 +1,15 @@
 # Pulse Agent Notes
 
+## 2026-06-07 - Hosted suite dependency catalog single source
+
+Date/time: 2026-06-07 17:23 UTC / 2026-06-07 19:23 Europe/Berlin
+Agent: Pulse
+Context: LEAD / INTEGRATION cron pass. The hosted suite had dependency metadata in reports, catalog output, and manifest templates, but the dependency list was duplicated across Bash runtime logic and embedded Node emitters.
+What changed: Consolidated dependency metadata into one in-script catalog consumed by runtime blocker collection, `--list-gates`, and `--manifest-template`, so CI-generated manifests and dependency-enforced plan reports share the same prerequisite graph.
+What needs review: Hosted CI should keep consuming `--list-gates` / `--manifest-template` instead of maintaining its own dependency graph.
+Next recommended action: Run `--plan --require-dependencies` on the generated staging manifest before the full hosted suite and archive both redacted reports for rollout annotation.
+
+
 ## 2026-06-07 - Installer app-tree copy fallback
 
 Date/time: 2026-06-07 17:01 UTC / 2026-06-07 19:01 Europe/Berlin

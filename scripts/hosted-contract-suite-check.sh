@@ -279,6 +279,25 @@ release-rollout|AUTOPOIESIS_RELEASE_ROLLOUT_CONTRACT_SOURCE|release-rollout-cont
 EOF
 }
 
+for_each_gate_dependency() {
+  cat <<'EOF'
+schema|migrations
+pairing|schema
+device-auth|pairing
+settings|device-auth
+profile-ownership|settings
+heartbeat|profile-ownership
+command-poll|heartbeat
+command-ack|command-poll
+command-state|command-ack
+stream|heartbeat
+cache|stream
+online-admin|cache,command-state
+broadcast|online-admin
+release-rollout|release,online-admin
+EOF
+}
+
 all_gate_csv() {
   local gate env_name script label output
   output=""
@@ -294,7 +313,17 @@ all_gate_csv() {
 }
 
 print_gate_catalog() {
-  GATE_CATALOG_ROWS="$(for_each_gate)" node - <<'NODE'
+  GATE_CATALOG_ROWS="$(for_each_gate)" GATE_DEPENDENCY_ROWS="$(for_each_gate_dependency)" node - <<'NODE'
+const dependencyMap = new Map(
+  String(process.env.GATE_DEPENDENCY_ROWS || "")
+    .split("\n")
+    .filter(Boolean)
+    .map(line => {
+      const [gate, dependencies = ""] = line.split("|");
+      return [gate, dependencies.split(",").map(entry => entry.trim()).filter(Boolean)];
+    })
+);
+
 const gates = String(process.env.GATE_CATALOG_ROWS || "")
   .split("\n")
   .filter(Boolean)
@@ -306,44 +335,9 @@ const gates = String(process.env.GATE_CATALOG_ROWS || "")
       sourceEnv,
       checker,
       label: labelParts.join("|"),
-      dependencies: dependenciesFor(gate)
+      dependencies: dependencyMap.get(gate) || []
     };
   });
-
-function dependenciesFor(gate) {
-  switch (gate) {
-    case "schema":
-      return ["migrations"];
-    case "pairing":
-      return ["schema"];
-    case "device-auth":
-      return ["pairing"];
-    case "settings":
-      return ["device-auth"];
-    case "profile-ownership":
-      return ["settings"];
-    case "heartbeat":
-      return ["profile-ownership"];
-    case "command-poll":
-      return ["heartbeat"];
-    case "command-ack":
-      return ["command-poll"];
-    case "command-state":
-      return ["command-ack"];
-    case "stream":
-      return ["heartbeat"];
-    case "cache":
-      return ["stream"];
-    case "online-admin":
-      return ["cache", "command-state"];
-    case "broadcast":
-      return ["online-admin"];
-    case "release-rollout":
-      return ["release", "online-admin"];
-    default:
-      return [];
-  }
-}
 
 process.stdout.write(JSON.stringify({
   schemaVersion: 1,
@@ -354,7 +348,17 @@ NODE
 }
 
 print_manifest_template() {
-  GATE_CATALOG_ROWS="$(for_each_gate)" node - <<'NODE'
+  GATE_CATALOG_ROWS="$(for_each_gate)" GATE_DEPENDENCY_ROWS="$(for_each_gate_dependency)" node - <<'NODE'
+const dependencyMap = new Map(
+  String(process.env.GATE_DEPENDENCY_ROWS || "")
+    .split("\n")
+    .filter(Boolean)
+    .map(line => {
+      const [gate, dependencies = ""] = line.split("|");
+      return [gate, dependencies.split(",").map(entry => entry.trim()).filter(Boolean)];
+    })
+);
+
 const gates = String(process.env.GATE_CATALOG_ROWS || "")
   .split("\n")
   .filter(Boolean)
@@ -377,43 +381,8 @@ for (const gate of gates) {
     sourceEnv: gate.sourceEnv,
     checker: gate.checker,
     label: gate.label,
-    dependencies: dependenciesFor(gate.gate)
+    dependencies: dependencyMap.get(gate.gate) || []
   };
-}
-
-function dependenciesFor(gate) {
-  switch (gate) {
-    case "schema":
-      return ["migrations"];
-    case "pairing":
-      return ["schema"];
-    case "device-auth":
-      return ["pairing"];
-    case "settings":
-      return ["device-auth"];
-    case "profile-ownership":
-      return ["settings"];
-    case "heartbeat":
-      return ["profile-ownership"];
-    case "command-poll":
-      return ["heartbeat"];
-    case "command-ack":
-      return ["command-poll"];
-    case "command-state":
-      return ["command-ack"];
-    case "stream":
-      return ["heartbeat"];
-    case "cache":
-      return ["stream"];
-    case "online-admin":
-      return ["cache", "command-state"];
-    case "broadcast":
-      return ["online-admin"];
-    case "release-rollout":
-      return ["release", "online-admin"];
-    default:
-      return [];
-  }
 }
 
 process.stdout.write(JSON.stringify({
@@ -514,23 +483,14 @@ gate_is_required() {
 }
 
 gate_dependencies_csv() {
-  case "$1" in
-    schema) echo "migrations" ;;
-    pairing) echo "schema" ;;
-    device-auth) echo "pairing" ;;
-    settings) echo "device-auth" ;;
-    profile-ownership) echo "settings" ;;
-    heartbeat) echo "profile-ownership" ;;
-    command-poll) echo "heartbeat" ;;
-    command-ack) echo "command-poll" ;;
-    command-state) echo "command-ack" ;;
-    stream) echo "heartbeat" ;;
-    cache) echo "stream" ;;
-    online-admin) echo "cache,command-state" ;;
-    broadcast) echo "online-admin" ;;
-    release-rollout) echo "release,online-admin" ;;
-    *) echo "" ;;
-  esac
+  local target_gate="$1"
+  local gate dependencies
+  while IFS='|' read -r gate dependencies; do
+    [[ "$gate" == "$target_gate" ]] || continue
+    echo "$dependencies"
+    return 0
+  done < <(for_each_gate_dependency)
+  echo ""
 }
 
 gate_source_present() {

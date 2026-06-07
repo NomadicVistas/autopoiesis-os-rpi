@@ -1,5 +1,41 @@
 # Progress
 
+## 2026-06-07 - Hosted suite dependency catalog single source
+
+Date: 2026-06-07
+
+Milestone: LEAD / INTEGRATION - hosted contract orchestration
+
+Changed files:
+
+- `scripts/hosted-contract-suite-check.sh`
+- `README.md`
+- `docs/agent-notes/hosted-contract-suite-issue.md`
+- `docs/agent-notes/pulse.md`
+- `docs/progress.md`
+- `/data/.openclaw/workspace/autopoiesis-os-program/ROLLING-LOG.md`
+
+Implemented:
+
+- Moved hosted gate dependency metadata into one Bash catalog used by runtime dependency blockers, `--list-gates`, and `--manifest-template`.
+- Removed duplicated embedded Node dependency switches from the catalog/template emitters.
+- Kept advisory and enforced dependency behavior unchanged while reducing the chance that CI-generated manifests drift from suite enforcement.
+
+Verification:
+
+- Hosted dependency catalog/template parity check passed, including `online-admin` and `release-rollout` dependencies.
+- Required `online-admin` plan with only online-admin evidence passed with advisory dependency blockers.
+- Dependency-enforced required `online-admin` plan rejected the same incomplete evidence and wrote a failed redacted report.
+- `node --check local-ui/server.js` passed.
+- `bash -n install.sh update.sh uninstall-dev-tools.sh factory-reset.sh scripts/*.sh` passed.
+- `git diff --check` passed.
+- `scripts/security-smoke.sh` passed.
+
+Next step:
+
+- Keep hosted CI manifest generation tied to `--list-gates` / `--manifest-template`, then run `--plan --require-dependencies` before the full suite for readiness and rollout artifacts.
+
+
 ## 2026-06-07 - Installer app-tree copy fallback
 
 Date: 2026-06-07
