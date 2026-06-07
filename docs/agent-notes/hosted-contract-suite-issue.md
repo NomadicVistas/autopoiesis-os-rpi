@@ -30,8 +30,8 @@ The suite runner gives the hosted app one ordered contract pass:
 
 - CI exports saved contract fixtures or staging URLs through the `AUTOPOIESIS_*_SOURCE` variables documented in the script usage, or through one `AUTOPOIESIS_HOSTED_CONTRACT_MANIFEST` JSON file with a `sources` object keyed by gate name.
 - Manifest-relative paths resolve from the manifest directory, and per-gate `AUTOPOIESIS_*_SOURCE` variables override manifest entries for targeted reruns.
-- Staging runs `scripts/hosted-contract-suite-check.sh --strict` before physical Pi acceptance.
-- Partial backend jobs use `AUTOPOIESIS_HOSTED_CONTRACT_REQUIRE` to require the gate(s) they own while still running any other provided sources.
+- Staging runs `scripts/hosted-contract-suite-check.sh --strict`, or emits a manifest with `strict: true` / `requireAll: true`, before physical Pi acceptance.
+- Partial backend jobs use manifest `require`/`requiredGates` or `AUTOPOIESIS_HOSTED_CONTRACT_REQUIRE` to require the gate(s) they own while still running any other provided sources.
 - Profile ownership staging exports `AUTOPOIESIS_PROFILE_OWNERSHIP_CONTRACT_SOURCE` with owned Profile success, cross-owner denial, anonymous denial, and admin-boundary evidence from real account/session checks.
 - Cache/offline staging exports `AUTOPOIESIS_CACHE_CONTRACT_SOURCE` with explicit cache policy, cache candidates, and ingested device cache summary evidence.
 - Broadcast staging exports `AUTOPOIESIS_BROADCAST_CONTRACT_SOURCE` with durable broadcast rows, queued `show_broadcast` command evidence, approved authorization/audit metadata, and delivery/display rows.

@@ -1,5 +1,14 @@
 # Pulse Agent Notes
 
+## 2026-06-07 - Hosted suite manifest requirements
+
+Date/time: 2026-06-07 05:15 UTC / 2026-06-07 07:15 Europe/Berlin
+Agent: Pulse
+Context: LEAD / INTEGRATION cron pass. The hosted suite could consume one manifest of contract sources, but the pass/fail intent still lived outside the artifact in `--strict` or `AUTOPOIESIS_HOSTED_CONTRACT_REQUIRE`, which made partial backend handoffs easy to mis-run.
+What changed: Extended `scripts/hosted-contract-suite-check.sh` so manifests can declare required gates with `require`, `required`, `requireGates`, or `requiredGates`, and can require every gate with `strict: true` or `requireAll: true`. The suite still honors per-gate source environment overrides and external `--strict`/`AUTOPOIESIS_HOSTED_CONTRACT_REQUIRE`.
+What needs review: Hosted CI should emit `require` for partial jobs and `strict: true` for full staging artifacts so the manifest itself proves which evidence set is expected.
+Next recommended action: Generate the staging artifact manifest with self-declared requirements and run the suite without extra env flags as the backend-to-Pi handoff gate.
+
 ## 2026-06-07 - Heartbeat runner resilience gate
 
 Date/time: 2026-06-07 04:35 UTC / 2026-06-07 06:35 Europe/Berlin

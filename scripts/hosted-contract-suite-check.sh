@@ -7,6 +7,8 @@ REQUIRED_LIST="${AUTOPOIESIS_HOSTED_CONTRACT_REQUIRE:-}"
 MANIFEST_SOURCE="${AUTOPOIESIS_HOSTED_CONTRACT_MANIFEST:-${AUTOPOIESIS_HOSTED_CONTRACT_BUNDLE:-}}"
 MANIFEST_FILE=""
 MANIFEST_BASE=""
+MANIFEST_REQUIRE_ALL=0
+MANIFEST_REQUIRED_LIST=""
 TMP_FILES=()
 RAN_COUNT=0
 SKIPPED=()
@@ -50,10 +52,12 @@ Environment:
 provided sources and fails if a gate named in AUTOPOIESIS_HOSTED_CONTRACT_REQUIRE
 is missing.
 
-When AUTOPOIESIS_HOSTED_CONTRACT_MANIFEST is set, the suite reads sources from a
-JSON object such as {"sources":{"pairing":"pairing.json","stream":"stream.json"}}.
-Relative file paths are resolved from the manifest directory. Per-gate source
-environment variables override manifest entries.
+When AUTOPOIESIS_HOSTED_CONTRACT_MANIFEST is set, the suite reads sources and
+optional requirements from a JSON object such as
+{"require":["pairing","stream"],"sources":{"pairing":"pairing.json","stream":"stream.json"}}.
+Set {"strict":true} or {"requireAll":true} in the manifest to require every
+hosted gate. Relative file paths are resolved from the manifest directory.
+Per-gate source environment variables override manifest entries.
 
 Token and strictness environment variables for the individual gates are passed
 through unchanged, for example AUTOPOIESIS_STREAM_CONTRACT_TOKEN or
@@ -83,10 +87,18 @@ normalize_gate_name() {
 }
 
 required_gate_csv() {
-  if [[ "$REQUIRE_ALL" == "1" ]]; then
+  if [[ "$REQUIRE_ALL" == "1" || "$MANIFEST_REQUIRE_ALL" == "1" ]]; then
     echo "migrations,schema,pairing,device-auth,settings,profile-ownership,heartbeat,command-poll,command-ack,stream,cache,online-admin,broadcast,release,release-rollout"
   else
-    echo "$REQUIRED_LIST"
+    local required_csv="$REQUIRED_LIST"
+    if [[ -n "$MANIFEST_REQUIRED_LIST" ]]; then
+      if [[ -n "$required_csv" ]]; then
+        required_csv="$required_csv,$MANIFEST_REQUIRED_LIST"
+      else
+        required_csv="$MANIFEST_REQUIRED_LIST"
+      fi
+    fi
+    echo "$required_csv"
   fi
 }
 
@@ -297,6 +309,166 @@ load_manifest() {
     echo "hosted contract suite failed: manifest is not valid JSON: $MANIFEST_SOURCE" >&2
     exit 1
   }
+
+  local manifest_requirements
+  manifest_requirements="$(node - "$MANIFEST_FILE" <<'NODE'
+const fs = require("fs");
+
+const file = process.argv[2];
+const allGates = new Set([
+  "migrations",
+  "schema",
+  "pairing",
+  "device-auth",
+  "settings",
+  "profile-ownership",
+  "heartbeat",
+  "command-poll",
+  "command-ack",
+  "stream",
+  "cache",
+  "online-admin",
+  "broadcast",
+  "release",
+  "release-rollout"
+]);
+
+function normalize(value) {
+  switch (String(value || "")) {
+    case "migration":
+    case "migrations":
+    case "aos-migration":
+    case "aos_migration":
+      return "migrations";
+    case "schema":
+    case "aos-schema":
+    case "aos_schema":
+      return "schema";
+    case "pairing":
+    case "pairing-contract":
+    case "pairing_contract":
+      return "pairing";
+    case "device-auth":
+    case "device_auth":
+    case "auth":
+    case "device-auth-contract":
+    case "device_auth_contract":
+      return "device-auth";
+    case "settings":
+    case "settings-sync":
+    case "settings_sync":
+    case "settings-contract":
+    case "settings_contract":
+      return "settings";
+    case "profile-ownership":
+    case "profile_ownership":
+    case "ownership":
+    case "profile-auth":
+    case "profile_auth":
+    case "account-ownership":
+    case "account_ownership":
+      return "profile-ownership";
+    case "heartbeat":
+    case "heartbeat-contract":
+    case "heartbeat_contract":
+    case "event-ingestion":
+    case "event_ingestion":
+      return "heartbeat";
+    case "command-poll":
+    case "command_poll":
+    case "commands":
+    case "command-queue":
+    case "command_queue":
+    case "poll":
+    case "polling":
+    case "command-poll-contract":
+    case "command_poll_contract":
+      return "command-poll";
+    case "command-ack":
+    case "command_ack":
+    case "commands-ack":
+    case "commands_ack":
+    case "ack":
+    case "acknowledgement":
+    case "acknowledgment":
+    case "command-ack-contract":
+    case "command_ack_contract":
+      return "command-ack";
+    case "stream":
+    case "stream-contract":
+    case "stream_contract":
+      return "stream";
+    case "cache":
+    case "offline-cache":
+    case "offline_cache":
+    case "cache-contract":
+    case "cache_contract":
+      return "cache";
+    case "admin":
+    case "online-admin":
+    case "online_admin":
+    case "online-admin-contract":
+    case "online_admin_contract":
+      return "online-admin";
+    case "broadcast":
+    case "broadcasts":
+    case "broadcast-contract":
+    case "broadcast_contract":
+      return "broadcast";
+    case "release":
+    case "release-manifest":
+    case "release_manifest":
+      return "release";
+    case "release-rollout":
+    case "release_rollout":
+    case "rollout":
+    case "release-rollout-contract":
+    case "release_rollout_contract":
+      return "release-rollout";
+    default:
+      return String(value || "");
+  }
+}
+
+function requirementEntries(value) {
+  if (value === undefined || value === null || value === false) return [];
+  if (typeof value === "string") return value.split(",").map(entry => entry.trim()).filter(Boolean);
+  if (Array.isArray(value)) return value;
+  if (typeof value === "object") {
+    return Object.entries(value)
+      .filter(([, enabled]) => enabled !== false && enabled !== null && enabled !== undefined)
+      .map(([key]) => key);
+  }
+  return [];
+}
+
+const manifest = JSON.parse(fs.readFileSync(file, "utf8"));
+const strict = manifest.strict === true || manifest.requireAll === true || manifest.require_all === true ? "1" : "0";
+const rawEntries = [
+  ...requirementEntries(manifest.require),
+  ...requirementEntries(manifest.required),
+  ...requirementEntries(manifest.requireGates),
+  ...requirementEntries(manifest.requiredGates),
+  ...requirementEntries(manifest.required_gates)
+];
+const normalized = [];
+for (const entry of rawEntries) {
+  const gate = normalize(entry);
+  if (!allGates.has(gate)) {
+    console.error("unknown required gate in manifest: " + entry);
+    process.exit(1);
+  }
+  if (!normalized.includes(gate)) normalized.push(gate);
+}
+
+process.stdout.write(strict + "\n" + normalized.join(","));
+NODE
+)" || {
+    echo "hosted contract suite failed: manifest requirements are invalid: $MANIFEST_SOURCE" >&2
+    exit 1
+  }
+  MANIFEST_REQUIRE_ALL="$(printf '%s\n' "$manifest_requirements" | sed -n '1p')"
+  MANIFEST_REQUIRED_LIST="$(printf '%s\n' "$manifest_requirements" | sed -n '2p')"
 }
 
 run_gate() {

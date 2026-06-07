@@ -1,5 +1,44 @@
 # Progress
 
+## 2026-06-07 - Hosted suite manifest requirements
+
+Date: 2026-06-07
+
+Milestone: LEAD / INTEGRATION - hosted contract orchestration
+
+Changed files:
+
+- `scripts/hosted-contract-suite-check.sh`
+- `README.md`
+- `docs/api-contract.md`
+- `docs/agent-notes/hosted-contract-suite-issue.md`
+- `docs/agent-notes/pulse.md`
+- `docs/progress.md`
+- `/data/.openclaw/workspace/autopoiesis-os-program/ROLLING-LOG.md`
+
+Implemented:
+
+- Extended hosted contract manifests with self-declared required gates via `require`, `required`, `requireGates`, `requiredGates`, or `required_gates`.
+- Added manifest-level full-suite requirements with `strict: true`, `requireAll: true`, or `require_all: true`, so staging artifacts can require every hosted gate without also passing `--strict`.
+- Preserved existing behavior for per-gate source environment overrides, external `--strict`, and `AUTOPOIESIS_HOSTED_CONTRACT_REQUIRE`; manifest and environment requirements are unioned for partial jobs.
+- Added validation for unknown manifest-required gate names so typoed CI manifests fail before physical Pi handoff.
+
+Verification:
+
+- Manifest-declared required release gate passed with a relative source fixture.
+- Object-form required gate manifest passed with a disabled non-required gate.
+- Missing manifest-required release source rejection passed.
+- Manifest `strict: true` all-gate expansion rejected a missing migrations source as expected.
+- Unknown manifest-required gate rejection passed.
+- `node --check local-ui/server.js` passed.
+- `bash -n install.sh update.sh uninstall-dev-tools.sh factory-reset.sh scripts/*.sh` passed.
+- `git diff --check` passed.
+- `scripts/security-smoke.sh` passed.
+
+Next step:
+
+Generate the hosted staging artifact manifest with `require` for partial jobs and `strict: true` for full backend readiness, then run `AUTOPOIESIS_HOSTED_CONTRACT_MANIFEST=/path/to/hosted-contract-manifest.json scripts/hosted-contract-suite-check.sh` before physical Pi validation.
+
 ## 2026-06-07 - Heartbeat runner resilience gate
 
 Date: 2026-06-07
