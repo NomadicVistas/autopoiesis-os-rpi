@@ -357,7 +357,36 @@ AUTOPOIESIS_RELEASE_ROLLOUT_CONTRACT_SOURCE=/path/to/release-rollout-contract-bu
 ./scripts/hosted-contract-suite-check.sh --strict
 ```
 
-The suite runs the existing hosted gates in dependency order: migrations, final schema, pairing, device auth, settings conflict, profile ownership, heartbeat, command polling, command acknowledgement, stream, cache/offline, online admin, broadcast lifecycle, release manifest, then hosted release rollout evidence. In non-strict mode it runs every provided source and fails only if a gate named in `AUTOPOIESIS_HOSTED_CONTRACT_REQUIRE` is missing. Individual token and strictness variables are passed through to the underlying checkers unchanged.
+CI can also hand the suite a single manifest instead of exporting every source:
+
+```json
+{
+  "sources": {
+    "migrations": "./migrations",
+    "schema": "./schema-introspection.json",
+    "pairing": "./pairing-contract-bundle.json",
+    "device-auth": "./device-auth-contract-bundle.json",
+    "settings": "./settings-contract-bundle.json",
+    "profile-ownership": "./profile-ownership-contract-bundle.json",
+    "heartbeat": "./heartbeat-contract-bundle.json",
+    "command-poll": "./command-poll-contract-bundle.json",
+    "command-ack": "./command-ack-contract-bundle.json",
+    "stream": "./stream-response.json",
+    "cache": "./cache-contract-bundle.json",
+    "online-admin": "./online-admin-bundle.json",
+    "broadcast": "./broadcast-contract-bundle.json",
+    "release": "./release.json",
+    "release-rollout": "./release-rollout-contract-bundle.json"
+  }
+}
+```
+
+```bash
+AUTOPOIESIS_HOSTED_CONTRACT_MANIFEST=/path/to/hosted-contract-manifest.json \
+./scripts/hosted-contract-suite-check.sh --strict
+```
+
+The suite runs the existing hosted gates in dependency order: migrations, final schema, pairing, device auth, settings conflict, profile ownership, heartbeat, command polling, command acknowledgement, stream, cache/offline, online admin, broadcast lifecycle, release manifest, then hosted release rollout evidence. Manifest paths are resolved relative to the manifest file, and per-gate `AUTOPOIESIS_*_SOURCE` variables override manifest entries. In non-strict mode it runs every provided source and fails only if a gate named in `AUTOPOIESIS_HOSTED_CONTRACT_REQUIRE` is missing. Individual token and strictness variables are passed through to the underlying checkers unchanged.
 
 Validate the hosted broadcast lifecycle before treating Admin > Frames broadcasts as rollout-ready:
 

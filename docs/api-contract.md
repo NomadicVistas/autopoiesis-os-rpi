@@ -402,10 +402,10 @@ Durable migration gate:
 
 Hosted integration suite:
 
-- `scripts/hosted-contract-suite-check.sh` runs the hosted migration, schema, pairing, device-auth, settings, profile-ownership, heartbeat, command-ack, stream, cache/offline, online-admin, broadcast, release, and release-rollout gates in dependency order.
+- `scripts/hosted-contract-suite-check.sh` runs the hosted migration, schema, pairing, device-auth, settings, profile-ownership, heartbeat, command-poll, command-ack, stream, cache/offline, online-admin, broadcast, release, and release-rollout gates in dependency order.
 - Use `--strict` for staging or CI jobs that must provide every source before physical Pi acceptance.
-- Use `AUTOPOIESIS_HOSTED_CONTRACT_REQUIRE=migrations,schema,pairing,device-auth,settings,profile-ownership,heartbeat,command-ack,stream,cache,online-admin,broadcast,release,release-rollout` when a partial job should require only selected gates while still running any other provided sources.
-- The suite does not invent or fetch endpoints by itself; CI/staging should pass saved fixtures or live URLs through the existing `AUTOPOIESIS_*_SOURCE` variables.
+- Use `AUTOPOIESIS_HOSTED_CONTRACT_REQUIRE=migrations,schema,pairing,device-auth,settings,profile-ownership,heartbeat,command-poll,command-ack,stream,cache,online-admin,broadcast,release,release-rollout` when a partial job should require only selected gates while still running any other provided sources.
+- CI/staging may pass saved fixtures or live URLs through the existing `AUTOPOIESIS_*_SOURCE` variables, or provide one `AUTOPOIESIS_HOSTED_CONTRACT_MANIFEST` JSON file with a `sources` object keyed by gate name. Manifest-relative file paths are resolved from the manifest directory, and individual `AUTOPOIESIS_*_SOURCE` variables override manifest entries for targeted reruns.
 
 Release manifest validation:
 

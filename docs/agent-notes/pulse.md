@@ -1,5 +1,14 @@
 # Pulse Agent Notes
 
+## 2026-06-07 - Hosted suite manifest integration
+
+Date/time: 2026-06-07 04:15 UTC / 2026-06-07 06:15 Europe/Berlin
+Agent: Pulse
+Context: LEAD / INTEGRATION cron pass. The hosted suite now covers the full chain of migration, schema, pairing, auth, settings, ownership, heartbeat, commands, stream, cache, admin, broadcast, release, and rollout gates, but CI still had to export a long list of individual source variables.
+What changed: Added `AUTOPOIESIS_HOSTED_CONTRACT_MANIFEST` and the `AUTOPOIESIS_HOSTED_CONTRACT_BUNDLE` alias to `scripts/hosted-contract-suite-check.sh`. The manifest can provide a `sources` object keyed by normalized gate names, resolves relative fixture paths from the manifest directory, supports URL manifests with an optional bearer token, and still lets per-gate source variables override manifest entries for targeted reruns.
+What needs review: Hosted CI should generate one manifest alongside the saved contract fixtures, then run the strict suite from that manifest before physical Pi validation.
+Next recommended action: Build the staging artifact/index that emits the manifest, then keep individual source env vars only for override/debug jobs.
+
 ## 2026-06-07 - Online admin subscription consistency
 
 Date/time: 2026-06-07 04:05 UTC / 2026-06-07 06:05 Europe/Berlin

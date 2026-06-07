@@ -1,5 +1,44 @@
 # Progress
 
+## 2026-06-07 - Hosted suite manifest integration
+
+Date: 2026-06-07
+
+Milestone: LEAD / INTEGRATION - hosted contract orchestration
+
+Changed files:
+
+- `scripts/hosted-contract-suite-check.sh`
+- `README.md`
+- `docs/api-contract.md`
+- `docs/agent-notes/hosted-contract-suite-issue.md`
+- `docs/agent-notes/pulse.md`
+- `docs/progress.md`
+- `/data/.openclaw/workspace/autopoiesis-os-program/ROLLING-LOG.md`
+
+Implemented:
+
+- Added `AUTOPOIESIS_HOSTED_CONTRACT_MANIFEST` support to the hosted contract suite, with `AUTOPOIESIS_HOSTED_CONTRACT_BUNDLE` as an alias.
+- The manifest can provide a `sources`/ `contracts`/ `gates` object keyed by normalized gate names, with string paths or objects containing `source`, `path`, `file`, or `url`.
+- Relative manifest fixture paths resolve from the manifest directory, and URL manifests preserve URL-relative source resolution.
+- Per-gate `AUTOPOIESIS_*_SOURCE` variables still override manifest entries, so CI can use one bundle index while developers can rerun or replace one gate.
+- Documented the manifest shape and corrected hosted-suite docs to include the command polling gate in dependency order.
+
+Verification:
+
+- Manifest-driven hosted suite passed with a representative stream fixture.
+- Manifest-relative path resolution passed with a nested manifest directory.
+- Per-gate environment override passed, replacing the manifest stream source.
+- Required missing-source rejection passed with a manifest that did not include the required pairing gate.
+- `node --check local-ui/server.js` passed.
+- `bash -n install.sh update.sh uninstall-dev-tools.sh factory-reset.sh scripts/*.sh` passed.
+- `git diff --check` passed.
+- `scripts/security-smoke.sh` passed.
+
+Next step:
+
+Generate a hosted staging artifact manifest next to the individual contract fixtures and run `AUTOPOIESIS_HOSTED_CONTRACT_MANIFEST=/path/to/hosted-contract-manifest.json scripts/hosted-contract-suite-check.sh --strict` before treating backend evidence as physical-Pi-ready.
+
 ## 2026-06-07 - Online admin subscription consistency
 
 Date: 2026-06-07

@@ -4,9 +4,20 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REQUIRE_ALL=0
 REQUIRED_LIST="${AUTOPOIESIS_HOSTED_CONTRACT_REQUIRE:-}"
+MANIFEST_SOURCE="${AUTOPOIESIS_HOSTED_CONTRACT_MANIFEST:-${AUTOPOIESIS_HOSTED_CONTRACT_BUNDLE:-}}"
+MANIFEST_FILE=""
+MANIFEST_BASE=""
+TMP_FILES=()
 RAN_COUNT=0
 SKIPPED=()
 PASSED=()
+
+cleanup() {
+  if [[ "${#TMP_FILES[@]}" -gt 0 ]]; then
+    rm -f "${TMP_FILES[@]}"
+  fi
+}
+trap cleanup EXIT
 
 usage() {
   cat >&2 <<'EOF'
@@ -14,6 +25,9 @@ Usage:
   scripts/hosted-contract-suite-check.sh [--strict]
 
 Environment:
+  AUTOPOIESIS_HOSTED_CONTRACT_MANIFEST      optional JSON manifest mapping gates to sources
+  AUTOPOIESIS_HOSTED_CONTRACT_BUNDLE        alias for AUTOPOIESIS_HOSTED_CONTRACT_MANIFEST
+  AUTOPOIESIS_HOSTED_CONTRACT_MANIFEST_TOKEN optional bearer token for manifest URL fetches
   AUTOPOIESIS_HOSTED_CONTRACT_REQUIRE       comma-separated required gates
                                             migrations,schema,pairing,device-auth,settings,profile-ownership,heartbeat,command-poll,command-ack,stream,cache,online-admin,broadcast,release,release-rollout
   AUTOPOIESIS_AOS_MIGRATION_CONTRACT_SOURCE migration directory or manifest
@@ -35,6 +49,11 @@ Environment:
 --strict requires every hosted gate source. Otherwise the suite runs all
 provided sources and fails if a gate named in AUTOPOIESIS_HOSTED_CONTRACT_REQUIRE
 is missing.
+
+When AUTOPOIESIS_HOSTED_CONTRACT_MANIFEST is set, the suite reads sources from a
+JSON object such as {"sources":{"pairing":"pairing.json","stream":"stream.json"}}.
+Relative file paths are resolved from the manifest directory. Per-gate source
+environment variables override manifest entries.
 
 Token and strictness environment variables for the individual gates are passed
 through unchanged, for example AUTOPOIESIS_STREAM_CONTRACT_TOKEN or
@@ -92,7 +111,192 @@ gate_is_required() {
 
 source_value() {
   local env_name="$1"
-  printf '%s' "${!env_name:-}"
+  local gate="$2"
+  local env_value
+  env_value="${!env_name:-}"
+  if [[ -n "$env_value" ]]; then
+    printf '%s' "$env_value"
+    return 0
+  fi
+  manifest_source_value "$gate"
+}
+
+manifest_source_value() {
+  local gate="$1"
+  if [[ -z "$MANIFEST_FILE" ]]; then
+    return 0
+  fi
+
+  node - "$MANIFEST_FILE" "$MANIFEST_BASE" "$gate" <<'NODE'
+const fs = require("fs");
+const path = require("path");
+
+const file = process.argv[2];
+const base = process.argv[3] || "";
+const gate = process.argv[4];
+
+function normalize(value) {
+  switch (String(value || "")) {
+    case "migration":
+    case "migrations":
+    case "aos-migration":
+    case "aos_migration":
+      return "migrations";
+    case "schema":
+    case "aos-schema":
+    case "aos_schema":
+      return "schema";
+    case "pairing":
+    case "pairing-contract":
+    case "pairing_contract":
+      return "pairing";
+    case "device-auth":
+    case "device_auth":
+    case "auth":
+    case "device-auth-contract":
+    case "device_auth_contract":
+      return "device-auth";
+    case "settings":
+    case "settings-sync":
+    case "settings_sync":
+    case "settings-contract":
+    case "settings_contract":
+      return "settings";
+    case "profile-ownership":
+    case "profile_ownership":
+    case "ownership":
+    case "profile-auth":
+    case "profile_auth":
+    case "account-ownership":
+    case "account_ownership":
+      return "profile-ownership";
+    case "heartbeat":
+    case "heartbeat-contract":
+    case "heartbeat_contract":
+    case "event-ingestion":
+    case "event_ingestion":
+      return "heartbeat";
+    case "command-poll":
+    case "command_poll":
+    case "commands":
+    case "command-queue":
+    case "command_queue":
+    case "poll":
+    case "polling":
+    case "command-poll-contract":
+    case "command_poll_contract":
+      return "command-poll";
+    case "command-ack":
+    case "command_ack":
+    case "commands-ack":
+    case "commands_ack":
+    case "ack":
+    case "acknowledgement":
+    case "acknowledgment":
+    case "command-ack-contract":
+    case "command_ack_contract":
+      return "command-ack";
+    case "stream":
+    case "stream-contract":
+    case "stream_contract":
+      return "stream";
+    case "cache":
+    case "offline-cache":
+    case "offline_cache":
+    case "cache-contract":
+    case "cache_contract":
+      return "cache";
+    case "admin":
+    case "online-admin":
+    case "online_admin":
+    case "online-admin-contract":
+    case "online_admin_contract":
+      return "online-admin";
+    case "broadcast":
+    case "broadcasts":
+    case "broadcast-contract":
+    case "broadcast_contract":
+      return "broadcast";
+    case "release":
+    case "release-manifest":
+    case "release_manifest":
+      return "release";
+    case "release-rollout":
+    case "release_rollout":
+    case "rollout":
+    case "release-rollout-contract":
+    case "release_rollout_contract":
+      return "release-rollout";
+    default:
+      return String(value || "");
+  }
+}
+
+function sourceFrom(entry) {
+  if (entry === false || entry === null || entry === undefined) return "";
+  if (typeof entry === "string") return entry;
+  if (typeof entry !== "object" || Array.isArray(entry)) return "";
+  if (entry.enabled === false) return "";
+  return entry.source || entry.path || entry.file || entry.url || "";
+}
+
+function resolveSource(source) {
+  if (!source || typeof source !== "string") return "";
+  if (/^https?:\/\//i.test(source) || path.isAbsolute(source)) return source;
+  if (/^https?:\/\//i.test(base)) return new URL(source, base).toString();
+  return path.resolve(base || process.cwd(), source);
+}
+
+const manifest = JSON.parse(fs.readFileSync(file, "utf8"));
+const containers = [
+  manifest.sources,
+  manifest.contracts,
+  manifest.gates,
+  manifest.contractSources,
+  manifest
+].filter(value => value && typeof value === "object" && !Array.isArray(value));
+
+for (const container of containers) {
+  for (const [key, entry] of Object.entries(container)) {
+    if (normalize(key) !== gate) continue;
+    const source = sourceFrom(entry);
+    if (source) process.stdout.write(resolveSource(source));
+    process.exit(0);
+  }
+}
+NODE
+}
+
+load_manifest() {
+  if [[ -z "$MANIFEST_SOURCE" ]]; then
+    return 0
+  fi
+
+  if [[ "$MANIFEST_SOURCE" =~ ^https?:// ]]; then
+    MANIFEST_FILE="$(mktemp)"
+    TMP_FILES+=("$MANIFEST_FILE")
+    local curl_args=(-fsS)
+    if [[ -n "${AUTOPOIESIS_HOSTED_CONTRACT_MANIFEST_TOKEN:-}" ]]; then
+      curl_args+=(-H "Authorization: Bearer ${AUTOPOIESIS_HOSTED_CONTRACT_MANIFEST_TOKEN}")
+    fi
+    curl "${curl_args[@]}" "$MANIFEST_SOURCE" >"$MANIFEST_FILE" || {
+      echo "hosted contract suite failed: could not fetch manifest URL" >&2
+      exit 1
+    }
+    MANIFEST_BASE="$MANIFEST_SOURCE"
+  else
+    [[ -f "$MANIFEST_SOURCE" ]] || {
+      echo "hosted contract suite failed: manifest file not found: $MANIFEST_SOURCE" >&2
+      exit 1
+    }
+    MANIFEST_FILE="$MANIFEST_SOURCE"
+    MANIFEST_BASE="$(cd "$(dirname "$MANIFEST_SOURCE")" && pwd)"
+  fi
+
+  node -e 'JSON.parse(require("fs").readFileSync(process.argv[1], "utf8"))' "$MANIFEST_FILE" || {
+    echo "hosted contract suite failed: manifest is not valid JSON: $MANIFEST_SOURCE" >&2
+    exit 1
+  }
 }
 
 run_gate() {
@@ -101,7 +305,7 @@ run_gate() {
   local script="$3"
   local label="$4"
   local source
-  source="$(source_value "$env_name")"
+  source="$(source_value "$env_name" "$gate")"
 
   if [[ -z "$source" ]]; then
     if gate_is_required "$gate"; then
@@ -135,6 +339,8 @@ for arg in "$@"; do
       ;;
   esac
 done
+
+load_manifest
 
 run_gate "migrations" "AUTOPOIESIS_AOS_MIGRATION_CONTRACT_SOURCE" "aos-migration-contract-check.sh" "AOS migration contract"
 run_gate "schema" "AUTOPOIESIS_AOS_SCHEMA_CONTRACT_SOURCE" "aos-schema-contract-check.sh" "AOS schema contract"
