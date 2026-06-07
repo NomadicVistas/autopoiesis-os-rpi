@@ -140,6 +140,19 @@ function normalizedId(value, field) {
   return value.trim();
 }
 
+function optionalReferenceId(value, field) {
+  if (value === undefined || value === null || value === "") return null;
+  if (typeof value === "string") return normalizedId(value, field);
+  if (isObject(value)) return normalizedId(value.artistId || value.artworkId || value.id, field + ".id");
+  fail(field + " must be a string or object reference");
+}
+
+function optionalReferenceIds(value, field) {
+  if (value === undefined || value === null) return [];
+  if (!Array.isArray(value)) fail(field + " must be an array when present");
+  return value.map((item, index) => optionalReferenceId(item, field + "[" + index + "]")).filter(Boolean);
+}
+
 function assertUnique(map, id, field) {
   if (map.has(id)) fail(field + " duplicates id " + id);
   map.set(id, true);
@@ -202,6 +215,29 @@ function validateCache(cache, field, options = {}) {
       if (typeof cache[key] !== "boolean") fail(field + "." + key + " must be an explicit boolean");
     }
     if (!Number.isFinite(Number(cache.sizeLimitMb))) fail(field + ".sizeLimitMb is required");
+  }
+}
+
+function validateCachePreferenceCoherence(preferences, cache, field) {
+  const pairs = [
+    ["cacheEnabled", "enabled"],
+    ["cacheLikedArtworks", "likedArtworks"],
+    ["cacheRecentArtworks", "recentArtworks"],
+    ["cacheSelectedArtists", "selectedArtists"],
+    ["cacheSizeLimitMb", "sizeLimitMb"]
+  ];
+
+  for (const [preferenceKey, cacheKey] of pairs) {
+    if (preferences[preferenceKey] === undefined || preferences[preferenceKey] === null || preferences[preferenceKey] === "") continue;
+    const preferenceValue = preferences[preferenceKey];
+    const cacheValue = cache[cacheKey];
+    if (typeof preferenceValue === "boolean") {
+      if (cacheValue !== preferenceValue) fail(field + "." + cacheKey + " must match preferences." + preferenceKey);
+    } else if (Number.isFinite(Number(preferenceValue))) {
+      if (!Number.isFinite(Number(cacheValue)) || Number(cacheValue) !== Number(preferenceValue)) {
+        fail(field + "." + cacheKey + " must match preferences." + preferenceKey);
+      }
+    }
   }
 }
 
@@ -477,38 +513,69 @@ function validateProfileFrames(profileFrames) {
   if (profileFrames.preferences === undefined) fail("profileFrames.preferences is required");
   validatePreferences(profileFrames.preferences, "profileFrames.preferences");
   validatePairing(profileFrames.pairing, "profileFrames.pairing");
-  validateCache(profileFrames.cachePreferences || profileFrames.cache, "profileFrames.cachePreferences", {
+  const cachePreferences = profileFrames.cachePreferences || profileFrames.cache;
+  validateCache(cachePreferences, "profileFrames.cachePreferences", {
     required: true,
     requirePreferences: true
   });
+  validateCachePreferenceCoherence(profileFrames.preferences, cachePreferences, "profileFrames.cachePreferences");
 
   const activeArtists = asArray(profileFrames.activeArtists, "profileFrames.activeArtists");
+  const activeArtistIds = new Map();
+  const activeArtistsById = new Map();
+  const enabledActiveArtistIds = new Set();
   for (const [index, artist] of activeArtists.entries()) {
     const prefix = "profileFrames.activeArtists[" + index + "]";
     if (!isObject(artist)) fail(prefix + " must be an object");
-    requiredString(artist.artistId || artist.id, prefix + ".artistId");
+    const artistId = assertUnique(activeArtistIds, normalizedId(artist.artistId || artist.id, prefix + ".artistId"), "profileFrames.activeArtists");
+    activeArtistsById.set(artistId, artist);
     optionalString(artist.name, prefix + ".name");
     optionalBoolean(artist.enabled, prefix + ".enabled");
+    if (artist.enabled === true) enabledActiveArtistIds.add(artistId);
+  }
+  for (const artistId of optionalReferenceIds(profileFrames.preferences.activeArtists, "profileFrames.preferences.activeArtists")) {
+    if (!activeArtistIds.has(artistId)) {
+      fail("profileFrames.preferences.activeArtists references an artist missing from profileFrames.activeArtists");
+    }
+    const artist = activeArtistsById.get(artistId);
+    if (artist && artist.enabled === false) {
+      fail("profileFrames.preferences.activeArtists references disabled artist " + artistId);
+    }
+  }
+  if (enabledActiveArtistIds.size && profileFrames.preferences.activeArtists !== undefined) {
+    const preferenceIds = new Set(optionalReferenceIds(profileFrames.preferences.activeArtists, "profileFrames.preferences.activeArtists"));
+    for (const artistId of enabledActiveArtistIds) {
+      if (!preferenceIds.has(artistId)) {
+        fail("profileFrames.activeArtists enables artist " + artistId + " missing from preferences.activeArtists");
+      }
+    }
   }
 
   function validateLikedArtwork(artwork, prefix) {
     if (!isObject(artwork)) fail(prefix + " must be an object");
-    requiredString(artwork.artworkId || artwork.id, prefix + ".artworkId");
+    const artworkId = normalizedId(artwork.artworkId || artwork.id, prefix + ".artworkId");
     optionalIso(artwork.likedAt, prefix + ".likedAt");
     optionalString(artwork.artistId, prefix + ".artistId");
     optionalString(artwork.title, prefix + ".title");
+    return artworkId;
   }
 
   const likedArtworks = profileFrames.likedArtworks;
+  const likedArtworkIds = new Map();
   if (Array.isArray(likedArtworks)) {
     for (const [index, artwork] of likedArtworks.entries()) {
-      validateLikedArtwork(artwork, "profileFrames.likedArtworks[" + index + "]");
+      assertUnique(likedArtworkIds, validateLikedArtwork(artwork, "profileFrames.likedArtworks[" + index + "]"), "profileFrames.likedArtworks");
     }
   } else if (isObject(likedArtworks)) {
     optionalNumber(likedArtworks.total, "profileFrames.likedArtworks.total");
+    optionalNumber(likedArtworks.page, "profileFrames.likedArtworks.page");
+    optionalNumber(likedArtworks.pageSize, "profileFrames.likedArtworks.pageSize");
     const items = asArray(likedArtworks.items, "profileFrames.likedArtworks.items");
+    if (likedArtworks.total !== undefined && Number(likedArtworks.total) < items.length) {
+      fail("profileFrames.likedArtworks.total cannot be smaller than items.length");
+    }
     for (const [index, artwork] of items.entries()) {
-      validateLikedArtwork(artwork, "profileFrames.likedArtworks.items[" + index + "]");
+      assertUnique(likedArtworkIds, validateLikedArtwork(artwork, "profileFrames.likedArtworks.items[" + index + "]"), "profileFrames.likedArtworks");
     }
   } else {
     fail("profileFrames.likedArtworks must be an array or page object");

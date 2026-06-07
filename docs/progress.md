@@ -1,5 +1,48 @@
 # Progress
 
+## 2026-06-07 - Online admin profile coherence
+
+Date: 2026-06-07
+
+Milestone: ONLINE ADMIN - Profile > Frames state coherence
+
+Changed files:
+
+- `scripts/online-admin-contract-check.sh`
+- `README.md`
+- `docs/api-contract.md`
+- `docs/admin-system.md`
+- `docs/online-frames-profile.md`
+- `docs/database-schema.md`
+- `docs/agent-notes/backend-online-admin-profile-coherence-issue.md`
+- `docs/agent-notes/pulse.md`
+- `docs/progress.md`
+- `/data/.openclaw/workspace/autopoiesis-os-program/ROLLING-LOG.md`
+
+Implemented:
+
+- Tightened the hosted online-admin bundle gate so Profile > Frames cache preferences must agree with mirrored cache fields in `preferences`.
+- Active artist rows now reject duplicate artist ids and must be coherent with `preferences.activeArtists` when that selection list is present.
+- Liked artwork rows now reject duplicate artwork ids in both flat and paged forms, and paged totals cannot be smaller than the returned rows.
+- Added a backend handoff note for generating coherent profile evidence from canonical preference, cache, artist, and like projections.
+
+Verification:
+
+- Representative online-admin bundle acceptance passed.
+- Hosted suite required-online-admin pass path passed.
+- Cache preference mismatch was rejected.
+- Duplicate active artist id was rejected.
+- Disabled selected artist was rejected.
+- Duplicate liked artwork id was rejected.
+- `node --check local-ui/server.js` passed.
+- `bash -n install.sh update.sh uninstall-dev-tools.sh factory-reset.sh scripts/*.sh` passed.
+- `git diff --check` passed.
+- `scripts/security-smoke.sh` passed.
+
+Next step:
+
+Generate the online-admin bundle from hosted staging using one canonical Profile > Frames projection, then run the strict hosted suite before enabling cache controls, active artist toggles, or liked artwork pagination.
+
 ## 2026-06-07 - Hosted command state contract
 
 Date: 2026-06-07

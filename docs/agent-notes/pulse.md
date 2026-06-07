@@ -785,3 +785,12 @@ Context: BROADCAST / FEED cron pass. The Pi defensively filters expired/future f
 What changed: Tightened `scripts/stream-contract-check.sh` so every stream item must be individually displayable, map into the known mixed-content categories, and be active relative to root `generatedAt`. It now rejects future `startsAt`, expired `expiresAt`, inverted schedule windows, unsupported type strings, and id/type-only rows.
 What needs review: Hosted staging should run this gate against the real durable `aos_` stream query before physical Pi validation, because the Pi guard is a fallback rather than the primary targeting/scheduling layer.
 Next recommended action: Generate a live `/api/frames/device/{deviceId}/stream` fixture with artwork, blog/news/curatorial, and broadcast rows, then run `AUTOPOIESIS_REQUIRE_STREAM_POLLING=1 scripts/stream-contract-check.sh` before cache/feed playback gates.
+
+## 2026-06-07 - Online admin profile coherence
+
+Date/time: 2026-06-07 07:05 UTC / 2026-06-07 09:05 Europe/Berlin
+Agent: Pulse
+Context: ONLINE ADMIN cron pass. The online-admin bundle validated the broad Profile/Admin shape, but Profile > Frames could still pass with contradictory cache settings, duplicate active artists, duplicate liked artworks, or active artist selections that did not match preference state.
+What changed: Tightened `scripts/online-admin-contract-check.sh` so profile cache preferences must agree with mirrored cache fields in `preferences`, active artist ids are unique and coherent with `preferences.activeArtists`, liked artwork ids are unique in flat and paged forms, and paged liked-artwork totals cover returned rows. Added `docs/agent-notes/backend-online-admin-profile-coherence-issue.md` as the hosted backend handoff.
+What needs review: Hosted staging should assemble Profile > Frames from one canonical preference/cache/artist/like projection instead of stitching independent endpoint responses that can drift.
+Next recommended action: Run the strict hosted suite with a real online-admin bundle before enabling cache controls, active artist toggles, or liked artwork pagination in staging.
