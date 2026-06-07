@@ -35,6 +35,7 @@ Show:
 - storage status
 - remote enabled or disabled
 - update status
+- action availability and disabled-action reasons
 
 Actions:
 
@@ -94,4 +95,4 @@ Initial artist examples:
 
 ## Contract Gate
 
-`scripts/online-admin-contract-check.sh` validates the online Profile > Frames surface together with Admin > Frames. The profile portion must expose owned devices, pairing metadata, authoritative settings, active artists, liked artworks, and explicit cache preferences without leaking stored device keys, pairing-code hashes, private tokens, secrets, or local appliance paths. Cache preferences must include the enabled state, liked/recent/selected-artist cache toggles, and size limit; paged liked-artwork rows must still expose stable artwork ids. The admin portion must also expose explicit role/action decisions so Profile-owned frame actions and Admin fleet actions use the same authorization vocabulary.
+`scripts/online-admin-contract-check.sh` validates the online Profile > Frames surface together with Admin > Frames. The profile portion must expose owned devices, pairing metadata, authoritative settings, active artists, liked artworks, explicit cache preferences, and per-device action availability without leaking stored device keys, pairing-code hashes, private tokens, secrets, or local appliance paths. Cache preferences must include the enabled state, liked/recent/selected-artist cache toggles, and size limit; paged liked-artwork rows must still expose stable artwork ids. Device action availability must include one explicit allow/deny decision for each remote command, with disabled reasons when a button should not be active. The admin portion must also expose explicit role/action decisions so Profile-owned frame actions and Admin fleet actions use the same authorization vocabulary.

@@ -1,5 +1,46 @@
 # Progress
 
+## 2026-06-07 - Online admin device action availability
+
+Date: 2026-06-07
+
+Milestone: ONLINE ADMIN - role-gated remote action readiness
+
+Changed files:
+
+- `scripts/online-admin-contract-check.sh`
+- `README.md`
+- `docs/api-contract.md`
+- `docs/admin-system.md`
+- `docs/online-frames-profile.md`
+- `docs/database-schema.md`
+- `docs/agent-notes/backend-online-admin-action-availability-issue.md`
+- `docs/agent-notes/pulse.md`
+- `docs/progress.md`
+- `/data/.openclaw/workspace/autopoiesis-os-program/ROLLING-LOG.md`
+
+Implemented:
+
+- Tightened the hosted online-admin bundle gate so every Profile-owned and Admin fleet device row must expose target-specific `actionAvailability`.
+- The target availability object must include an explicit allow/deny decision for each supported remote command: settings sync, cache clear, display restart, enable/disable, device restart, update, broadcast display, and factory reset request.
+- Allowed risky actions must mirror global authorization, audit-id, and local-confirmation requirements; denied target decisions must include a disabled reason.
+- Added a backend handoff note describing the bundle shape, recommended disabled reason codes, and staging acceptance command.
+
+Verification:
+
+- `scripts/online-admin-contract-check.sh` passed against a representative Profile/Admin bundle with complete device action availability.
+- `scripts/online-admin-contract-check.sh` passed against a fully available target-action bundle, confirming disabled actions are not artificially required.
+- `scripts/online-admin-contract-check.sh` rejected a bundle missing `profileFrames.devices[0].actionAvailability`.
+- `scripts/online-admin-contract-check.sh` rejected an allowed high-risk device action missing `requiresAuditId=true`.
+- `node --check local-ui/server.js` passed.
+- `bash -n install.sh update.sh uninstall-dev-tools.sh factory-reset.sh scripts/*.sh` passed.
+- `git diff --check` passed.
+- `scripts/security-smoke.sh` passed.
+
+Next step:
+
+Generate the hosted online-admin bundle from staging using durable device, subscription, command, and authorization state; then drive Profile/Admin disabled controls from `actionAvailability` before enabling destructive remote fleet actions.
+
 ## 2026-06-07 - Install preflight app-tree gate
 
 Date: 2026-06-07

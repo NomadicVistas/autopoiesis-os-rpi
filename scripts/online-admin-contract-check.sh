@@ -193,6 +193,73 @@ function validatePairing(pairing, field) {
   if (pairing.code !== undefined && typeof pairing.code !== "string") fail(field + ".code must be a string when present");
 }
 
+function normalizeActionAvailability(actionAvailability, field) {
+  if (!isObject(actionAvailability)) fail(field + " must be an object");
+  const actions = actionAvailability.actions || actionAvailability.decisions || actionAvailability;
+  if (!isObject(actions)) fail(field + ".actions must be an object");
+  return actions;
+}
+
+function validateActionDecision(decision, field) {
+  if (typeof decision === "boolean") {
+    if (decision === false) fail(field + " denied decisions must include a reason");
+    return { allowed: true };
+  }
+  if (!isObject(decision)) fail(field + " must be boolean or object");
+  const allowed =
+    decision.allowed !== undefined ? decision.allowed :
+    decision.permitted !== undefined ? decision.permitted :
+    decision.enabled;
+  if (typeof allowed !== "boolean") fail(field + ".allowed must be boolean");
+  return { ...decision, allowed };
+}
+
+function validateDeviceActionAvailability(device, field, commandPolicies = null) {
+  const actionAvailability =
+    device.actionAvailability ||
+    device.availableActions ||
+    device.remoteActionAvailability ||
+    device.actions;
+  if (actionAvailability === undefined || actionAvailability === null) {
+    fail(field + ".actionAvailability is required");
+  }
+
+  optionalIso(actionAvailability.generatedAt, field + ".actionAvailability.generatedAt");
+  optionalIso(actionAvailability.evaluatedAt, field + ".actionAvailability.evaluatedAt");
+  optionalString(actionAvailability.actorRole, field + ".actionAvailability.actorRole");
+  optionalString(actionAvailability.reason, field + ".actionAvailability.reason");
+
+  const actions = normalizeActionAvailability(actionAvailability, field + ".actionAvailability");
+  for (const action of expectedActions) {
+    if (!Object.prototype.hasOwnProperty.call(actions, action)) {
+      fail(field + ".actionAvailability missing action decision for " + action);
+    }
+    const decision = validateActionDecision(actions[action], field + ".actionAvailability." + action);
+    const command = commandPolicies ? commandPolicies.get(action) : null;
+
+    if (decision.allowed) {
+      optionalTrue(decision.requiresAuthorization || decision.authorizationRequired, field + ".actionAvailability." + action + ".requiresAuthorization");
+      optionalTrue(decision.requiresAuditId || decision.auditRequired, field + ".actionAvailability." + action + ".requiresAuditId");
+      optionalTrue(decision.requiresLocalConfirmation || decision.localConfirmationRequired, field + ".actionAvailability." + action + ".requiresLocalConfirmation");
+      if (command && command.requiresAuthorization && decision.requiresAuthorization !== true && decision.authorizationRequired !== true) {
+        fail(field + ".actionAvailability." + action + " must expose requiresAuthorization=true");
+      }
+      if (command && command.requiresAuditId && decision.requiresAuditId !== true && decision.auditRequired !== true) {
+        fail(field + ".actionAvailability." + action + " must expose requiresAuditId=true");
+      }
+      if (command && command.requiresLocalConfirmation && decision.requiresLocalConfirmation !== true && decision.localConfirmationRequired !== true) {
+        fail(field + ".actionAvailability." + action + " must expose requiresLocalConfirmation=true");
+      }
+    } else {
+      const reason = decisionReason(decision);
+      if (typeof reason !== "string" || !reason.trim()) {
+        fail(field + ".actionAvailability." + action + " denied decisions must include a reason");
+      }
+      optionalString(decision.reasonCode || decision.disabledReasonCode, field + ".actionAvailability." + action + ".reasonCode");
+    }
+  }
+}
+
 function validateSubscription(subscription, field) {
   if (subscription === undefined || subscription === null) return;
   if (!isObject(subscription)) fail(field + " must be an object when present");
@@ -203,7 +270,7 @@ function validateSubscription(subscription, field) {
   optionalBoolean(subscription.cancelAtPeriodEnd, field + ".cancelAtPeriodEnd");
 }
 
-function validateDevice(device, field, ownerUserId = null) {
+function validateDevice(device, field, ownerUserId = null, options = {}) {
   if (!isObject(device)) fail(field + " must be an object");
   requiredString(device.deviceId, field + ".deviceId");
   optionalString(device.deviceName, field + ".deviceName");
@@ -225,6 +292,9 @@ function validateDevice(device, field, ownerUserId = null) {
   if (device.settings !== undefined && device.settings !== null) validatePreferences(device.settings, field + ".settings");
   if (device.health !== undefined && device.health !== null && !isObject(device.health)) fail(field + ".health must be an object when present");
   if (device.release !== undefined && device.release !== null && !isObject(device.release)) fail(field + ".release must be an object when present");
+  if (options.requireActions) {
+    validateDeviceActionAvailability(device, field, options.commandPolicies || null);
+  }
 }
 
 function validateRemoteActions(remoteActions, field) {
@@ -424,7 +494,9 @@ function validateProfileFrames(profileFrames) {
 
   const devices = asArray(profileFrames.devices, "profileFrames.devices");
   for (const [index, device] of devices.entries()) {
-    validateDevice(device, "profileFrames.devices[" + index + "]", profileFrames.userId);
+    validateDevice(device, "profileFrames.devices[" + index + "]", profileFrames.userId, {
+      requireActions: true
+    });
   }
 }
 
@@ -469,14 +541,18 @@ function validateAdminFrames(adminFrames) {
     optionalBoolean(subscription.cancelAtPeriodEnd, prefix + ".cancelAtPeriodEnd");
   }
 
+  validateRemoteActions(adminFrames.remoteActions, "adminFrames.remoteActions");
+  const commandPolicies = new Map(adminFrames.remoteActions.commands.map((command) => [command.commandType, command]));
+
   for (const [index, device] of devices.entries()) {
-    validateDevice(device, "adminFrames.devices.items[" + index + "]");
+    validateDevice(device, "adminFrames.devices.items[" + index + "]", null, {
+      requireActions: true,
+      commandPolicies
+    });
     if (device.ownerUserId === undefined || device.ownerUserId === null || device.ownerUserId === "") {
       fail("adminFrames.devices.items[" + index + "].ownerUserId is required for fleet admin");
     }
   }
-
-  validateRemoteActions(adminFrames.remoteActions, "adminFrames.remoteActions");
 }
 
 let payload;

@@ -522,6 +522,15 @@ What changed: Added bounded local `delivery-log.json` persistence plus redacted 
 What needs review: Backend/admin still needs durable `aos_` delivery rows and should decide whether heartbeat diagnostics, a future delivery-log POST, or support-bundle ingestion is the canonical persistence path.
 Next recommended action: Add backend delivery persistence and Admin > Frames delivery-state UI using these event names as the device-side source contract.
 
+## 2026-06-07 - Online admin device action availability
+
+Date/time: 2026-06-07 01:05 UTC / 2026-06-07 03:05 Europe/Berlin
+Agent: Pulse
+Context: ONLINE ADMIN cron pass. The hosted online-admin bundle already validated the global role/action matrix, but Profile > Frames and Admin > Frames still needed target-specific action decisions so UI buttons do not infer availability from broad role policy alone.
+What changed: Tightened `scripts/online-admin-contract-check.sh` so every profile-owned and admin fleet device row must expose `actionAvailability` for each supported command. Allowed risky actions must mirror authorization, audit-id, and local-confirmation requirements; denied actions must include a disabled reason. Added a backend handoff note for generating this from durable device, subscription, command, and authorization state.
+What needs review: The hosted backend should decide whether profile rows evaluate availability as the owner role and admin rows as the current admin actor role, then keep reason codes stable enough for UI disabled states.
+Next recommended action: Generate a staging online-admin bundle with per-device action availability and use it to drive Profile/Admin remote-action controls before enabling destructive fleet actions.
+
 ## 2026-06-06 - Appliance watchdog timer
 
 Date/time: 2026-06-06 02:35 UTC / 2026-06-06 04:35 Europe/Berlin
