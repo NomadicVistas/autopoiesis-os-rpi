@@ -2996,7 +2996,8 @@ async function collectDiagnostics(options = {}) {
           priority: broadcast.priority || null,
           expiresAt: broadcast.expiresAt || null
         }
-      : null
+      : null,
+    nightMode: nightModeState(data.preferences)
   };
   if (options.includeServices) {
     diagnostics.services = await serviceDiagnostics();
@@ -3523,6 +3524,7 @@ function healthSummary(diagnostics) {
     framePlayback: diagnostics.framePlayback || null,
     feed: diagnostics.feed || null,
     broadcast: diagnostics.broadcast || null,
+    nightMode: diagnostics.nightMode || null,
     collectedAt: diagnostics.collectedAt || null
   };
 }
@@ -3831,7 +3833,13 @@ function renderSetup() {
                 <label>Image duration <input name="imageDuration" type="number" min="15" max="300" step="15" value="${escapeHtml(data.preferences.imageDuration ?? 60)}"></label>
                 <label>Volume <input name="volume" type="number" min="0" max="100" step="5" value="${escapeHtml(data.preferences.volume ?? 50)}"></label>
                 <label class="check"><input name="soundEnabled" type="checkbox" ${data.preferences.soundEnabled ? "checked" : ""}> Sound enabled</label>
-                <label class="check"><input name="nightMode" type="checkbox" ${data.preferences.nightMode ? "checked" : ""}> Night mode</label>
+                <div class="welcome-night-toggle">
+                  <label class="check"><input name="nightMode" type="checkbox" ${data.preferences.nightMode ? "checked" : ""}> Night mode</label>
+                  <div class="welcome-night-times" ${data.preferences.nightMode ? "" : "hidden"}>
+                    <label>Turn off at <input name="nightModeStart" type="time" value="${escapeHtml(data.preferences.nightModeStart || "22:00")}"></label>
+                    <label>Turn on at <input name="nightModeEnd" type="time" value="${escapeHtml(data.preferences.nightModeEnd || "08:00")}"></label>
+                  </div>
+                </div>
                 <button class="primary" type="submit" ${paired ? "" : "disabled"}>Save settings</button>
               </form>
             </div>
@@ -3927,12 +3935,17 @@ function renderSetup() {
             volume: Number(form.get("volume")),
             imageDuration: Number(form.get("imageDuration")),
             soundEnabled: form.has("soundEnabled"),
-            nightMode: form.has("nightMode")
+            nightMode: form.has("nightMode"),
+            nightModeStart: form.get("nightModeStart") || "22:00",
+            nightModeEnd: form.get("nightModeEnd") || "08:00"
           }
         })
       });
       location.reload();
-    });`
+    });
+    const setupNightCb = document.querySelector("#settings-form [name=\"nightMode\"]");
+    const setupNightTimes = document.querySelector("#settings-form .welcome-night-times");
+    if (setupNightCb && setupNightTimes) setupNightCb.addEventListener("change", () => setupNightTimes.hidden = !setupNightCb.checked);`
   );
 }
 
@@ -4018,7 +4031,13 @@ function renderSettings() {
             </div>
           </fieldset>
           <label class="check"><input name="soundEnabled" type="checkbox" ${data.preferences.soundEnabled ? "checked" : ""}> Sound enabled</label>
-          <label class="check"><input name="nightMode" type="checkbox" ${data.preferences.nightMode ? "checked" : ""}> Night mode</label>
+          <div class="welcome-night-toggle">
+            <label class="check"><input name="nightMode" type="checkbox" ${data.preferences.nightMode ? "checked" : ""}> Night mode (turn off display at night)</label>
+            <div class="welcome-night-times" ${data.preferences.nightMode ? "" : "hidden"}>
+              <label>Turn off at <input name="nightModeStart" type="time" value="${escapeHtml(data.preferences.nightModeStart || "22:00")}"></label>
+              <label>Turn on at <input name="nightModeEnd" type="time" value="${escapeHtml(data.preferences.nightModeEnd || "08:00")}"></label>
+            </div>
+          </div>
           <button class="primary" type="submit">Save</button>
           <a class="button" href="/dashboard">Dashboard</a>
           <a class="button" href="/frame">Frame</a>
@@ -4049,12 +4068,17 @@ function renderSettings() {
             soundAutoplay: form.has("soundAutoplay"),
             showArtworkInfoOnTap: form.has("showArtworkInfoOnTap"),
             soundEnabled: form.has("soundEnabled"),
-            nightMode: form.has("nightMode")
+            nightMode: form.has("nightMode"),
+            nightModeStart: form.get("nightModeStart") || "22:00",
+            nightModeEnd: form.get("nightModeEnd") || "08:00"
           }
         })
       });
       location.href = "/dashboard";
-    });`
+    });
+    const settingsNightCb = document.querySelector("#settings-form [name=\"nightMode\"]");
+    const settingsNightTimes = document.querySelector("#settings-form .welcome-night-times");
+    if (settingsNightCb && settingsNightTimes) settingsNightCb.addEventListener("change", () => settingsNightTimes.hidden = !settingsNightCb.checked);`
   );
 }
 
@@ -4421,6 +4445,217 @@ function renderFrame() {
   );
 }
 
+function nightModeState(preferences) {
+  const prefs = preferences || readJson(paths.preferences, {});
+  const enabled = Boolean(prefs.nightMode);
+  if (!enabled) return { active: false, enabled: false };
+  const start = prefs.nightModeStart || "22:00";
+  const end = prefs.nightModeEnd || "08:00";
+  const now = new Date();
+  const startMin = parseTimeToMinutes(start);
+  const endMin = parseTimeToMinutes(end);
+  if (startMin === null || endMin === null) return { active: false, enabled, start, end };
+  const nowMin = now.getHours() * 60 + now.getMinutes();
+  const active = startMin <= endMin
+    ? (nowMin >= startMin && nowMin < endMin)
+    : (nowMin >= startMin || nowMin < endMin);
+  return { active, enabled, start, end, nowMin, startMin, endMin };
+}
+
+function parseTimeToMinutes(value) {
+  if (!value) return null;
+  const match = String(value).match(/^(\d{1,2}):(\d{2})$/);
+  if (!match) return null;
+  const h = Number(match[1]);
+  const m = Number(match[2]);
+  if (h > 23 || m > 59) return null;
+  return h * 60 + m;
+}
+
+function displayPowerCommand(on) {
+  const onOrOff = on ? "1" : "0";
+  return { cmd: VCGENCMD_BIN, args: ["display_power", onOrOff] };
+}
+
+function applyNightMode() {
+  const prefs = readJson(paths.preferences, {});
+  const nm = nightModeState(prefs);
+  if (!nm.enabled) return;
+  if (nm.active && prefs._nightModeDisplayOn !== false) {
+    const { cmd, args } = displayPowerCommand(false);
+    execFile(cmd, args, () => {});
+    writeJson(paths.preferences, { ...prefs, _nightModeDisplayOn: false });
+  } else if (!nm.active && prefs._nightModeDisplayOn === false) {
+    const { cmd, args } = displayPowerCommand(true);
+    execFile(cmd, args, () => {});
+    writeJson(paths.preferences, { ...prefs, _nightModeDisplayOn: true });
+  }
+}
+
+function renderWelcome() {
+  const data = status();
+  const network = data.network || {};
+  const pairing = data.pairing || {};
+  const networkOnline = Boolean(network.online);
+  const paired = Boolean(data.device.paired);
+  const hasName = Boolean(data.device.deviceName && data.device.deviceName !== "Autopoiesis Frame");
+  const preferences = data.preferences || {};
+  const nightEnabled = Boolean(preferences.nightMode);
+  const nightStart = preferences.nightModeStart || "22:00";
+  const nightEnd = preferences.nightModeEnd || "08:00";
+  const allDone = networkOnline && paired;
+  const stepsCompleted = [networkOnline, paired].filter(Boolean).length;
+  const currentStep = !networkOnline ? 0 : !paired ? 1 : 2;
+  const stepLabels = ["Connect", "Pair", "Enjoy"];
+  const dots = stepLabels.map((label, i) => {
+    const cls = i < currentStep ? "done" : i === currentStep ? "current" : "";
+    return `<button type="button" class="welcome-dot ${cls}" data-welcome-dot="${i}">${label}</button>`;
+  }).join("");
+  const pairingCode = pairing.pairingCode || "";
+  const pairingError = pairing.error || "";
+  const pairingMock = pairing.mock || false;
+  return page(
+    "Welcome — Autopoiesis Frame",
+    `<main class="screen welcome-screen">
+      <section class="panel wide welcome-panel">
+        <div class="welcome-header">
+          <p class="kicker">Welcome to</p>
+          <h1>Autopoiesis Frame</h1>
+          <p class="muted">Let\u2019s get your frame set up. This takes about two minutes.</p>
+        </div>
+
+        <div class="welcome-progress">${dots}</div>
+
+        <div class="welcome-steps" data-step="${currentStep}">
+
+          <div class="welcome-step" data-welcome-step="0" ${currentStep !== 0 ? "hidden" : ""}>
+            <h2>Connect to the internet</h2>
+            <p>Your frame needs internet to receive art from the Autopoiesis ecosystem.</p>
+            <dl class="status compact">
+              <div><dt>Status</dt><dd id="welcome-network-state">${escapeHtml(networkOnline ? (network.primary || "network") + " connected" : "Not connected")}</dd></div>
+            </dl>
+            <div class="actions">
+              <button data-welcome-check-network>Check again</button>
+              <a class="button" href="/local/wifi/scan">Choose Wi-Fi</a>
+            </div>
+          </div>
+
+          <div class="welcome-step" data-welcome-step="1" ${currentStep !== 1 ? "hidden" : ""}>
+            <h2>Pair your frame</h2>
+            <p>Go to <strong>autopoiesis.art/profile/frames</strong> and enter this pairing code:</p>
+            <div class="pairing-code ${pairingError || pairingMock ? "error" : ""}">${escapeHtml(pairingError || pairingCode || "Loading...")}</div>
+            ${pairingError || pairingMock ? `<p class="setup-error">${escapeHtml(pairingError || "This local fallback code cannot pair with the web app. Request a real web pairing code.")}</p>` : ""}
+            <div class="actions">
+              <button data-welcome-start-pairing ${networkOnline ? "" : "disabled"}>Get pairing code</button>
+              <button data-welcome-check-pairing ${networkOnline ? "" : "disabled"}>I entered the code</button>
+            </div>
+          </div>
+
+          <div class="welcome-step" data-welcome-step="2" ${currentStep !== 2 ? "hidden" : ""}>
+            <h2>Your frame is ready</h2>
+            <p>The living stream is about to start. You can always adjust settings later.</p>
+            <form id="welcome-final-form" class="grid compact-form">
+              <label>Device name <input name="deviceName" value="${escapeHtml(data.device.deviceName || "")}" placeholder="Living Room Frame"></label>
+              <label>Image duration (seconds) <input name="imageDuration" type="number" min="15" max="300" step="15" value="${preferences.imageDuration ?? 60}"></label>
+              <label>Volume <input name="volume" type="number" min="0" max="100" step="5" value="${preferences.volume ?? 50}"></label>
+              <label class="check"><input name="soundEnabled" type="checkbox" ${preferences.soundEnabled ? "checked" : ""}> Sound enabled</label>
+              <div class="welcome-night-toggle">
+                <label class="check"><input name="nightMode" type="checkbox" ${nightEnabled ? "checked" : ""}> Night mode (turn off display at night)</label>
+                <div class="welcome-night-times" ${nightEnabled ? "" : "hidden"}>
+                  <label>Turn off at <input name="nightModeStart" type="time" value="${escapeHtml(nightStart)}"></label>
+                  <label>Turn on at <input name="nightModeEnd" type="time" value="${escapeHtml(nightEnd)}"></label>
+                </div>
+              </div>
+              <button class="primary launch" type="submit">Start the living stream \u2192</button>
+            </form>
+          </div>
+
+        </div>
+
+        <p class="note welcome-footer">Device: ${escapeHtml(data.device.deviceId || "unknown")}</p>
+      </section>
+    </main>`,
+    `const currentStep = ${currentStep};
+    const steps = document.querySelectorAll("[data-welcome-step]");
+    const dots = document.querySelectorAll("[data-welcome-dot]");
+    function showStep(index) {
+      steps.forEach((step, i) => step.hidden = i !== index);
+      dots.forEach((dot, i) => {
+        dot.classList.toggle("current", i === index);
+        dot.classList.toggle("done", i < index);
+      });
+      document.querySelector(".welcome-steps").dataset.step = index;
+    }
+    dots.forEach(dot => dot.addEventListener("click", () => showStep(Number(dot.dataset.welcomeDot))));
+
+    // Network refresh
+    const checkBtn = document.querySelector("[data-welcome-check-network]");
+    if (checkBtn) checkBtn.addEventListener("click", async () => {
+      checkBtn.disabled = true;
+      checkBtn.textContent = "Checking...";
+      const resp = await fetch("/local/network/status");
+      const data = await resp.json().catch(() => ({}));
+      const online = data.network && data.network.online;
+      document.getElementById("welcome-network-state").textContent = online ? (data.network.primary || "network") + " connected" : "Not connected";
+      if (online) location.reload();
+      else checkBtn.disabled = false;
+    });
+
+    // Pairing
+    const startPairBtn = document.querySelector("[data-welcome-start-pairing]");
+    if (startPairBtn) startPairBtn.addEventListener("click", async () => {
+      startPairBtn.disabled = true;
+      const codeEl = document.querySelector(".pairing-code");
+      if (codeEl) { codeEl.textContent = "Getting code..."; codeEl.classList.remove("error"); }
+      const resp = await fetch("/local/pairing/start", { method: "POST" });
+      const data = await resp.json().catch(() => ({}));
+      if (!resp.ok || !data.ok) {
+        if (codeEl) { codeEl.textContent = data.error || "Could not get a pairing code."; codeEl.classList.add("error"); }
+        startPairBtn.disabled = false;
+        return;
+      }
+      location.reload();
+    });
+
+    const checkPairBtn = document.querySelector("[data-welcome-check-pairing]");
+    if (checkPairBtn) checkPairBtn.addEventListener("click", async () => {
+      checkPairBtn.disabled = true;
+      await fetch("/local/pairing/check", { method: "POST" });
+      location.reload();
+    });
+
+    // Night mode toggle
+    const nightCheckbox = document.querySelector("#welcome-final-form [name=\"nightMode\"]");
+    const nightTimes = document.querySelector(".welcome-night-times");
+    if (nightCheckbox && nightTimes) {
+      nightCheckbox.addEventListener("change", () => nightTimes.hidden = !nightCheckbox.checked);
+    }
+
+    // Final form submit
+    const form = document.getElementById("welcome-final-form");
+    if (form) form.addEventListener("submit", async (event) => {
+      event.preventDefault();
+      const fd = new FormData(form);
+      await fetch("/local/settings", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          device: { deviceName: fd.get("deviceName") },
+          preferences: {
+            volume: Number(fd.get("volume")),
+            imageDuration: Number(fd.get("imageDuration")),
+            soundEnabled: fd.has("soundEnabled"),
+            nightMode: fd.has("nightMode"),
+            nightModeStart: fd.get("nightModeStart") || "22:00",
+            nightModeEnd: fd.get("nightModeEnd") || "08:00"
+          }
+        })
+      });
+      location.href = "/launch?completeOnboarding=1";
+    });`
+  );
+}
+
 function renderDisabled() {
   return page(
     "Autopoiesis Inactive",
@@ -4524,12 +4759,12 @@ async function renderLaunch(res, url = new URL("http://localhost/launch")) {
   }
   if (!data.device.firstRunComplete || !data.device.paired) {
     updateState({ currentMode: "setup" });
-    redirect(res, "/setup");
+    redirect(res, "/welcome");
     return;
   }
   if (!data.device.onboardingComplete && !completingOnboarding) {
     updateState({ currentMode: "setup" });
-    redirect(res, "/setup");
+    redirect(res, "/welcome");
     return;
   }
   if (completingOnboarding && !data.device.onboardingComplete) {
@@ -5177,6 +5412,7 @@ async function handle(req, res) {
   try {
     if ((req.method === "GET" || req.method === "HEAD") && url.pathname === "/") return redirect(res, "/launch");
     if ((req.method === "GET" || req.method === "HEAD") && url.pathname === "/launch") return renderLaunch(res, url);
+    if (req.method === "GET" && url.pathname === "/welcome") return html(res, renderWelcome());
     if (req.method === "GET" && url.pathname === "/setup") return html(res, renderSetup());
     if (req.method === "GET" && url.pathname === "/network") return html(res, renderNetwork());
     if (req.method === "GET" && url.pathname === "/settings") return html(res, renderSettings());
@@ -5339,6 +5575,10 @@ async function handle(req, res) {
     if (req.method === "POST" && url.pathname === "/local/system/restart") {
       return sendJson(res, { ok: false, error: "Restart requires privileged systemd wiring in a later milestone." }, 501);
     }
+    if (req.method === "POST" && url.pathname === "/local/night-mode/apply") {
+      applyNightMode();
+      return sendJson(res, { ok: true, nightMode: nightModeState() });
+    }
     if (req.method === "POST" && url.pathname === "/local/system/factory-reset") {
       return sendJson(res, { ok: false, error: "Factory reset endpoint is reserved until confirmation and privilege handling are implemented." }, 501);
     }
@@ -5457,6 +5697,25 @@ label { display: grid; gap: 8px; color: #c8c6bb; font-size: 18px; }
 .offline-caption strong { color: #f4f1e8; font-size: 24px; overflow-wrap: anywhere; }
 .offline-caption span { text-align: right; overflow-wrap: anywhere; }
 .compact { width: min(620px, 100%); }
+.welcome-screen { background: radial-gradient(ellipse at 50% 30%, #1e3a2f, #101412 70%); }
+.welcome-panel { display: grid; grid-template-rows: auto auto auto 1fr auto; gap: 20px; }
+.welcome-header { text-align: center; }
+.welcome-header h1 { font-size: clamp(48px, 10vw, 120px); line-height: 0.9; }
+.welcome-header p { max-width: 640px; margin: 8px auto; }
+.welcome-progress { display: flex; justify-content: center; gap: 12px; margin: 8px 0; }
+.welcome-dot { min-height: 48px; padding: 10px 20px; border-radius: 999px; font-size: 16px; transition: background 240ms, color 240ms, border-color 240ms; }
+.welcome-dot.current { background: #d8f3dc; color: #122018; border-color: #d8f3dc; }
+.welcome-dot.done { background: #6fae82; color: #122018; border-color: #6fae82; }
+.welcome-steps { min-height: 420px; display: grid; align-content: start; }
+.welcome-step { animation: fadeInUp 360ms ease; }
+.welcome-step[hidden] { display: none; }
+.welcome-step h2 { font-size: clamp(36px, 6vw, 72px); line-height: 0.95; margin: 0 0 16px; }
+.welcome-step p { max-width: 720px; margin: 0 0 18px; }
+.welcome-footer { text-align: center; margin-top: 16px; }
+.welcome-night-toggle { grid-column: 1 / -1; }
+.welcome-night-times { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; margin-top: 10px; }
+.welcome-night-times[hidden] { display: none; }
+@keyframes fadeInUp { from { opacity: 0; transform: translateY(16px); } to { opacity: 1; transform: translateY(0); } }
 `);
 }
 

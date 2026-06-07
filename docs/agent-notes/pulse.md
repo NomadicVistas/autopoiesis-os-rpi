@@ -1,5 +1,14 @@
 # Pulse Agent Notes
 
+## 2026-06-08 - Night mode syntax fix and integration gate
+
+Date/time: 2026-06-07 22:54 UTC / 2026-06-08 00:54 Europe/Berlin
+Agent: Pulse
+Context: LEAD / INTEGRATION cron pass. Two template literal syntax errors in Ewoud's night mode WIP (`local-ui/server.js` lines 3837 and 4563) had been blocking `node --check` across ALL workstreams. Every progress entry since the WIP was introduced noted the pre-existing syntax error. The fix was minimal (two characters total) but the impact is significant: clean automated verification is now unblocked for every future change.
+What changed: Fixed missing `}` in renderSetup() and missing `"` + `}` in renderWelcome(). Created `scripts/night-mode-check.sh` — an 11-step integration gate proving night mode works across settings, diagnostics, health, support bundle, and the welcome onboarding flow. Also validates edge cases: cross-midnight ranges, invalid time values, and settings round-trip persistence.
+What needs review: The night mode `applyNightMode()` function uses `execFile(VCGENCMD_BIN, ["display_power", ...])` which is set to `vcgencmd` by default. On non-Pi hardware this is a no-op (the command doesn't exist). The gate proves the API endpoint responds correctly, but actual display power cycling needs Pi hardware validation.
+Next recommended action: After Pi install, verify `vcgencmd display_power` is called correctly when night mode triggers. Also verify the welcome page JavaScript night mode toggle correctly shows/hides the time inputs in Chromium on the Pi's touchscreen.
+
 ## 2026-06-08 - Multi-device fleet isolation gate
 
 Date/time: 2026-06-07 22:14 UTC / 2026-06-08 00:14 Europe/Berlin

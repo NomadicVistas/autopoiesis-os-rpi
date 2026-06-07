@@ -1,5 +1,55 @@
 # Progress
 
+## 2026-06-08 - Night mode syntax fix and integration gate
+
+Date: 2026-06-08
+
+Milestone: LEAD / INTEGRATION - cross-system syntax unblock and night mode validation
+
+Changed files:
+
+- `local-ui/server.js`
+- `scripts/night-mode-check.sh`
+- `docs/progress.md`
+- `docs/agent-notes/pulse.md`
+- `/data/.openclaw/workspace/autopoiesis-os-program/ROLLING-LOG.md`
+
+Implemented:
+
+- Fixed two template literal syntax errors in Ewoud's night mode WIP that had been blocking `node --check local-ui/server.js` across every workstream since the feature was introduced.
+  - Line 3837 (renderSetup): `${data.preferences.nightMode ? "checked" : "">` missing closing `}` — changed to `""}>`.
+  - Line 4563 (renderWelcome): `${nightEnabled ? "checked" : "}>` missing closing `"` for the empty string — changed to `""}>`.
+- Added `scripts/night-mode-check.sh`, an 11-step integration gate that proves the night mode feature works correctly across settings, diagnostics, health, and the welcome flow:
+  1. Night mode defaults to disabled in diagnostics and health.
+  2. Enabling night mode via settings propagates to diagnostics and health.
+  3. Cross-midnight range (23:00–06:00) computes correct minute values and active state.
+  4. Invalid time values gracefully degrade (enabled but not active, raw values preserved).
+  5. `/local/night-mode/apply` endpoint responds with state (no-op on non-Pi hardware).
+  6. Disabling night mode resets state in diagnostics and health.
+  7. Custom time values (21:30–07:15) persist correctly through settings round-trip with minute conversion.
+  8. Support bundle includes night mode in top-level health.
+  9. `/launch` redirects to `/welcome` for unpaired devices.
+  9b. `/welcome` returns 200 with HTML content.
+  9c. `/welcome` contains night mode controls (checkbox, start/end time inputs, toggle container).
+
+Why this matters:
+
+The two syntax errors blocked `node --check` verification for ALL workstreams — every progress entry since the night mode WIP was merged noted the pre-existing syntax error. This single fix unblocks clean automated verification across the entire project. The integration gate proves that Ewoud's night mode feature works coherently across the settings API, diagnostics collection, health summary, support bundle, and the new welcome onboarding flow, catching regressions in any of those systems.
+
+Verification:
+
+- `node --check local-ui/server.js` passed (first clean pass since night mode WIP).
+- `node --check scripts/mock-hosted-api/server.js` passed.
+- `bash -n install.sh update.sh uninstall-dev-tools.sh factory-reset.sh scripts/*.sh` passed.
+- `scripts/night-mode-check.sh` passed all 11 steps.
+- `scripts/security-smoke.sh` passed.
+- `scripts/feed-targeting-check.sh` passed (no regression).
+- `git diff --check` passed.
+
+Next step:
+
+- On the Pi, verify that `applyNightMode()` correctly calls `vcgencmd display_power` to turn the display on/off at the configured times, and that the night mode toggle in the welcome page's JavaScript correctly shows/hides the time inputs.
+
 ## 2026-06-08 - Multi-device fleet isolation gate
 
 Date: 2026-06-08
