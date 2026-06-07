@@ -1,5 +1,49 @@
 # Progress
 
+## 2026-06-08 - Night mode enforcement timer
+
+Date: 2026-06-08
+
+Milestone: RPI APPLIANCE - night mode display power enforcement
+
+Changed files:
+
+- `scripts/night-mode-apply.sh`
+- `services/autopoiesis-night-mode.service`
+- `timers/autopoiesis-night-mode.timer`
+- `scripts/install-systemd-units.sh`
+- `local-ui/server.js`
+- `scripts/night-mode-timer-check.sh`
+- `docs/progress.md`
+- `docs/agent-notes/pulse.md`
+- `/data/.openclaw/workspace/autopoiesis-os-program/ROLLING-LOG.md`
+
+Implemented:
+
+- Added `scripts/night-mode-apply.sh`, a periodic enforcement script called by a systemd timer every minute to POST the local UI's `/local/night-mode/apply` endpoint.
+- Added `services/autopoiesis-night-mode.service`, a systemd oneshot service with full frame-user security sandboxing (ProtectSystem=strict, NoNewPrivileges, MemoryDenyWriteExecute, ReadWritePaths limited to log dir).
+- Added `timers/autopoiesis-night-mode.timer` with `OnCalendar=*:0/1` (every minute), `Persistent=true` (catches up after sleep/downtime), and `AccuracySec=30s`.
+- Wired the night-mode timer into `install-systemd-units.sh` enable and start blocks.
+- Updated the `/local/night-mode/apply` response to include `displayOn` state, so the enforcement script can log whether the display was turned on or off.
+- Added `scripts/night-mode-timer-check.sh`, a 10-step isolated gate proving: script syntax, dry-run mode, service ExecStart and dependency, timer schedule, security hardening directives, installer enable/start wiring, apply endpoint displayOn state, apply script log output, unreachable local UI graceful handling, and disabled night mode default displayOn=true.
+
+Why this matters:
+
+The night mode feature was correctly implemented in the local UI — `applyNightMode()` calls `vcgencmd display_power` to turn the display on/off based on the configured time window. But nothing called this function on a schedule. Without a periodic timer, night mode was UI state that never actually enforced itself. The systemd timer bridges this gap: every minute, it calls the apply endpoint, which evaluates whether the current time is inside the night mode window and executes the display power command. The `Persistent=true` directive ensures the timer catches up if the Pi was asleep or powered off during a scheduled transition.
+
+Verification:
+
+- `scripts/night-mode-timer-check.sh` passed all 10 steps.
+- `scripts/night-mode-check.sh` passed all 11 steps (no regression).
+- `scripts/security-smoke.sh` passed.
+- `node --check local-ui/server.js` passed.
+- `bash -n install.sh update.sh uninstall-dev-tools.sh factory-reset.sh scripts/*.sh` passed.
+- `git diff --check` passed.
+
+Next step:
+
+- On the Pi, after install, verify `systemctl list-timers` shows `autopoiesis-night-mode.timer` active. Check `journalctl -u autopoiesis-night-mode.service` for display power transitions at the configured night mode window boundary.
+
 ## 2026-06-08 - Night mode syntax fix and integration gate
 
 Date: 2026-06-08

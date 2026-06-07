@@ -1,5 +1,14 @@
 # Pulse Agent Notes
 
+## 2026-06-08 - Night mode enforcement timer
+
+Date/time: 2026-06-07 23:10 UTC / 2026-06-08 01:10 Europe/Berlin
+Agent: Pulse
+Context: RPI APPLIANCE cron pass. Night mode was correctly implemented in the local UI (`applyNightMode()` calls `vcgencmd display_power`) but nothing called this function on a schedule. Without a periodic trigger, the display would never actually turn on/off at the configured night mode times. This is the missing piece that bridges night mode from "UI state" to "functional Pi feature."
+What changed: Created `scripts/night-mode-apply.sh` (periodic enforcement script), `services/autopoiesis-night-mode.service` (systemd oneshot with full security sandboxing), and `timers/autopoiesis-night-mode.timer` (OnCalendar=*:0/1, Persistent=true). Wired into install-systemd-units.sh. Updated the apply endpoint to return `displayOn` state. Created `scripts/night-mode-timer-check.sh` — 10-step gate.
+What needs review: The timer runs as `frame` user, which means `vcgencmd` must be accessible to the frame user. On Raspberry Pi OS, `vcgencmd` is typically in the `video` group — the appliance user needs to be a member. This should be verified during Pi hardware testing.
+Next recommended action: After Pi install, verify `systemctl list-timers` shows the night-mode timer active. Check that the `frame` user can execute `vcgencmd display_power` (may need `usermod -aG video frame`). Check `journalctl -u autopoiesis-night-mode.service` for display power transitions.
+
 ## 2026-06-08 - Night mode syntax fix and integration gate
 
 Date/time: 2026-06-07 22:54 UTC / 2026-06-08 00:54 Europe/Berlin

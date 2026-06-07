@@ -5577,7 +5577,8 @@ async function handle(req, res) {
     }
     if (req.method === "POST" && url.pathname === "/local/night-mode/apply") {
       applyNightMode();
-      return sendJson(res, { ok: true, nightMode: nightModeState() });
+      const prefs = readJson(paths.preferences, {});
+      return sendJson(res, { ok: true, nightMode: { ...nightModeState(), displayOn: prefs._nightModeDisplayOn !== false } });
     }
     if (req.method === "POST" && url.pathname === "/local/system/factory-reset") {
       return sendJson(res, { ok: false, error: "Factory reset endpoint is reserved until confirmation and privilege handling are implemented." }, 501);

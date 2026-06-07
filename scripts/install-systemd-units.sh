@@ -76,7 +76,8 @@ done
   autopoiesis-command-executor.timer \
   autopoiesis-updater.timer \
   autopoiesis-cache.timer \
-  autopoiesis-watchdog.timer
+  autopoiesis-watchdog.timer \
+  autopoiesis-night-mode.timer
 
 if [[ "$START_TIMERS" == "1" ]]; then
   "$SYSTEMCTL" start \
@@ -84,7 +85,8 @@ if [[ "$START_TIMERS" == "1" ]]; then
     autopoiesis-command-executor.timer \
     autopoiesis-updater.timer \
     autopoiesis-cache.timer \
-    autopoiesis-watchdog.timer
+    autopoiesis-watchdog.timer \
+    autopoiesis-night-mode.timer
 fi
 
 # Install logrotate configuration with custom paths

@@ -1,0 +1,30 @@
+[Unit]
+Description=Autopoiesis night mode display power enforcement
+After=autopoiesis-setup.service
+Wants=autopoiesis-night-mode.timer
+
+[Service]
+Type=oneshot
+User=frame
+Environment=AUTOPOIESIS_LOCAL_URL=http://127.0.0.1:3030
+Environment=AUTOPOIESIS_LOG_DIR=/var/log/autopoiesis-os
+ExecStart=/opt/autopoiesis-os/app/scripts/night-mode-apply.sh
+
+# Security hardening (frame-user service)
+PrivateTmp=true
+ProtectHome=read-only
+ProtectSystem=strict
+ProtectClock=true
+ProtectKernelModules=true
+ProtectKernelLogs=true
+ProtectKernelTunables=true
+ProtectControlGroups=true
+NoNewPrivileges=true
+MemoryDenyWriteExecute=true
+RestrictNamespaces=
+LockPersonality=true
+RestrictRealtime=true
+RestrictSUIDSGID=true
+SystemCallArchitectures=native
+CapabilityBoundingSet=
+ReadWritePaths=/var/log/autopoiesis-os
