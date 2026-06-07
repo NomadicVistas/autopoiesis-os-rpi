@@ -1,5 +1,14 @@
 # Pulse Agent Notes
 
+## 2026-06-08 - Multi-device fleet isolation gate
+
+Date/time: 2026-06-07 22:14 UTC / 2026-06-08 00:14 Europe/Berlin
+Agent: Pulse
+Context: ONLINE ADMIN cron pass. The existing mock bridge only tested single-owner scenarios — one device paired to the default user, one additional user without devices. In production, the fleet will have multiple owners each with their own devices. Without a multi-owner isolation test, cross-owner device leakage or subscription misattribution could go undetected until staging.
+What changed: Extended mock API with `GET /mock/online-admin-bundle/:userId` for per-owner profile bundles. Fixed `handleMockPairDevice` route to forward request body (was ignoring ownerUserId). Created `scripts/online-admin-fleet-isolation-check.sh` — a 12-step gate registering 2 devices for 2 owners with different subscriptions, proving Profile isolation, fleet completeness, and subscription attribution. Both per-owner bundles pass the full online-admin contract checker.
+What needs review: The gate uses the mock API's `POST /mock/pair-device/:id` with body `{ownerUserId: ...}`. This test-helper path bypasses real pairing flow. In the real backend, device ownership is established through the pairing code claim, not a direct body parameter. The contract shape is correct, but the ownership assignment path needs to match production pairing semantics.
+Next recommended action: Add a third device for owner A to test multi-device-per-owner profile correctness. Wire the fleet isolation gate into the hosted contract suite catalog. After the backend implements per-owner profile endpoints, run the contract suite against real staging data.
+
 ## 2026-06-07 - Systemd service security hardening
 
 Date/time: 2026-06-07 21:50 UTC / 2026-06-07 23:50 Europe/Berlin

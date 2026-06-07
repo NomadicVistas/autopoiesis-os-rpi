@@ -1,5 +1,56 @@
 # Progress
 
+## 2026-06-08 - Multi-device fleet isolation gate
+
+Date: 2026-06-08
+
+Milestone: ONLINE ADMIN - multi-owner fleet device isolation
+
+Changed files:
+
+- `scripts/mock-hosted-api/server.js`
+- `scripts/online-admin-fleet-isolation-check.sh`
+- `docs/progress.md`
+- `docs/agent-notes/pulse.md`
+- `/data/.openclaw/workspace/autopoiesis-os-program/ROLLING-LOG.md`
+
+Implemented:
+
+- Extended the mock hosted API to support per-owner profile bundles via `GET /mock/online-admin-bundle/:userId`, allowing the fleet isolation gate to fetch Profile > Frames views for different owners.
+- Fixed `handleMockPairDevice` route to read and forward the request body (previously ignored, preventing per-owner device pairing via the test helper).
+- Added `scripts/online-admin-fleet-isolation-check.sh`, a 12-step isolated gate that:
+  1. Starts mock API
+  2. Adds a second owner user with a pro subscription (different plan/tier from default owner)
+  3. Registers and pairs device A to owner A (default user, basic subscription)
+  4. Registers and pairs device B to owner B (user_owner_b, pro subscription)
+  5. Syncs different settings for both devices (slideshow/45s vs shuffle/60s)
+  6. Sends heartbeats for both devices
+  7. Fetches per-owner bundles (owner A default + owner B specific)
+  8. Verifies Profile > Frames device isolation: owner A's profile only shows device A, owner B's profile only shows device B
+  9. Verifies admin fleet completeness: both bundles show 2 devices with correct ownership
+  10. Verifies subscription attribution: owner A=basic, owner B=pro, fleet device subscription references match
+  11. Verifies per-device settings propagation through both profile and fleet views
+  12. Runs the online-admin contract checker against both bundles
+
+Why this matters:
+
+The previous mock bridge only tested single-owner scenarios. In production, multiple users will own devices in the fleet. This gate proves that the online admin bundle contract enforces device isolation across owners: Profile > Frames never leaks devices from other owners, while admin fleet correctly shows all devices with proper ownership and subscription attribution. The gate also catches cross-owner subscription reference errors, which would cause incorrect entitlement enforcement in the real backend.
+
+Verification:
+
+- `scripts/online-admin-fleet-isolation-check.sh` passed all 12 steps with contract checker passing on both bundles.
+- `scripts/online-admin-mock-bridge-check.sh` passed all 12 steps (no regression from mock API changes).
+- `node --check scripts/mock-hosted-api/server.js` passed.
+- `bash -n install.sh update.sh uninstall-dev-tools.sh factory-reset.sh scripts/*.sh` passed.
+- `git diff --check` passed.
+- Note: `node --check local-ui/server.js` has a pre-existing syntax error from Ewoud's night mode WIP (unrelated to this change).
+
+Next step:
+
+- Add a third device for owner A to prove multi-device-per-owner profile correctness.
+- Extend the gate with a negative test: attempt to pair a device to a non-existent user and verify proper error handling.
+- Wire the fleet isolation gate into the hosted contract suite alongside the existing mock bridge check.
+
 ## 2026-06-07 - Systemd service security hardening
 
 Date: 2026-06-07

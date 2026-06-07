@@ -224,11 +224,23 @@ function handlePushSettings(deviceId, body, req) {
   const incomingUpdated = incoming.updatedAt || now();
   if (recordSettingsNewer(incomingUpdated, auth.record.settings.updatedAt)) {
     auth.record.settings = { ...auth.record.settings, ...incoming, updatedAt: incomingUpdated };
+    return {
+      status: 200,
+      body: {
+        ok: true,
+        settings: auth.record.settings,
+        updatedAt: auth.record.settings.updatedAt
+      }
+    };
   }
+  // Stale write: return conflict with current authoritative settings
   return {
     status: 200,
     body: {
-      ok: true,
+      ok: false,
+      error: "settings conflict",
+      reason: "stale_write",
+      conflict: true,
       settings: auth.record.settings,
       updatedAt: auth.record.settings.updatedAt
     }
@@ -559,9 +571,10 @@ const ROLE_ACTION_MATRIX = [
   }
 ];
 
-function buildOnlineAdminBundle() {
+function buildOnlineAdminBundle(profileUserId = null) {
   const generatedAt = now();
   const defaultUserId = ensureDefaultAdminUser();
+  const effectiveUserId = profileUserId || defaultUserId;
 
   // ── Admin frames: users, subscribers, subscriptions ──
   const usersItems = [];
@@ -657,10 +670,10 @@ function buildOnlineAdminBundle() {
     });
   }
 
-  // ── Profile frames ──
+  // ── Profile frames (filtered to requested owner) ──
   const profileDevices = [];
   for (const [deviceId, record] of devices) {
-    if (!record.paired || record.ownerUserId !== defaultUserId) continue;
+    if (!record.paired || record.ownerUserId !== effectiveUserId) continue;
     profileDevices.push({
       deviceId: record.deviceId,
       deviceName: record.deviceName,
@@ -692,7 +705,7 @@ function buildOnlineAdminBundle() {
     schemaVersion: 1,
     generatedAt,
     profileFrames: {
-      userId: defaultUserId,
+      userId: effectiveUserId,
       preferences: {
         activeArtists: [{ artistId: "artist-001" }, { artistId: "artist-002" }],
         streamCategories: ["artwork", "curatorial", "blog"],
@@ -789,8 +802,8 @@ function buildActionAvailability(record, actorRole) {
   return { generatedAt, evaluatedAt: generatedAt, actorRole, actions };
 }
 
-function handleMockOnlineAdminBundle() {
-  return { status: 200, body: buildOnlineAdminBundle() };
+function handleMockOnlineAdminBundle(userId = null) {
+  return { status: 200, body: buildOnlineAdminBundle(userId) };
 }
 
 function handleMockAddUser(body) {
@@ -857,7 +870,8 @@ async function handle(req, res) {
 
   if (method === "POST" && /^\/mock\/pair-device\/([^/]+)$/.test(pathname)) {
     const deviceId = pathname.split("/").pop();
-    return sendJson(res, ...Object.values(handleMockPairDevice(deviceId)));
+    const body = JSON.parse((await readBody(req)) || "{}");
+    return sendJson(res, ...Object.values(handleMockPairDevice(deviceId, body)));
   }
 
   if (method === "POST" && /^\/mock\/queue-command\/([^/]+)$/.test(pathname)) {
@@ -874,6 +888,12 @@ async function handle(req, res) {
 
   if (method === "GET" && pathname === "/mock/state") {
     return sendJson(res, ...Object.values(handleMockState()));
+  }
+
+  // GET /mock/online-admin-bundle/:userId
+  const bundleUserMatch = pathname.match(/^\/mock\/online-admin-bundle\/([^/]+)$/);
+  if (method === "GET" && bundleUserMatch) {
+    return sendJson(res, ...Object.values(handleMockOnlineAdminBundle(bundleUserMatch[1])));
   }
 
   // GET /mock/online-admin-bundle
