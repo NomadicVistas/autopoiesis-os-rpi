@@ -8,3 +8,19 @@ Type=oneshot
 User=root
 Environment=AUTOPOIESIS_LOG_DIR=/var/log/autopoiesis-os
 ExecStart=/opt/autopoiesis-os/app/scripts/process-commands.sh
+
+# Security hardening (root service: maximum restriction)
+ProtectSystem=strict
+ProtectHome=read-only
+PrivateTmp=true
+ReadWritePaths=/var/lib/autopoiesis-os /var/log/autopoiesis-os /opt/autopoiesis-os/app
+ProtectClock=true
+ProtectKernelModules=true
+ProtectKernelLogs=true
+ProtectKernelTunables=true
+ProtectControlGroups=true
+RestrictNamespaces=true
+LockPersonality=true
+RestrictRealtime=true
+RestrictSUIDSGID=true
+SystemCallArchitectures=native

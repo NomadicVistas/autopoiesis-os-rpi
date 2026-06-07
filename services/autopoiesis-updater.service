@@ -12,3 +12,19 @@ Environment=AUTOPOIESIS_DATA_DIR=/var/lib/autopoiesis-os
 Environment=AUTOPOIESIS_LOG_DIR=/var/log/autopoiesis-os
 Environment=AUTOPOIESIS_USER=frame
 ExecStart=/opt/autopoiesis-os/app/scripts/check-release-update.sh
+
+# Security hardening (root service: maximum restriction)
+ProtectSystem=strict
+ProtectHome=read-only
+PrivateTmp=true
+ReadWritePaths=/var/lib/autopoiesis-os /var/log/autopoiesis-os /opt/autopoiesis-os
+ProtectClock=true
+ProtectKernelModules=true
+ProtectKernelLogs=true
+ProtectKernelTunables=true
+ProtectControlGroups=true
+RestrictNamespaces=true
+LockPersonality=true
+RestrictRealtime=true
+RestrictSUIDSGID=true
+SystemCallArchitectures=native

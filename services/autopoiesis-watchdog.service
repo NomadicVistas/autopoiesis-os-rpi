@@ -7,3 +7,19 @@ Wants=autopoiesis-setup.service autopoiesis-kiosk.service
 Type=oneshot
 User=root
 ExecStart=/opt/autopoiesis-os/app/scripts/watchdog.sh
+
+# Security hardening (root service: needs systemctl access)
+ProtectSystem=strict
+ProtectHome=read-only
+PrivateTmp=true
+ReadWritePaths=/var/lib/autopoiesis-os /var/log/autopoiesis-os
+ProtectClock=true
+ProtectKernelModules=true
+ProtectKernelLogs=true
+ProtectKernelTunables=true
+ProtectControlGroups=true
+RestrictNamespaces=true
+LockPersonality=true
+RestrictRealtime=true
+RestrictSUIDSGID=true
+SystemCallArchitectures=native

@@ -23,6 +23,7 @@ systemctl is-enabled --quiet autopoiesis-watchdog.timer
 echo "   autopoiesis-watchdog.timer enabled"
 "$(dirname "$0")/install-app-tree-check.sh"
 "$(dirname "$0")/release-app-tree-copy-check.sh"
+"$(dirname "$0")/systemd-security-check.sh"
 "$(dirname "$0")/systemd-units-install-check.sh"
 "$(dirname "$0")/setup-launcher-check.sh"
 

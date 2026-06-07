@@ -15,5 +15,22 @@ ExecStart=/opt/autopoiesis-os/app/scripts/start-kiosk.sh
 Restart=always
 RestartSec=5
 
+# Security hardening (kiosk: Chromium needs broader filesystem access)
+ProtectSystem=full
+ProtectHome=read-only
+PrivateTmp=true
+NoNewPrivileges=true
+ProtectClock=true
+ProtectKernelModules=true
+ProtectKernelLogs=true
+ProtectKernelTunables=true
+ProtectControlGroups=true
+RestrictNamespaces=true
+LockPersonality=true
+RestrictRealtime=true
+RestrictSUIDSGID=true
+SystemCallArchitectures=native
+CapabilityBoundingSet=
+
 [Install]
 WantedBy=graphical.target

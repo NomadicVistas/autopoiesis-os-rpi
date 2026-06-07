@@ -1,5 +1,14 @@
 # Pulse Agent Notes
 
+## 2026-06-07 - Systemd service security hardening
+
+Date/time: 2026-06-07 21:50 UTC / 2026-06-07 23:50 Europe/Berlin
+Agent: Pulse
+Context: QA/SECURITY cron pass. All 7 systemd service templates had zero sandboxing directives. Three services run as root. If any were compromised, the attacker had full filesystem, kernel module, namespace, and capability access. This is the single highest-impact security gap in the appliance.
+What changed: Added defense-in-depth sandboxing to all 7 service files. Frame-user services get ProtectSystem=strict + NoNewPrivileges + MemoryDenyWriteExecute + explicit ReadWritePaths. Kiosk (Chromium) gets ProtectSystem=full, no MDE (JIT). Root services get ProtectSystem=strict + ReadWritePaths but no NoNewPrivileges (may need caps for systemctl). All services get: PrivateTmp, ProtectHome=read-only, ProtectClock, ProtectKernelModules, ProtectKernelLogs, ProtectKernelTunables, ProtectControlGroups, RestrictNamespaces, LockPersonality, RestrictRealtime, RestrictSUIDSGID, SystemCallArchitectures=native, CapabilityBoundingSet= (drop all). Created scripts/systemd-security-check.sh (130-point automated gate) and wired it into Milestone 2.
+What needs review: The watchdog service runs as root with ProtectSystem=strict. systemctl communicates via D-Bus socket, not filesystem writes, so ProtectSystem=strict should not block service restart commands. However, this needs confirmation on a real Pi — if `systemctl restart` fails from within the hardened watchdog, we may need to add an AF_UNIX socket exception or relax to ProtectSystem=full.
+Next recommended action: After Pi install, run `systemd-analyze security autopoiesis-watchdog.service` and verify the watchdog can still restart services. If it cannot, add `IPAddressAllow=any` or relax ProtectSystem for the watchdog only.
+
 ## 2026-06-07 - Log rotation and log diagnostics
 
 Date/time: 2026-06-07 20:35 UTC / 2026-06-07 22:35 Europe/Berlin

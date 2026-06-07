@@ -10,3 +10,22 @@ Group=frame
 Environment=AUTOPOIESIS_DATA_DIR=/var/lib/autopoiesis-os
 Environment=AUTOPOIESIS_LOG_DIR=/var/log/autopoiesis-os
 ExecStart=/opt/autopoiesis-os/app/scripts/heartbeat.sh
+
+# Security hardening
+ProtectSystem=strict
+ProtectHome=read-only
+PrivateTmp=true
+NoNewPrivileges=true
+ReadWritePaths=/var/lib/autopoiesis-os /var/log/autopoiesis-os
+ProtectClock=true
+ProtectKernelModules=true
+ProtectKernelLogs=true
+ProtectKernelTunables=true
+ProtectControlGroups=true
+RestrictNamespaces=true
+LockPersonality=true
+MemoryDenyWriteExecute=true
+RestrictRealtime=true
+RestrictSUIDSGID=true
+SystemCallArchitectures=native
+CapabilityBoundingSet=

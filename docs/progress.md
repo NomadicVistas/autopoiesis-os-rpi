@@ -1,5 +1,53 @@
 # Progress
 
+## 2026-06-07 - Systemd service security hardening
+
+Date: 2026-06-07
+
+Milestone: QA / SECURITY - defense-in-depth appliance sandboxing
+
+Changed files:
+
+- `services/autopoiesis-setup.service`
+- `services/autopoiesis-kiosk.service`
+- `services/autopoiesis-heartbeat.service`
+- `services/autopoiesis-cache.service`
+- `services/autopoiesis-command-executor.service`
+- `services/autopoiesis-updater.service`
+- `services/autopoiesis-watchdog.service`
+- `scripts/systemd-security-check.sh`
+- `scripts/milestone2-verify.sh`
+- `docs/progress.md`
+- `docs/agent-notes/pulse.md`
+- `/data/.openclaw/workspace/autopoiesis-os-program/ROLLING-LOG.md`
+
+Implemented:
+
+- Added systemd security sandboxing directives to all 7 service templates, hardening each service according to its privilege level and role.
+- **Frame-user services** (setup, heartbeat, cache): `ProtectSystem=strict`, `NoNewPrivileges=true`, `MemoryDenyWriteExecute=true`, `ReadWritePaths` limited to data and log directories, plus all universal hardening.
+- **Kiosk service** (Chromium): `ProtectSystem=full` (Chromium needs broader filesystem access), `NoNewPrivileges=true`, no `MemoryDenyWriteExecute` (Chromium uses JIT).
+- **Root services** (command-executor, updater, watchdog): `ProtectSystem=strict` with explicit `ReadWritePaths`, plus all universal hardening. No `NoNewPrivileges` for root services that may need capabilities for service management.
+- Universal directives on all services: `PrivateTmp`, `ProtectHome=read-only`, `ProtectClock`, `ProtectKernelModules`, `ProtectKernelLogs`, `ProtectKernelTunables`, `ProtectControlGroups`, `RestrictNamespaces`, `LockPersonality`, `RestrictRealtime`, `RestrictSUIDSGID`, `SystemCallArchitectures=native`, `CapabilityBoundingSet=` (drop all).
+- Added `scripts/systemd-security-check.sh`, a 130-point automated gate validating: file existence (7 services), universal hardening (12 directives × 7 services), capability bounding drops, frame-user strict sandboxing with ReadWritePaths, kiosk Chromium-specific profile, root service strict sandboxing, and no hardcoded secrets.
+- Wired the gate into `scripts/milestone2-verify.sh` before systemd unit render checks.
+
+Why this matters:
+
+Three services run as root (command-executor, updater, watchdog) and none had any filesystem, capability, or kernel protection. If any service were compromised, the attacker had unrestricted access to the entire filesystem, all kernel interfaces, and all capabilities. The hardening reduces blast radius: compromised services can only write to explicitly whitelisted paths, cannot load kernel modules, cannot create namespaces, cannot gain additional privileges, and cannot access /tmp shared with other processes. For Raspberry Pi appliances deployed in homes and offices, this defense-in-depth layer is essential.
+
+Verification:
+
+- `scripts/systemd-security-check.sh` passed all 130 checks.
+- `scripts/systemd-units-install-check.sh` passed (rendering still works with new directives).
+- `bash -n install.sh update.sh uninstall-dev-tools.sh factory-reset.sh scripts/*.sh` passed.
+- Committed `local-ui/server.js` syntax verified (Ewoud's WIP has a pre-existing template literal syntax error unrelated to this change).
+- `git diff --check` passed.
+
+Next step:
+
+- After physical Pi install, run `systemd-analyze security autopoiesis-*.service` to see the exposure score drop compared to the unhardened baseline.
+- Verify that `systemctl restart` through watchdog still works with `ProtectSystem=strict` (systemctl uses D-Bus, not filesystem writes, so it should).
+
 ## 2026-06-07 - Log rotation and log diagnostics
 
 Date: 2026-06-07

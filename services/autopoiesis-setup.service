@@ -16,5 +16,24 @@ ExecStart=/opt/autopoiesis-os/app/scripts/start-setup.sh
 Restart=always
 RestartSec=3
 
+# Security hardening
+ProtectSystem=strict
+ProtectHome=read-only
+PrivateTmp=true
+NoNewPrivileges=true
+ReadWritePaths=/var/lib/autopoiesis-os /var/log/autopoiesis-os
+ProtectClock=true
+ProtectKernelModules=true
+ProtectKernelLogs=true
+ProtectKernelTunables=true
+ProtectControlGroups=true
+RestrictNamespaces=true
+LockPersonality=true
+MemoryDenyWriteExecute=true
+RestrictRealtime=true
+RestrictSUIDSGID=true
+SystemCallArchitectures=native
+CapabilityBoundingSet=
+
 [Install]
 WantedBy=graphical.target
