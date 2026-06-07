@@ -33,6 +33,9 @@ mode, `rsync`, `curl`, `systemctl`, Node.js older than 20, or less than
 1024 MB free on the selected install, data, or log volumes. It warns, but does
 not stop, when Chromium or NetworkManager are missing so support can still
 prepare an image and see exactly why kiosk or Wi-Fi setup will be limited.
+It also reports hardware suitability: Raspberry Pi 5 is the recommended target,
+Raspberry Pi 4 4GB is the supported baseline, and Raspberry Pi 3 or older boards
+are flagged as underpowered for Chromium kiosk rollout.
 
 Use `AUTOPOIESIS_PREFLIGHT_APP_ROOT` to point the app-tree check at an
 installed app or isolated fixture. The default is the repository root that
@@ -66,7 +69,8 @@ setup launcher honors the configured app path, the local launcher responds,
 runtime data/cache/log paths are writable, the heartbeat
 timer wrapper tolerates missing pre-pairing state and records local UI failures,
 Chromium is
-running with the expected kiosk flags, Linux sees a touchscreen-class input
+running with the expected kiosk flags, the fixture-backed hardware profile
+matrix passes, the live hardware profile is supported, Linux sees a touchscreen-class input
 device, NetworkManager reports device state, the watchdog restart policy passes
 its isolated acceptance gate, and both services restart cleanly.
 

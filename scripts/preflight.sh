@@ -110,6 +110,7 @@ check_app_tree() {
     scripts/install-systemd-units.sh
     scripts/start-setup.sh
     scripts/start-kiosk.sh
+    scripts/hardware-profile-check.sh
     scripts/heartbeat.sh
     scripts/process-commands.sh
     scripts/cache-artworks.sh
@@ -198,6 +199,33 @@ check_node_version() {
   fi
 }
 
+check_hardware_profile() {
+  local arch
+  arch="$(uname -m)"
+  local model=""
+  if [[ -r /proc/device-tree/model ]]; then
+    model="$(tr -d '\0' </proc/device-tree/model | sed 's/[[:space:]]*$//')"
+  fi
+  local total_mb
+  total_mb="$(awk '/MemTotal:/ { printf "%d", $2 / 1024 }' /proc/meminfo 2>/dev/null || echo 0)"
+
+  if [[ "$model" =~ Raspberry[[:space:]]Pi[[:space:]]5 ]]; then
+    pass "hardware profile: Raspberry Pi 5 recommended target (${total_mb} MB RAM)"
+  elif [[ "$model" =~ Raspberry[[:space:]]Pi[[:space:]]4 ]]; then
+    pass "hardware profile: Raspberry Pi 4 supported baseline (${total_mb} MB RAM)"
+  elif [[ "$model" =~ Raspberry[[:space:]]Pi ]]; then
+    warn "hardware profile: $model is below the supported Chromium kiosk baseline; use Raspberry Pi 4+ or Pi 5 recommended."
+  elif [[ "$arch" == "x86_64" || "$arch" == "amd64" ]]; then
+    warn "hardware profile: x86_64 development/mini-PC host detected; Pi 5 remains the primary appliance target."
+  else
+    warn "hardware profile: unknown model on $arch; validate Chromium kiosk performance manually."
+  fi
+
+  if [[ "$total_mb" =~ ^[0-9]+$ && "$total_mb" -gt 0 && "$total_mb" -lt 2048 ]]; then
+    warn "hardware profile: ${total_mb} MB RAM is below the 2 GB caution threshold for Chromium kiosk use."
+  fi
+}
+
 echo "Autopoiesis OS appliance preflight"
 echo "Date: $(date -Is)"
 echo
@@ -242,6 +270,7 @@ require_command rsync "Install rsync before running the appliance installer."
 require_command curl "Install curl for local health checks, launch probing, and release downloads."
 require_command systemctl "Install or boot into a systemd-based Raspberry Pi OS image."
 check_node_version
+check_hardware_profile
 
 if command -v chromium-browser >/dev/null 2>&1 || command -v chromium >/dev/null 2>&1; then
   pass "Chromium found"

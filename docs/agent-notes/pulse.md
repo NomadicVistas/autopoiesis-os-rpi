@@ -1,5 +1,14 @@
 # Pulse Agent Notes
 
+## 2026-06-07 - Hardware profile fixture gate
+
+Date/time: 2026-06-07 10:37 UTC / 2026-06-07 12:37 Europe/Berlin
+Agent: Pulse
+Context: RPI APPLIANCE cron pass following the Pi 5 hardware profile work. The live check was useful, but it only proved whichever host happened to run the acceptance script.
+What changed: Added `scripts/hardware-profile-fixture-check.sh`, which starts the real local UI against fake device-tree model files and fake `vcgencmd get_throttled` output. It proves Pi 5 recommended, Pi 4 supported-baseline, Pi 3 underpowered, and Pi 5 undervoltage/throttling issue propagation through diagnostics, health, readiness, and support bundles.
+What needs review: Run the fixture gate in CI/local validation before physical Pi handoff, then still run `AUTOPOIESIS_REQUIRE_SUPPORTED_HARDWARE=1 scripts/hardware-profile-check.sh` on the actual Pi 5.
+Next recommended action: On the Pi 5, compare the live `vcgencmd get_throttled` value after kiosk load with the fixture-proven issue codes so support notes can distinguish power/cooling problems from classification bugs.
+
 ## 2026-06-07 - Hosted suite manifest template
 
 Date/time: 2026-06-07 10:16 UTC / 2026-06-07 12:16 Europe/Berlin
@@ -8,6 +17,16 @@ Context: LEAD / INTEGRATION cron pass. The hosted suite could list its gate cata
 What changed: Added `--manifest-template` / `--template` to `scripts/hosted-contract-suite-check.sh`. The command emits a disabled JSON manifest skeleton generated from the same `for_each_gate` table as execution, with each source entry carrying its source env, checker, and label metadata. Template output exits before manifest loading, checker execution, or report writing.
 What needs review: Hosted CI should use the generated template as the seed artifact, fill only the sources owned by each backend job, mark those entries enabled, add `require` or `strict` intent, then run `--plan` before the full hosted suite.
 Next recommended action: Wire staging artifact generation to `--manifest-template`, archive the filled manifest plus redacted plan report, and stop maintaining parallel gate lists in backend scripts.
+
+## 2026-06-07 - Hardware profile acceptance gate
+
+Date/time: 2026-06-07 10:10 UTC / 2026-06-07 12:10 Europe/Berlin
+Agent: Pulse
+Context: RPI APPLIANCE direct development after Ewoud decided to use a Raspberry Pi 5 for the Frames appliance and keep a Raspberry Pi 4 as workshop/spare hardware.
+What changed: Added device-side hardware profile diagnostics and `scripts/hardware-profile-check.sh`. The appliance now marks Pi 5 as recommended, Pi 4 as the supported baseline, Pi 3/older as underpowered, and x86_64 as a development/mini-PC host. The profile includes RAM and optional `vcgencmd get_throttled` state, propagates through health/readiness/support bundles, and Milestone 2 now requires supported hardware.
+What needs review: On the real Pi 5, confirm `vcgencmd get_throttled` is available and stays clear after Chromium runs under kiosk load. If the official display/power supply reports undervoltage or throttling, document the exact PSU/cooling combination.
+Next recommended action: Install on the Pi 5, run `AUTOPOIESIS_REQUIRE_SUPPORTED_HARDWARE=1 scripts/hardware-profile-check.sh`, then full `scripts/milestone2-verify.sh` after pairing and feed/cache sync.
+
 
 ## 2026-06-07 - Online admin ownership and subscription joins
 

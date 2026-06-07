@@ -26,6 +26,9 @@ const FEED_QUEUE_LIMIT = Number(process.env.AUTOPOIESIS_FEED_QUEUE_LIMIT || 100)
 const EVENT_CURSOR_OVERLAP_MS = Number(process.env.AUTOPOIESIS_EVENT_CURSOR_OVERLAP_MS || 1000);
 const INPUT_DEVICES_PATH = process.env.AUTOPOIESIS_INPUT_DEVICES_PATH || "/proc/bus/input/devices";
 const TIMEDATECTL_BIN = process.env.AUTOPOIESIS_TIMEDATECTL_BIN || "timedatectl";
+const DEVICE_TREE_MODEL_PATH =
+  process.env.AUTOPOIESIS_DEVICE_TREE_MODEL_PATH || "/proc/device-tree/model";
+const VCGENCMD_BIN = process.env.AUTOPOIESIS_VCGENCMD_BIN || "vcgencmd";
 
 const COMMAND_POLICIES = {
   sync_settings: { risk: "low", requiresAuthorization: false },
@@ -2010,6 +2013,130 @@ function readTemperatureC() {
   }
 }
 
+function raspberryPiGeneration(modelText) {
+  const model = String(modelText || "").toLowerCase();
+  if (!model.includes("raspberry pi")) return null;
+  if (/raspberry pi\s*5\b/.test(model)) return 5;
+  if (/raspberry pi\s*4\b/.test(model) || /compute module\s*4\b/.test(model)) return 4;
+  if (/raspberry pi\s*3\b/.test(model) || /compute module\s*3\b/.test(model)) return 3;
+  if (/raspberry pi\s*2\b/.test(model)) return 2;
+  if (/raspberry pi\s*(zero|1\b)/.test(model)) return 1;
+  return 0;
+}
+
+function hardwareStatusFromProfile(profile) {
+  const ramMb = profile.ramMb;
+  if (profile.family === "raspberry_pi") {
+    if (profile.piGeneration >= 5) {
+      return {
+        status: "recommended",
+        supported: true,
+        recommended: true,
+        summary: "Raspberry Pi 5 class hardware is recommended for the Chromium kiosk appliance."
+      };
+    }
+    if (profile.piGeneration === 4) {
+      return {
+        status: "supported_baseline",
+        supported: true,
+        recommended: false,
+        summary: "Raspberry Pi 4 class hardware is the supported baseline for the Chromium kiosk appliance."
+      };
+    }
+    if (profile.piGeneration > 0 && profile.piGeneration < 4) {
+      return {
+        status: "underpowered",
+        supported: false,
+        recommended: false,
+        summary: "Raspberry Pi 3 and older boards are underpowered for the Chromium kiosk appliance."
+      };
+    }
+    return {
+      status: ramMb >= 2048 ? "unknown_pi_supported_ram" : "unknown_pi_low_ram",
+      supported: ramMb >= 2048,
+      recommended: false,
+      summary:
+        ramMb >= 2048
+          ? "Unknown Raspberry Pi model has enough RAM for cautious validation."
+          : "Unknown Raspberry Pi model has less than 2 GB RAM and may be underpowered."
+    };
+  }
+  if (profile.arch === "x64" || profile.arch === "x86_64") {
+    return {
+      status: "development_host",
+      supported: true,
+      recommended: false,
+      summary: "x86_64 hardware is suitable for development and mini-PC deployments, but is not the primary Pi appliance target."
+    };
+  }
+  if (ramMb < 1024) {
+    return {
+      status: "low_ram",
+      supported: false,
+      recommended: false,
+      summary: "Device has less than 1 GB RAM and is not suitable for the kiosk appliance."
+    };
+  }
+  return {
+    status: "unknown",
+    supported: true,
+    recommended: false,
+    summary: "Hardware model is unknown; validate the kiosk manually before rollout."
+  };
+}
+
+async function throttledStatus() {
+  try {
+    const { stdout } = await execFilePromise(VCGENCMD_BIN, ["get_throttled"], { timeout: 2000 });
+    const match = stdout.match(/throttled=([^\s]+)/);
+    if (!match) return { available: true, raw: stdout.trim(), throttled: null, underVoltage: null };
+    const value = Number.parseInt(match[1], 16);
+    if (!Number.isFinite(value)) return { available: true, raw: stdout.trim(), throttled: null, underVoltage: null };
+    return {
+      available: true,
+      raw: stdout.trim(),
+      valueHex: "0x" + value.toString(16),
+      throttled: Boolean((value & 0x4) || (value & 0x40000)),
+      underVoltage: Boolean((value & 0x1) || (value & 0x10000)),
+      frequencyCapped: Boolean((value & 0x2) || (value & 0x20000)),
+      softTemperatureLimit: Boolean((value & 0x8) || (value & 0x80000))
+    };
+  } catch (error) {
+    return { available: false, error: error.code || error.message };
+  }
+}
+
+async function hardwareProfileDiagnostics() {
+  let model = null;
+  try {
+    model = fs.readFileSync(DEVICE_TREE_MODEL_PATH, "utf8").replace(/\0/g, "").trim() || null;
+  } catch {
+    model = null;
+  }
+  const ramMb = Math.round(os.totalmem() / 1024 / 1024);
+  const arch = os.arch();
+  const piGeneration = raspberryPiGeneration(model);
+  const family = piGeneration === null ? (arch === "x64" ? "x86_64" : "unknown") : "raspberry_pi";
+  const profile = {
+    model,
+    family,
+    piGeneration,
+    arch,
+    platform: os.platform(),
+    kernel: os.release(),
+    ramMb,
+    ramGbApprox: Math.round((ramMb / 1024) * 10) / 10,
+    recommendedDevice: "Raspberry Pi 5, 4GB or 8GB",
+    supportedBaseline: "Raspberry Pi 4, 4GB",
+    underpoweredBelow: "Raspberry Pi 4 or 2GB RAM",
+    throttling: await throttledStatus()
+  };
+  return {
+    ...profile,
+    ...hardwareStatusFromProfile(profile)
+  };
+}
+
 function parseInputDevices(raw) {
   return String(raw || "")
     .split(/\n\s*\n/)
@@ -2409,6 +2536,23 @@ function diagnosticsHealth(diagnostics, data) {
     add("warning", "memory_low", "Less than 128 MB of system memory is free.");
   }
 
+  if (diagnostics.hardware) {
+    if (diagnostics.hardware.status === "underpowered" || diagnostics.hardware.status === "low_ram") {
+      add("warning", "hardware_underpowered", diagnostics.hardware.summary);
+    } else if (diagnostics.hardware.status === "unknown_pi_low_ram") {
+      add("warning", "hardware_low_ram", diagnostics.hardware.summary);
+    } else if (diagnostics.hardware.status === "unknown") {
+      add("warning", "hardware_unknown", diagnostics.hardware.summary);
+    }
+    const throttling = diagnostics.hardware.throttling || {};
+    if (throttling.underVoltage) {
+      add("warning", "hardware_undervoltage", "Device reports current or historical under-voltage throttling.");
+    }
+    if (throttling.throttled || throttling.frequencyCapped || throttling.softTemperatureLimit) {
+      add("warning", "hardware_throttled", "Device reports current or historical CPU throttling.");
+    }
+  }
+
   if (Number.isFinite(diagnostics.temperatureC)) {
     if (diagnostics.temperatureC >= 85) {
       add("error", "temperature_critical", "Device temperature is at or above 85 C.");
@@ -2518,6 +2662,7 @@ async function collectDiagnostics(options = {}) {
   const disk = await diskStatus(DATA_DIR);
   const runtimeStorage = runtimeStorageDiagnostics();
   const clock = await clockDiagnostics();
+  const hardware = await hardwareProfileDiagnostics();
   const diagnostics = {
     collectedAt: new Date().toISOString(),
     deviceId: data.device.deviceId || null,
@@ -2533,6 +2678,7 @@ async function collectDiagnostics(options = {}) {
       totalMb: Math.round(os.totalmem() / 1024 / 1024),
       freeMb: Math.round(os.freemem() / 1024 / 1024)
     },
+    hardware,
     clock,
     temperatureC: readTemperatureC(),
     input: inputDiagnostics(),
@@ -2648,6 +2794,7 @@ function readinessSummary(diagnostics) {
   const timerSummary = timerStatusSummary(timers);
   const commandAudit = diagnostics.commandAudit || {};
   const input = diagnostics.input || {};
+  const hardware = diagnostics.hardware || {};
   const clock = diagnostics.clock || {};
   const runtimeStorage = diagnostics.storage && diagnostics.storage.runtime ? diagnostics.storage.runtime : null;
   const commandExecutorActive = serviceActive(services, "autopoiesis-command-executor.service");
@@ -2656,6 +2803,12 @@ function readinessSummary(diagnostics) {
 
   const phases = {
     localUi: phase(true, "ready", "Local UI responded and produced diagnostics."),
+    hardware: phase(
+      hardware.supported !== false,
+      hardware.status || "unknown",
+      hardware.summary || "Hardware profile was not collected.",
+      { hardware }
+    ),
     storage: phase(
       !runtimeStorage || runtimeStorage.ok !== false,
       runtimeStorage ? runtimeStorage.status || "unknown" : "not_checked",
@@ -3071,6 +3224,7 @@ function healthSummary(diagnostics) {
       online: Boolean(health.networkOnline),
       primary: diagnostics.network ? diagnostics.network.primary || null : null
     },
+    hardware: diagnostics.hardware || null,
     clock: diagnostics.clock || null,
     pairing: {
       paired: Boolean(health.paired)
@@ -3143,6 +3297,20 @@ async function supportBundle(options = {}) {
         keyboardPresent: diagnostics.input ? Boolean(diagnostics.input.keyboardPresent) : false,
         totalDevices: diagnostics.input ? diagnostics.input.totalDevices || 0 : 0
       },
+      hardware: diagnostics.hardware
+        ? {
+            status: diagnostics.hardware.status || null,
+            supported: diagnostics.hardware.supported === true,
+            recommended: diagnostics.hardware.recommended === true,
+            model: diagnostics.hardware.model || null,
+            family: diagnostics.hardware.family || null,
+            piGeneration: diagnostics.hardware.piGeneration,
+            arch: diagnostics.hardware.arch || null,
+            ramMb: diagnostics.hardware.ramMb || null,
+            summary: diagnostics.hardware.summary || null,
+            throttling: diagnostics.hardware.throttling || null
+          }
+        : null,
       clock: diagnostics.clock
         ? {
             status: diagnostics.clock.status || null,

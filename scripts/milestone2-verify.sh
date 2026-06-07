@@ -51,6 +51,8 @@ fi
 
 echo
 echo "3b. Touchscreen/input"
+"$(dirname "$0")/hardware-profile-fixture-check.sh"
+AUTOPOIESIS_REQUIRE_SUPPORTED_HARDWARE=1 "$(dirname "$0")/hardware-profile-check.sh"
 AUTOPOIESIS_REQUIRE_TOUCHSCREEN=1 "$(dirname "$0")/touchscreen-check.sh"
 
 echo

@@ -31,6 +31,7 @@ Milestone 2 is scaffolded for physical Pi validation. The local UI can:
 - show cached feed media on `/offline` when the live display is unreachable
 - expose a compact `/local/health` probe for support, admin adapters, and hardware acceptance checks
 - expose runtime storage writability diagnostics for data, cache, and log directories
+- expose a hardware profile that marks Raspberry Pi 5 as recommended, Raspberry Pi 4 as the supported baseline, and Pi 3/older as underpowered for Chromium kiosk rollout
 - expose system clock/NTP synchronization diagnostics through health/readiness/support surfaces
 - expose touchscreen/input diagnostics through health/readiness/support surfaces
 - expose systemd timer diagnostics for heartbeat, command executor, cache, updater, and watchdog loops
@@ -63,6 +64,8 @@ Milestone 2 is scaffolded for physical Pi validation. The local UI can:
 - keep rollback metadata and a pre-update app snapshot for release artifact installs
 - run a deliberate factory reset that clears identity, pairing, preferences, commands, feed/cache, and rollout state while preserving app code and logs
 - run a kiosk check that proves the Chromium launch command uses Pi-safe software rendering flags
+- run a hardware profile check that fails physical acceptance on underpowered Pi hardware while allowing x86_64 development hosts
+- run a fixture-backed hardware profile gate that proves Pi 5, Pi 4, Pi 3, and throttling classifications without physical hardware
 - run a local watchdog timer plus isolated acceptance gate that restarts setup/kiosk services only when liveness checks fail
 - reinstall and enable systemd units during install/update so new timers reach existing devices
 - verify setup, kiosk, HTTP, Chromium, clock/NTP sync, touchscreen/input, network, and restart behavior on a Pi
@@ -86,6 +89,9 @@ data, or log volumes have less than 1024 MB free. Override the app tree with
 `AUTOPOIESIS_PREFLIGHT_APP_ROOT` for isolated fixtures. Override the disk
 threshold with `AUTOPOIESIS_PREFLIGHT_MIN_FREE_MB` when building constrained
 test images, or set it to `0` to disable the disk-space gate deliberately.
+Hardware preflight treats Raspberry Pi 5 as the recommended target and
+Raspberry Pi 4 4GB as the supported baseline. Raspberry Pi 3 and older boards
+are reported as underpowered for the Chromium kiosk appliance.
 
 During development you can run the local UI without installing:
 

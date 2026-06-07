@@ -106,6 +106,12 @@ for (const field of ["touchscreenPresent", "pointerPresent", "keyboardPresent"])
 }
 numeric(input.totalDevices, "summary.input.totalDevices");
 
+const hardware = objectAt(summary.hardware, "summary.hardware");
+if (!hardware.status) fail("summary.hardware.status is missing");
+boolean(hardware.supported, "summary.hardware.supported");
+boolean(hardware.recommended, "summary.hardware.recommended");
+numeric(hardware.ramMb, "summary.hardware.ramMb");
+
 if (summary.clock !== null) objectAt(summary.clock, "summary.clock");
 const storage = objectAt(summary.storage, "summary.storage");
 const runtime = objectAt(storage.runtime, "summary.storage.runtime");

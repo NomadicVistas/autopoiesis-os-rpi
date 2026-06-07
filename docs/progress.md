@@ -1,5 +1,42 @@
 # Progress
 
+## 2026-06-07 - Hardware profile fixture gate
+
+Date: 2026-06-07
+
+Milestone: RPI APPLIANCE - deterministic hardware suitability coverage
+
+Changed files:
+
+- `scripts/hardware-profile-fixture-check.sh`
+- `scripts/milestone2-verify.sh`
+- `README.md`
+- `docs/api-contract.md`
+- `docs/installation.md`
+- `docs/troubleshooting.md`
+- `docs/agent-notes/pulse.md`
+- `docs/progress.md`
+- `/data/.openclaw/workspace/autopoiesis-os-program/ROLLING-LOG.md`
+
+Implemented:
+
+- Added a fixture-backed hardware profile gate that starts the real local UI with fake device-tree model files and fake `vcgencmd get_throttled` output.
+- Proved Pi 5 reports `recommended`, Pi 4 reports `supported_baseline`, Pi 3 reports `underpowered`, and throttled/undervoltage Pi 5 output emits `hardware_undervoltage` and `hardware_throttled`.
+- The gate validates diagnostics, compact health, readiness, and support-bundle propagation for every fixture case.
+- Wired the fixture gate into Milestone 2 before the live hardware check, so classification regressions fail before physical hardware-specific validation.
+
+Verification:
+
+- `scripts/hardware-profile-fixture-check.sh` passed.
+- `node --check local-ui/server.js` passed.
+- `bash -n install.sh update.sh uninstall-dev-tools.sh factory-reset.sh scripts/*.sh` passed.
+- `git diff --check` passed.
+- `scripts/security-smoke.sh` passed.
+
+Next step:
+
+Run the fixture gate plus `AUTOPOIESIS_REQUIRE_SUPPORTED_HARDWARE=1 scripts/hardware-profile-check.sh` on the Raspberry Pi 5, then compare live throttling output after Chromium kiosk load against the fixture-proven issue codes.
+
 ## 2026-06-07 - Heartbeat-driven feed polling
 
 Date: 2026-06-07
@@ -73,6 +110,49 @@ Verification:
 Next step:
 
 Have hosted CI seed staging manifests from `--manifest-template`, fill owned sources, archive the filled manifest plus redacted `--plan` report, then run the full hosted suite from the same artifact before physical Pi validation.
+
+## 2026-06-07 - Hardware profile acceptance gate
+
+Date: 2026-06-07
+
+Milestone: RPI APPLIANCE - Pi 5 target and hardware suitability
+
+Changed files:
+
+- `local-ui/server.js`
+- `scripts/hardware-profile-check.sh`
+- `scripts/milestone2-verify.sh`
+- `scripts/preflight.sh`
+- `scripts/support-bundle-check.sh`
+- `README.md`
+- `docs/api-contract.md`
+- `docs/installation.md`
+- `docs/troubleshooting.md`
+- `docs/agent-notes/pulse.md`
+- `docs/progress.md`
+- `/data/.openclaw/workspace/autopoiesis-os-program/ROLLING-LOG.md`
+
+Implemented:
+
+- Added hardware profile diagnostics to the local UI, including model, architecture, RAM, support tier, and optional `vcgencmd get_throttled` power/thermal state.
+- Classified Raspberry Pi 5 as `recommended`, Raspberry Pi 4 as `supported_baseline`, Pi 3/older as `underpowered`, and x86_64 as `development_host`.
+- Propagated hardware state through diagnostics, compact health, readiness, and support bundles with stable issue codes for underpowered hardware, low RAM, unknown hardware, undervoltage, and throttling.
+- Added `scripts/hardware-profile-check.sh` and wired it into Milestone 2 with `AUTOPOIESIS_REQUIRE_SUPPORTED_HARDWARE=1`.
+- Updated preflight so app-tree checks require the hardware profile gate and install preflight reports the Pi 5/Pi 4/Pi 3 suitability line.
+
+Verification:
+
+- `node --check local-ui/server.js` passed.
+- `bash -n install.sh update.sh uninstall-dev-tools.sh factory-reset.sh scripts/*.sh` passed.
+- `git diff --check` passed.
+- Temp local UI smoke on port 3130 passed `scripts/hardware-profile-check.sh`, `scripts/support-bundle-check.sh`, compact health, and readiness hardware phase checks.
+- `scripts/security-smoke.sh` passed after stopping the temp local UI process.
+- `AUTOPOIESIS_PREFLIGHT_MIN_FREE_MB=0 ./scripts/preflight.sh` reached the new hardware check and reported x86_64 as a development/mini-PC host, but still failed because this environment lacks `rsync`.
+
+Next step:
+
+Run `AUTOPOIESIS_REQUIRE_SUPPORTED_HARDWARE=1 scripts/hardware-profile-check.sh` and full Milestone 2 on the new Raspberry Pi 5, then inspect the support bundle for throttling/undervoltage after Chromium has been running for a while.
+
 
 ## 2026-06-07 - Online admin ownership and subscription joins
 

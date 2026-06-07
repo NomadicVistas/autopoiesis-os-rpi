@@ -125,9 +125,22 @@ Use `preferences.displayMode=local-feed` or `/launch?local=1` when the kiosk sho
 curl -fsS http://127.0.0.1:3030/local/diagnostics
 ```
 
-The diagnostics endpoint is the quickest support snapshot for hardware testing. It reports software version, uptime, memory, temperature, runtime storage writability, system clock/NTP synchronization, touchscreen/input visibility, network and pairing state, cache footprint, release state, pending command count, current broadcast, and local Autopoiesis service/timer states when systemd is available.
+The diagnostics endpoint is the quickest support snapshot for hardware testing. It reports software version, hardware model/support tier, uptime, memory, temperature, runtime storage writability, system clock/NTP synchronization, touchscreen/input visibility, network and pairing state, cache footprint, release state, pending command count, current broadcast, and local Autopoiesis service/timer states when systemd is available.
 
-Read `.diagnostics.health.status` first. It is `ok`, `warning`, or `error`, with `.diagnostics.health.issues[]` carrying stable issue codes such as `network_offline`, `offline_fallback`, `device_key_missing`, `storage_low`, `runtime_storage_unavailable`, `temperature_high`, `clock_unsynchronized`, `clock_unknown`, `touchscreen_missing`, `release_error`, `commands_pending`, `service_failed`, `timer_failed`, and `timer_disabled`.
+Read `.diagnostics.health.status` first. It is `ok`, `warning`, or `error`, with `.diagnostics.health.issues[]` carrying stable issue codes such as `network_offline`, `offline_fallback`, `device_key_missing`, `storage_low`, `runtime_storage_unavailable`, `hardware_underpowered`, `hardware_low_ram`, `hardware_undervoltage`, `hardware_throttled`, `temperature_high`, `clock_unsynchronized`, `clock_unknown`, `touchscreen_missing`, `release_error`, `commands_pending`, `service_failed`, `timer_failed`, and `timer_disabled`.
+
+For hardware suitability checks:
+
+```bash
+/opt/autopoiesis-os/app/scripts/hardware-profile-check.sh
+AUTOPOIESIS_REQUIRE_SUPPORTED_HARDWARE=1 /opt/autopoiesis-os/app/scripts/hardware-profile-check.sh
+/opt/autopoiesis-os/app/scripts/hardware-profile-fixture-check.sh
+```
+
+Pi 5 is the recommended target, Pi 4 4GB is the supported baseline, and Pi 3 or
+older boards are treated as underpowered for physical acceptance. The fixture
+gate does not replace physical validation; it proves the classification logic
+before live Pi testing.
 
 For quick acceptance checks, use the compact health probe:
 
