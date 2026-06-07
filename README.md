@@ -236,7 +236,7 @@ Validate a hosted stream response before physical Pi testing:
 AUTOPOIESIS_STREAM_CONTRACT_TOKEN="$TOKEN" ./scripts/stream-contract-check.sh "https://autopoiesis.art/api/frames/device/$DEVICE_ID/stream"
 ```
 
-The stream contract check validates the hosted `GET /api/frames/device/{deviceId}/stream` response before physical Pi testing. It checks schema version, generated timestamps, settings shape, item identity/media/cache/priority/schedule/targeting fields, duplicate ids, and redaction of local-only or sensitive fields.
+The stream contract check validates the hosted `GET /api/frames/device/{deviceId}/stream` response before physical Pi testing. It checks schema version, generated timestamps, settings shape, optional polling/refresh cadence metadata, item identity/media/cache/priority/schedule/targeting fields, duplicate ids, and redaction of local-only or sensitive fields. Set `AUTOPOIESIS_REQUIRE_STREAM_POLLING=1` when staging must prove backend-provided poll cadence before device rollout.
 
 Validate the hosted cache/offline contract before enabling cache-management UI or production offline fallback:
 

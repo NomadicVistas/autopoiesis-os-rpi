@@ -1,5 +1,14 @@
 # Pulse Agent Notes
 
+## 2026-06-07 - Feed polling metadata contract
+
+Date/time: 2026-06-07 02:25 UTC / 2026-06-07 04:25 Europe/Berlin
+Agent: Pulse
+Context: BROADCAST / FEED cron pass. Local mixed-stream targeting, priority, expiry, cache eligibility, and broadcast display evidence were already gated, but hosted stream polling cadence was still implicit.
+What changed: Added device-side normalization for redacted stream polling/freshness hints such as `pollAfterSeconds`, `minPollSeconds`, `maxPollSeconds`, `nextPollAt`, and `staleAfter`. The hints now surface through `POST /local/feed/sync`, `GET /local/feed`, local diagnostics/support, and `feed_synced` delivery evidence. Tightened `scripts/stream-contract-check.sh` with optional `AUTOPOIESIS_REQUIRE_STREAM_POLLING=1`, and extended `scripts/feed-targeting-check.sh` to prove cadence preservation.
+What needs review: Hosted staging should decide the canonical cadence field location, preferably `stream.polling`, and include it in stream fixtures before strict device rollout.
+Next recommended action: Generate a live stream response with `stream.polling`, run `AUTOPOIESIS_REQUIRE_STREAM_POLLING=1 ./scripts/stream-contract-check.sh`, then use local diagnostics to confirm the Pi reports the same freshness policy after sync.
+
 ## 2026-06-07 - Hosted profile ownership contract gate
 
 Date/time: 2026-06-07 02:15 UTC / 2026-06-07 04:15 Europe/Berlin

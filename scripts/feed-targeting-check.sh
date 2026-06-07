@@ -214,7 +214,18 @@ http.createServer((req, res) => {
       ok: true,
       schemaVersion: 1,
       generatedAt: "2026-06-06T14:25:00.000Z",
-      stream: { profile: "living-stream", source: "targeting-check" },
+      stream: {
+        profile: "living-stream",
+        source: "targeting-check",
+        polling: {
+          pollAfterSeconds: 900,
+          minPollSeconds: 300,
+          maxPollSeconds: 3600,
+          nextPollAt: "2026-06-06T14:40:00.000Z",
+          staleAfter: "2026-06-06T15:25:00.000Z",
+          reason: "targeting-check"
+        }
+      },
       items: streamItems(),
       broadcasts: [
         {
@@ -269,6 +280,7 @@ curl -fsS "$BASE_URL/local/status" >/dev/null || fail "local UI did not start"
 
 curl -fsS -X POST "$BASE_URL/local/feed/sync" >"$TMP_DIR/sync.json" || fail "feed sync failed"
 curl -fsS "$BASE_URL/local/feed" >"$TMP_DIR/feed.json" || fail "local feed request failed"
+curl -fsS "$BASE_URL/local/diagnostics" >"$TMP_DIR/diagnostics.json" || fail "diagnostics request failed"
 curl -fsS "$BASE_URL/local/frame-state" >"$TMP_DIR/frame-state.json" || fail "frame-state request failed"
 curl -fsS -X POST -H "content-type: application/json" -d '{"itemId":"broadcast-device-ok"}' "$BASE_URL/local/frame/display" >"$TMP_DIR/display.json" || fail "broadcast display acknowledgement failed"
 curl -fsS "$BASE_URL/local/delivery-log?limit=10" >"$TMP_DIR/delivery.json" || fail "delivery-log request failed"
@@ -283,11 +295,12 @@ if [[ ! -f "$TMP_DIR/data/feed-cache.json" ]]; then
   fail "feed cache manifest was not written"
 fi
 
-node - "$TMP_DIR/sync.json" "$TMP_DIR/feed.json" "$TMP_DIR/frame-state.json" "$TMP_DIR/display.json" "$TMP_DIR/delivery.json" "$TMP_DIR/events.json" "$TMP_DIR/data/feed-cache.json" <<'NODE'
+node - "$TMP_DIR/sync.json" "$TMP_DIR/feed.json" "$TMP_DIR/diagnostics.json" "$TMP_DIR/frame-state.json" "$TMP_DIR/display.json" "$TMP_DIR/delivery.json" "$TMP_DIR/events.json" "$TMP_DIR/data/feed-cache.json" <<'NODE'
 const fs = require("fs");
-const [syncPath, feedPath, framePath, displayPath, deliveryPath, eventsPath, cachePath] = process.argv.slice(2);
+const [syncPath, feedPath, diagnosticsPath, framePath, displayPath, deliveryPath, eventsPath, cachePath] = process.argv.slice(2);
 const sync = JSON.parse(fs.readFileSync(syncPath, "utf8"));
 const feed = JSON.parse(fs.readFileSync(feedPath, "utf8"));
+const diagnostics = JSON.parse(fs.readFileSync(diagnosticsPath, "utf8"));
 const frame = JSON.parse(fs.readFileSync(framePath, "utf8"));
 const display = JSON.parse(fs.readFileSync(displayPath, "utf8"));
 const delivery = JSON.parse(fs.readFileSync(deliveryPath, "utf8"));
@@ -320,6 +333,15 @@ const expectedHidden = [
 
 if (sync.endpoint !== "stream") fail("feed sync did not use stream endpoint");
 if (sync.totalItems !== 14) fail("unexpected normalized item count: " + sync.totalItems);
+if (!sync.polling || sync.polling.pollAfterSeconds !== 900 || sync.polling.nextPollAt !== "2026-06-06T14:40:00.000Z") {
+  fail("feed sync response did not preserve stream polling cadence");
+}
+if (!feed.polling || feed.polling.minPollSeconds !== 300 || feed.polling.maxPollSeconds !== 3600) {
+  fail("public local feed did not expose redacted stream polling bounds");
+}
+if (!diagnostics.diagnostics || !diagnostics.diagnostics.feed || !diagnostics.diagnostics.feed.polling || diagnostics.diagnostics.feed.polling.staleAfter !== "2026-06-06T15:25:00.000Z") {
+  fail("diagnostics did not include stream polling freshness metadata");
+}
 for (const id of expectedVisible) {
   if (!visibleIds.has(id)) fail("expected targeted item missing: " + id);
 }
@@ -345,6 +367,9 @@ if (cacheIds.has("art-device-blocked") || cacheIds.has("art-expired") || cacheId
 
 const synced = delivery.entries.find(entry => entry.eventType === "feed_synced");
 if (!synced) fail("delivery log missed feed_synced event");
+if (synced.pollAfterSeconds !== 900 || synced.nextPollAt !== "2026-06-06T14:40:00.000Z") {
+  fail("feed_synced delivery evidence did not include polling cadence");
+}
 if (!synced.categories || synced.categories.broadcast !== 1 || synced.categories.artwork !== 2) {
   fail("feed_synced category counts did not reflect eligible mixed stream");
 }
@@ -358,4 +383,4 @@ if (!exported) fail("events export did not expose mixed-stream broadcast_shown e
 if (exported.itemSource !== "broadcast") fail("mixed-stream broadcast event did not preserve broadcast source");
 NODE
 
-echo "feed targeting check passed: local stream targeting, expiry/start filtering, priority order, public redaction, broadcast display evidence, and cache eligibility are coherent"
+echo "feed targeting check passed: local stream targeting, expiry/start filtering, priority order, polling metadata, public redaction, broadcast display evidence, and cache eligibility are coherent"

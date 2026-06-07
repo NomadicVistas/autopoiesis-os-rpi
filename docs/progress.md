@@ -1,5 +1,44 @@
 # Progress
 
+## 2026-06-07 - Feed polling metadata contract
+
+Date: 2026-06-07
+
+Milestone: BROADCAST / FEED - stream polling/freshness readiness
+
+Changed files:
+
+- `local-ui/server.js`
+- `scripts/stream-contract-check.sh`
+- `scripts/feed-targeting-check.sh`
+- `README.md`
+- `docs/api-contract.md`
+- `docs/agent-notes/pulse.md`
+- `docs/progress.md`
+- `/data/.openclaw/workspace/autopoiesis-os-program/ROLLING-LOG.md`
+
+Implemented:
+
+- Added local normalization for hosted stream polling/freshness hints from root `polling`/`refresh` fields or `stream.polling`.
+- Preserved redacted cadence fields in the normalized local feed: `pollAfterSeconds`, `minPollSeconds`, `maxPollSeconds`, `nextPollAt`, `staleAfter`, and a short reason.
+- Exposed polling metadata through `POST /local/feed/sync`, `GET /local/feed`, local diagnostics/support, and metadata-only `feed_synced` delivery evidence.
+- Tightened `scripts/stream-contract-check.sh` with optional `AUTOPOIESIS_REQUIRE_STREAM_POLLING=1` validation for hosted stream cadence fixtures.
+- Extended `scripts/feed-targeting-check.sh` to prove mock stream polling cadence survives sync, public feed redaction, diagnostics, and delivery logging.
+
+Verification:
+
+- `scripts/feed-targeting-check.sh` passed.
+- `AUTOPOIESIS_REQUIRE_STREAM_POLLING=1 scripts/stream-contract-check.sh` passed against a representative stream fixture with `stream.polling`.
+- `AUTOPOIESIS_REQUIRE_STREAM_POLLING=1 scripts/stream-contract-check.sh` rejected a stream fixture with no polling cadence.
+- `node --check local-ui/server.js` passed.
+- `bash -n install.sh update.sh uninstall-dev-tools.sh factory-reset.sh scripts/*.sh` passed.
+- `git diff --check` passed.
+- `scripts/security-smoke.sh` passed.
+
+Next step:
+
+Generate the hosted stream response from staging with canonical `stream.polling` metadata and run the strict stream gate before treating live feed polling cadence as ready for Pi rollout.
+
 ## 2026-06-07 - Hosted profile ownership contract
 
 Date: 2026-06-07

@@ -1217,6 +1217,91 @@ function arrayValue(value) {
   return [];
 }
 
+function numberOrNull(value) {
+  const number = Number(value);
+  return Number.isFinite(number) ? number : null;
+}
+
+function pollingSeconds(...values) {
+  for (const value of values) {
+    const number = numberOrNull(value);
+    if (number === null || number <= 0) continue;
+    return Math.round(Math.min(Math.max(number, 5), 86400));
+  }
+  return null;
+}
+
+function normalizePollingPayload(payload = {}) {
+  const stream = payload.stream && typeof payload.stream === "object" ? payload.stream : {};
+  const polling = payload.polling || payload.poll || payload.refresh || stream.polling || stream.poll || stream.refresh || {};
+  const pollAfterSeconds = pollingSeconds(
+    payload.pollAfterSeconds,
+    payload.poll_after_seconds,
+    payload.refreshAfterSeconds,
+    payload.refresh_after_seconds,
+    stream.pollAfterSeconds,
+    stream.poll_after_seconds,
+    stream.refreshAfterSeconds,
+    stream.refresh_after_seconds,
+    stream.pollIntervalSeconds,
+    stream.poll_interval_seconds,
+    polling.pollAfterSeconds,
+    polling.poll_after_seconds,
+    polling.refreshAfterSeconds,
+    polling.refresh_after_seconds,
+    polling.intervalSeconds,
+    polling.interval_seconds,
+    polling.seconds,
+    polling.ms ? Number(polling.ms) / 1000 : null,
+    polling.intervalMs ? Number(polling.intervalMs) / 1000 : null,
+    polling.interval_ms ? Number(polling.interval_ms) / 1000 : null
+  );
+  const minPollSeconds = pollingSeconds(
+    polling.minPollSeconds,
+    polling.min_poll_seconds,
+    polling.minSeconds,
+    polling.min_seconds,
+    stream.minPollSeconds,
+    stream.min_poll_seconds
+  );
+  const maxPollSeconds = pollingSeconds(
+    polling.maxPollSeconds,
+    polling.max_poll_seconds,
+    polling.maxSeconds,
+    polling.max_seconds,
+    stream.maxPollSeconds,
+    stream.max_poll_seconds
+  );
+  const nextPollAt = [
+    payload.nextPollAt,
+    payload.next_poll_at,
+    stream.nextPollAt,
+    stream.next_poll_at,
+    polling.nextPollAt,
+    polling.next_poll_at,
+    polling.at
+  ].find(value => parseTimestamp(value) !== null) || null;
+  const staleAfter = [
+    payload.staleAfter,
+    payload.stale_after,
+    stream.staleAfter,
+    stream.stale_after,
+    polling.staleAfter,
+    polling.stale_after
+  ].find(value => parseTimestamp(value) !== null) || null;
+  const reason = typeof polling.reason === "string" && polling.reason.trim() ? polling.reason.trim().slice(0, 80) : null;
+
+  if (!pollAfterSeconds && !minPollSeconds && !maxPollSeconds && !nextPollAt && !staleAfter && !reason) return null;
+  return {
+    pollAfterSeconds,
+    minPollSeconds,
+    maxPollSeconds,
+    nextPollAt,
+    staleAfter,
+    reason
+  };
+}
+
 function normalizeFeedPayload(payload = {}) {
   const now = new Date().toISOString();
   const feedItems = arrayValue(payload.feed || payload.items || payload.artworks);
@@ -1228,6 +1313,7 @@ function normalizeFeedPayload(payload = {}) {
   return {
     syncedAt: now,
     source: payload.source || "remote",
+    polling: normalizePollingPayload(payload),
     items
   };
 }
@@ -1326,6 +1412,8 @@ function writeFeedState(feed) {
     eligibleItems: displayQueue.length,
     cacheEligibleItems: cacheItems.length,
     categories: feedCategoryCounts(displayQueue),
+    pollAfterSeconds: feed.polling ? feed.polling.pollAfterSeconds || null : null,
+    nextPollAt: feed.polling ? feed.polling.nextPollAt || null : null,
     syncedAt: feed.syncedAt || null
   });
 }
@@ -1339,6 +1427,7 @@ function publicFeed() {
   return {
     ok: true,
     syncedAt: feed.syncedAt || null,
+    polling: feed.polling || null,
     totalItems: (feed.items || []).length,
     eligibleItems: items.length,
     cacheEligibleItems: cache.count || 0,
@@ -1684,6 +1773,7 @@ async function syncFeedFromRemote() {
     endpoint,
     fallbackReason,
     syncedAt: feed.syncedAt,
+    polling: feed.polling || null,
     totalItems: feed.items.length,
     eligibleItems: eligibleFeedItems(feed, preferences).length
   };
@@ -2360,6 +2450,7 @@ async function collectDiagnostics(options = {}) {
     framePlayback: frameState.playback,
     feed: {
       syncedAt: feed.syncedAt || null,
+      polling: feed.polling || null,
       totalItems: Array.isArray(feed.items) ? feed.items.length : 0,
       eligibleItems: eligibleFeedItems(feed, data.preferences).length,
       displayQueueItems: mixedFeedQueue(feed, data.preferences).length,

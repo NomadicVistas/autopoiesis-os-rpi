@@ -3,6 +3,7 @@ set -euo pipefail
 
 SOURCE="${1:-${AUTOPOIESIS_STREAM_CONTRACT_SOURCE:-}}"
 REQUIRE_ITEMS="${AUTOPOIESIS_REQUIRE_STREAM_ITEMS:-1}"
+REQUIRE_POLLING="${AUTOPOIESIS_REQUIRE_STREAM_POLLING:-0}"
 TMP_FILE=""
 
 cleanup() {
@@ -27,6 +28,7 @@ Environment:
   AUTOPOIESIS_STREAM_CONTRACT_SOURCE   default file or URL when no argument is passed
   AUTOPOIESIS_STREAM_CONTRACT_TOKEN    optional bearer token for URL checks
   AUTOPOIESIS_REQUIRE_STREAM_ITEMS     require at least one stream item, default 1
+  AUTOPOIESIS_REQUIRE_STREAM_POLLING   require polling/refresh cadence metadata, default 0
 EOF
 }
 
@@ -47,11 +49,12 @@ fi
 
 [[ -f "$SOURCE" ]] || fail "stream response file not found: $SOURCE"
 
-node - "$SOURCE" "$REQUIRE_ITEMS" <<'NODE'
+node - "$SOURCE" "$REQUIRE_ITEMS" "$REQUIRE_POLLING" <<'NODE'
 const fs = require("fs");
 
 const file = process.argv[2];
 const requireItems = process.argv[3] !== "0";
+const requirePolling = process.argv[4] === "1";
 const forbiddenPatterns = [
   /deviceApiKey/i,
   /pairingCodeHash/i,
@@ -118,6 +121,61 @@ function validateTargeting(targeting, field) {
   if (unknown.length) fail(field + " contains unsupported targeting keys: " + unknown.join(", "));
 }
 
+function firstPresent(...values) {
+  return values.find(value => value !== undefined && value !== null && value !== "");
+}
+
+function pollingSeconds(value, field) {
+  if (value === undefined || value === null || value === "") return null;
+  const number = Number(value);
+  if (!Number.isFinite(number)) fail(field + " must be numeric when present");
+  if (number <= 0) fail(field + " must be greater than zero");
+  if (number < 5) fail(field + " must be at least 5 seconds");
+  if (number > 86400) fail(field + " must be at most 86400 seconds");
+  return number;
+}
+
+function validatePolling(payload) {
+  const stream = isObject(payload.stream) ? payload.stream : {};
+  const polling = payload.polling || payload.poll || payload.refresh || stream.polling || stream.poll || stream.refresh || null;
+  const source = isObject(polling) ? polling : {};
+  const pollAfterSeconds = firstPresent(
+    payload.pollAfterSeconds,
+    payload.poll_after_seconds,
+    payload.refreshAfterSeconds,
+    payload.refresh_after_seconds,
+    stream.pollAfterSeconds,
+    stream.poll_after_seconds,
+    stream.refreshAfterSeconds,
+    stream.refresh_after_seconds,
+    stream.pollIntervalSeconds,
+    stream.poll_interval_seconds,
+    source.pollAfterSeconds,
+    source.poll_after_seconds,
+    source.refreshAfterSeconds,
+    source.refresh_after_seconds,
+    source.intervalSeconds,
+    source.interval_seconds,
+    source.seconds
+  );
+  const intervalMs = firstPresent(source.ms, source.intervalMs, source.interval_ms);
+  const normalizedPollAfter = pollAfterSeconds !== undefined ? pollingSeconds(pollAfterSeconds, "polling.pollAfterSeconds") : null;
+  if (intervalMs !== undefined) pollingSeconds(Number(intervalMs) / 1000, "polling.intervalMs");
+  pollingSeconds(firstPresent(source.minPollSeconds, source.min_poll_seconds, source.minSeconds, source.min_seconds, stream.minPollSeconds, stream.min_poll_seconds), "polling.minPollSeconds");
+  pollingSeconds(firstPresent(source.maxPollSeconds, source.max_poll_seconds, source.maxSeconds, source.max_seconds, stream.maxPollSeconds, stream.max_poll_seconds), "polling.maxPollSeconds");
+  optionalIso(firstPresent(payload.nextPollAt, payload.next_poll_at, stream.nextPollAt, stream.next_poll_at, source.nextPollAt, source.next_poll_at, source.at), "polling.nextPollAt");
+  optionalIso(firstPresent(payload.staleAfter, payload.stale_after, stream.staleAfter, stream.stale_after, source.staleAfter, source.stale_after), "polling.staleAfter");
+  if (source.reason !== undefined && source.reason !== null && typeof source.reason !== "string") fail("polling.reason must be a string when present");
+  const hasPolling = Boolean(
+    normalizedPollAfter ||
+      intervalMs !== undefined ||
+      firstPresent(payload.nextPollAt, payload.next_poll_at, stream.nextPollAt, stream.next_poll_at, source.nextPollAt, source.next_poll_at, source.at) ||
+      firstPresent(payload.staleAfter, payload.stale_after, stream.staleAfter, stream.stale_after, source.staleAfter, source.stale_after)
+  );
+  if (requirePolling && !hasPolling) fail("polling cadence metadata is required");
+  return hasPolling;
+}
+
 let payload;
 try {
   payload = JSON.parse(fs.readFileSync(file, "utf8"));
@@ -137,6 +195,7 @@ if (!validIso(payload.generatedAt)) fail("generatedAt is missing or invalid");
 if (!isObject(payload.stream)) fail("stream metadata object is required");
 if (payload.stream.profile !== undefined && typeof payload.stream.profile !== "string") fail("stream.profile must be a string");
 if (payload.stream.source !== undefined && typeof payload.stream.source !== "string") fail("stream.source must be a string");
+const hasPolling = validatePolling(payload);
 if (!Array.isArray(payload.items)) fail("items must be an array");
 if (requireItems && payload.items.length === 0) fail("items must not be empty");
 
@@ -204,6 +263,7 @@ console.log(
   "stream contract ok: items=" + payload.items.length +
     " playable=" + playable +
     " cacheEligible=" + cacheEligible +
+    " polling=" + (hasPolling ? "present" : "absent") +
     " categories=" + JSON.stringify(categoryCounts)
 );
 NODE
