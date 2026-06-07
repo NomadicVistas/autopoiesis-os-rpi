@@ -1,5 +1,42 @@
 # Progress
 
+## 2026-06-07 - Heartbeat runner resilience gate
+
+Date: 2026-06-07
+
+Milestone: RPI APPLIANCE - timer-driven heartbeat reliability
+
+Changed files:
+
+- `scripts/heartbeat.sh`
+- `scripts/heartbeat-runner-check.sh`
+- `scripts/milestone2-verify.sh`
+- `README.md`
+- `docs/installation.md`
+- `docs/troubleshooting.md`
+- `docs/agent-notes/pulse.md`
+- `docs/progress.md`
+- `/data/.openclaw/workspace/autopoiesis-os-program/ROLLING-LOG.md`
+
+Implemented:
+
+- Hardened `scripts/heartbeat.sh` so the systemd heartbeat timer creates its log directory, normalizes the local heartbeat URL, and falls back to `unknown` identity/mode when `device.json` or `state.json` is missing or malformed.
+- Added `scripts/heartbeat-runner-check.sh`, an isolated gate for the timer wrapper that uses a mock `curl` and temporary data/log directories.
+- The gate verifies successful local heartbeat logging, local UI failure logging, URL normalization, and missing/malformed state resilience without touching the hosted Frames API.
+- Wired the gate into Milestone 2 verification before the deeper heartbeat event-ingestion cursor contract.
+
+Verification:
+
+- `scripts/heartbeat-runner-check.sh` passed.
+- `node --check local-ui/server.js` passed.
+- `bash -n install.sh update.sh uninstall-dev-tools.sh factory-reset.sh scripts/*.sh` passed.
+- `git diff --check` passed.
+- `scripts/security-smoke.sh` passed.
+
+Next step:
+
+Run full Milestone 2 on physical Pi hardware and inspect `/var/log/autopoiesis-os/heartbeat.log` plus `heartbeat-error.log` after boot, pairing, and one forced local UI outage.
+
 ## 2026-06-07 - Hosted suite manifest integration
 
 Date: 2026-06-07

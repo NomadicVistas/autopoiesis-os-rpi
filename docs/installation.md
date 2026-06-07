@@ -59,7 +59,9 @@ sudo /opt/autopoiesis-os/app/scripts/milestone2-verify.sh
 
 This checks that the setup service is active, the kiosk service is active, the
 systemd unit renderer preserves configured appliance paths/users, the local
-launcher responds, runtime data/cache/log paths are writable, Chromium is
+launcher responds, runtime data/cache/log paths are writable, the heartbeat
+timer wrapper tolerates missing pre-pairing state and records local UI failures,
+Chromium is
 running with the expected kiosk flags, Linux sees a touchscreen-class input
 device, NetworkManager reports device state, and both services restart cleanly.
 

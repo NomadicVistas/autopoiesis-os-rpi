@@ -1,5 +1,14 @@
 # Pulse Agent Notes
 
+## 2026-06-07 - Heartbeat runner resilience gate
+
+Date/time: 2026-06-07 04:35 UTC / 2026-06-07 06:35 Europe/Berlin
+Agent: Pulse
+Context: RPI APPLIANCE cron pass. The heartbeat service was timer-managed, and local heartbeat/event-ingestion behavior had deeper mock API checks, but the shell wrapper itself could still exit before logging if pre-pairing JSON state was missing or malformed.
+What changed: Hardened `scripts/heartbeat.sh` to create its log directory, normalize `AUTOPOIESIS_LOCAL_URL`, and fall back to `unknown` device/mode values on unreadable or invalid JSON. Added `scripts/heartbeat-runner-check.sh` to prove success logging, local UI failure logging, URL normalization, and damaged-state resilience with a fake `curl`. Wired it into Milestone 2 before the event-ingestion cursor check.
+What needs review: Run this on the physical Pi after boot and after pairing. The isolated gate proves wrapper behavior, but hardware still needs confirmation that the real systemd timer writes logs under the installed appliance user and that local UI outages produce useful `heartbeat-error.log` entries.
+Next recommended action: During physical Milestone 2, force one local UI restart/outage and confirm the next timer tick records the failure without disabling the heartbeat loop.
+
 ## 2026-06-07 - Hosted suite manifest integration
 
 Date/time: 2026-06-07 04:15 UTC / 2026-06-07 06:15 Europe/Berlin

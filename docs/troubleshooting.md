@@ -153,6 +153,16 @@ systemctl list-timers 'autopoiesis-*'
 
 The timer check is part of Milestone 2 physical Pi verification. It fails if the heartbeat, command executor, cache, updater, or watchdog timer is not enabled and active; those loops are what keep pairing, sync, remote commands, offline cache, release checks, and watchdog recovery alive after boot.
 
+For the heartbeat timer wrapper itself:
+
+```bash
+/opt/autopoiesis-os/app/scripts/heartbeat-runner-check.sh
+tail -n 50 /var/log/autopoiesis-os/heartbeat.log
+tail -n 50 /var/log/autopoiesis-os/heartbeat-error.log
+```
+
+The isolated check does not contact the hosted Frames API. It proves the wrapper writes its log directory, normalizes the local heartbeat URL, posts to the local UI, records local UI failures in `heartbeat-error.log`, and falls back to `unknown` identity/mode instead of crashing when pre-pairing JSON state is missing or malformed.
+
 For clock/NTP state:
 
 ```bash

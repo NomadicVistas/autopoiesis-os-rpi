@@ -108,6 +108,7 @@ echo "12. Local event export contract"
 
 echo
 echo "13. Heartbeat event ingestion cursor contract"
+"$(dirname "$0")/heartbeat-runner-check.sh"
 "$(dirname "$0")/events-ingestion-check.sh"
 
 echo
