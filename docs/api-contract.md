@@ -257,6 +257,7 @@ Profile/Admin bundle validation:
 - GET /api/admin/frames/remote-actions
 - Optional adapter endpoint: GET /api/admin/frames/online-admin-bundle
 - Optional adapter endpoint: GET /api/admin/frames/broadcast-contract-bundle
+- Optional adapter endpoint: GET /api/admin/frames/release-rollout-contract-bundle
 
 `scripts/online-admin-contract-check.sh` validates a saved or live bundle assembled from the online Profile > Frames and Admin > Frames surfaces. The bundle is intentionally a contract fixture, not a required production endpoint; the optional adapter endpoint can assemble the same shape for staging and CI.
 
@@ -386,10 +387,9 @@ Durable migration gate:
 
 Hosted integration suite:
 
-- `scripts/hosted-contract-suite-check.sh` runs the hosted migration, schema, pairing, device-auth, heartbeat, stream, online-admin, and release gates in dependency order.
-- `scripts/hosted-contract-suite-check.sh` also runs the hosted broadcast lifecycle gate before release validation when `AUTOPOIESIS_BROADCAST_CONTRACT_SOURCE` is provided.
+- `scripts/hosted-contract-suite-check.sh` runs the hosted migration, schema, pairing, device-auth, settings, heartbeat, stream, cache/offline, online-admin, broadcast, release, and release-rollout gates in dependency order.
 - Use `--strict` for staging or CI jobs that must provide every source before physical Pi acceptance.
-- Use `AUTOPOIESIS_HOSTED_CONTRACT_REQUIRE=migrations,schema,pairing,device-auth,heartbeat,stream,online-admin,broadcast,release` when a partial job should require only selected gates while still running any other provided sources.
+- Use `AUTOPOIESIS_HOSTED_CONTRACT_REQUIRE=migrations,schema,pairing,device-auth,settings,heartbeat,stream,cache,online-admin,broadcast,release,release-rollout` when a partial job should require only selected gates while still running any other provided sources.
 - The suite does not invent or fetch endpoints by itself; CI/staging should pass saved fixtures or live URLs through the existing `AUTOPOIESIS_*_SOURCE` variables.
 
 Release manifest validation:
@@ -401,6 +401,16 @@ Release manifest validation:
 - Artifact URLs must use HTTPS by default and must not point at localhost. Local testing may opt in with `AUTOPOIESIS_RELEASE_ALLOW_INSECURE_URLS=1`.
 - Release manifests must not expose device API keys, pairing-code hashes, private/admin tokens, secrets, passwords, local appliance paths, artifact checksums in public local support endpoints, or raw updater stdout/stderr.
 - `scripts/update-from-release.sh` runs the manifest check before it writes rollback metadata, downloads artifacts, or fast-forwards git. Strict production gates can set `AUTOPOIESIS_RELEASE_REQUIRE_CHANNEL=1`, `AUTOPOIESIS_RELEASE_REQUIRE_TAG=1`, `AUTOPOIESIS_RELEASE_REQUIRE_ARTIFACT=1`, and `AUTOPOIESIS_RELEASE_REQUIRE_ROLLBACK_NOTES=1`.
+
+Hosted release rollout contract:
+
+- Optional adapter endpoint: GET /api/admin/frames/release-rollout-contract-bundle
+- `scripts/release-rollout-contract-check.sh` validates read-only staging/CI evidence that Admin > Frames update rollout state is backed by durable rows, not inferred from a manifest alone.
+- The bundle root may use `kind: "autopoiesis_frames_release_rollout_contract"` and `schemaVersion: 1`, and should include `releases`, `rollouts`, `commands`, optional `adminAudits`, and `deviceEvents`.
+- Release rows must include stable ids, semantic versions, recognized channels/statuses, and optional rollout percentage. Per-device rollout rows must reference known releases, name device ids, match the target release version, and expose terminal progress or failure evidence for strict readiness.
+- Queued `update_device` command rows must reference known release/rollout evidence and include approved authorization metadata with `action: "update_device"`, accepted actor role, timestamp, and audit id.
+- Device event rows must come from the `release_history` source, carry stable `eventKey` values for idempotent `deviceId + eventKey` ingestion, and reference known releases/rollouts when those ids are present.
+- The checker rejects unknown release/rollout references, duplicate ids/event keys, missing update authorization, bundles without rollout progress, and sensitive/local-only fields including device credentials, tokens, artifact URLs, checksums, raw command payload hints, and appliance paths.
 
 Commands:
 
@@ -444,7 +454,7 @@ Online admin backend behavior:
 - The queued command payload includes `payload.authorization` with `approved`, `action`, `actorId`, `actorRole`, `authorizedAt`, and `auditId` for medium/high/critical commands.
 - `show_broadcast` and `update_device` commands created by admin broadcast/release endpoints use the same authorization/audit path as direct device commands.
 - Device acknowledgement updates the matching backend audit row status so Admin > Frames can show queued/acknowledged/completed/error state from durable `aos_` data.
-- Heartbeat `events` ingestion into broadcast delivery and release rollout rows remains a separate follow-up from command queue authorization.
+- Heartbeat `events` ingestion into broadcast delivery and release rollout rows should be proven with the broadcast and release-rollout contract gates before enabling broad Admin > Frames fleet actions.
 
 Local command audit:
 

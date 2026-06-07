@@ -47,7 +47,7 @@ Milestone 2 is scaffolded for physical Pi validation. The local UI can:
 - expose a metadata-only `/local/release/history` trail for local release check/apply outcomes
 - verify command-delivered broadcasts for targeting, scheduling, display-time delivery logs, dismissal, expiry, and acknowledgements
 - validate release manifests for channel/tag/artifact/checksum/rollback metadata before an update mutates app code
-- run the hosted contract suite for migration, schema, pairing, device-auth, settings conflict, heartbeat, stream, online-admin, broadcast, and release readiness before physical Pi testing
+- run the hosted contract suite for migration, schema, pairing, device-auth, settings conflict, heartbeat, stream, online-admin, broadcast, release, and rollout readiness before physical Pi testing
 - verify the unified local event export contract for backend/admin ingestion readiness
 - verify heartbeat event ingestion cursor acknowledgements, replay overlap, stale ack rejection, and diagnostics/support visibility
 - run a local security smoke test that checks device API key redaction and tracked secret hygiene
@@ -324,10 +324,11 @@ AUTOPOIESIS_CACHE_CONTRACT_SOURCE=/path/to/cache-contract-bundle.json \
 AUTOPOIESIS_ONLINE_ADMIN_CONTRACT_SOURCE=/path/to/online-admin-bundle.json \
 AUTOPOIESIS_BROADCAST_CONTRACT_SOURCE=/path/to/broadcast-contract-bundle.json \
 AUTOPOIESIS_RELEASE_MANIFEST_SOURCE=/path/to/release.json \
+AUTOPOIESIS_RELEASE_ROLLOUT_CONTRACT_SOURCE=/path/to/release-rollout-contract-bundle.json \
 ./scripts/hosted-contract-suite-check.sh --strict
 ```
 
-The suite runs the existing hosted gates in dependency order: migrations, final schema, pairing, device auth, settings conflict, heartbeat, stream, cache/offline, online admin, broadcast lifecycle, then release manifest. In non-strict mode it runs every provided source and fails only if a gate named in `AUTOPOIESIS_HOSTED_CONTRACT_REQUIRE` is missing. Individual token and strictness variables are passed through to the underlying checkers unchanged.
+The suite runs the existing hosted gates in dependency order: migrations, final schema, pairing, device auth, settings conflict, heartbeat, stream, cache/offline, online admin, broadcast lifecycle, release manifest, then hosted release rollout evidence. In non-strict mode it runs every provided source and fails only if a gate named in `AUTOPOIESIS_HOSTED_CONTRACT_REQUIRE` is missing. Individual token and strictness variables are passed through to the underlying checkers unchanged.
 
 Validate the hosted broadcast lifecycle before treating Admin > Frames broadcasts as rollout-ready:
 
@@ -346,6 +347,15 @@ AUTOPOIESIS_RELEASE_CHANNEL=stable AUTOPOIESIS_RELEASE_REQUIRE_CHANNEL=1 AUTOPOI
 ```
 
 The updater runs this check automatically before applying `/local/release/apply` or an `update_device` command. Artifact releases must use HTTPS and include a SHA-256 checksum unless explicitly overridden for local testing. Strict rollout can require channel, GitHub tag, and rollback notes before a production device accepts an update.
+
+Validate hosted release rollout evidence before treating Admin > Frames updates as rollout-ready:
+
+```bash
+./scripts/release-rollout-contract-check.sh /path/to/release-rollout-contract-bundle.json
+AUTOPOIESIS_RELEASE_ROLLOUT_CONTRACT_TOKEN="$TOKEN" ./scripts/release-rollout-contract-check.sh "https://autopoiesis.art/api/admin/frames/release-rollout-contract-bundle"
+```
+
+The release rollout contract bundle is read-only staging/CI evidence for durable software release rows, per-device rollout rows, queued `update_device` commands, admin audit metadata, and heartbeat-ingested `release_history` events. The checker validates version/channel/status consistency, command authorization and audit ids, rollout progress or failure rows, release-history event idempotency, unknown references, and redaction of device keys, tokens, artifact URLs, checksums, command payloads, and local appliance paths.
 
 Check defensive feed targeting and cache eligibility:
 

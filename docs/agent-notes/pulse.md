@@ -621,6 +621,15 @@ What changed: Added `scripts/command-ack-retry-check.sh`, wired it into Mileston
 What needs review: Backend command acknowledgement handlers should be idempotent for repeated final `completed`/`error` statuses and should expose last ack failure/timestamp in Admin > Frames.
 Next recommended action: Add the same command ack retry cases to hosted backend tests once durable command rows are isolated from the dirty main gallery checkout.
 
+## 2026-06-07 - Hosted release rollout contract gate
+
+Date/time: 2026-06-07 01:15 UTC / 2026-06-07 03:15 Europe/Berlin
+Agent: Pulse
+Context: LEAD / INTEGRATION cron pass. Release manifests and local rollout acceptance were covered, but hosted Admin > Frames still needed one durable evidence gate tying release rows, per-device rollout rows, update commands, admin audits, and heartbeat-ingested release history together.
+What changed: Added `scripts/release-rollout-contract-check.sh` and wired `release-rollout` into `scripts/hosted-contract-suite-check.sh` after the release manifest gate. Added backend handoff docs for a read-only release-rollout contract bundle.
+What needs review: Hosted staging should generate this bundle from `aos_software_releases`, `aos_release_rollouts`, `aos_device_commands`, `aos_admin_command_audits`, and `aos_device_events` projections.
+Next recommended action: Run the strict hosted suite with both release manifest and release-rollout sources before enabling broad Admin > Frames update controls.
+
 
 ## 2026-06-06 - Hosted pairing contract gate
 

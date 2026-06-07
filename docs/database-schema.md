@@ -117,6 +117,7 @@ Profile/Admin contract notes:
 - `scripts/cache-contract-check.sh` expects the hosted cache/offline bundle to join explicit cache preferences from `aos_frame_user_preferences`/`aos_frame_device_settings`, cache-eligible stream rows from durable content/broadcast sources, and ingested device cache summaries from heartbeat/support data. The bundle must expose HTTP(S) candidate URLs and compact counts only, never local cache paths or stored device credentials.
 - `scripts/online-admin-contract-check.sh` expects the hosted Profile > Frames surface to derive owned devices from `aos_frame_devices`, user preferences from `aos_frame_user_preferences`, liked artworks from the canonical artwork-like table or an `aos_` mirror, active artists from canonical artist rows plus preference selections, explicit cache preferences from user/device settings, and per-device action availability from the same authorization/device-state evaluator used by Admin > Frames.
 - The Admin > Frames portion should derive users, subscribers, subscriptions, fleet devices, global remote action policies, and target-specific action availability from durable `aos_` rows plus the canonical account/subscription models.
+- `scripts/release-rollout-contract-check.sh` expects hosted release rollout evidence to join `aos_software_releases`, per-device `aos_release_rollouts`, `aos_device_commands`/`aos_admin_command_audits`, and heartbeat-ingested `release_history` rows from `aos_device_events`. It should prove update commands and release-history projections point at known release/rollout rows before broad Admin > Frames updates are enabled.
 - The contract intentionally rejects stored device API keys, pairing-code hashes, private tokens, secrets, passwords, and local Pi filesystem paths.
 
 ### ContentFeedItem
@@ -263,6 +264,23 @@ Migration contract gate:
 - minimumVersion
 - status
 - createdAt
+
+### ReleaseRollout
+
+- id
+- releaseId
+- deviceId
+- currentVersion
+- targetVersion
+- status
+- commandId
+- queuedAt
+- startedAt
+- completedAt
+- failedAt
+- rolledBackAt
+- failureReason
+- lastSeenAt
 
 ## Conflict Rule
 

@@ -15,7 +15,7 @@ Usage:
 
 Environment:
   AUTOPOIESIS_HOSTED_CONTRACT_REQUIRE       comma-separated required gates
-                                            migrations,schema,pairing,device-auth,settings,heartbeat,stream,cache,online-admin,broadcast,release
+                                            migrations,schema,pairing,device-auth,settings,heartbeat,stream,cache,online-admin,broadcast,release,release-rollout
   AUTOPOIESIS_AOS_MIGRATION_CONTRACT_SOURCE migration directory or manifest
   AUTOPOIESIS_AOS_SCHEMA_CONTRACT_SOURCE    schema JSON or SQLite database
   AUTOPOIESIS_PAIRING_CONTRACT_SOURCE       pairing lifecycle bundle file or URL
@@ -27,6 +27,7 @@ Environment:
   AUTOPOIESIS_ONLINE_ADMIN_CONTRACT_SOURCE  Profile/Admin bundle file or URL
   AUTOPOIESIS_BROADCAST_CONTRACT_SOURCE     broadcast lifecycle bundle file or URL
   AUTOPOIESIS_RELEASE_MANIFEST_SOURCE       release manifest file or URL
+  AUTOPOIESIS_RELEASE_ROLLOUT_CONTRACT_SOURCE release rollout bundle file or URL
 
 --strict requires every hosted gate source. Otherwise the suite runs all
 provided sources and fails if a gate named in AUTOPOIESIS_HOSTED_CONTRACT_REQUIRE
@@ -51,13 +52,14 @@ normalize_gate_name() {
     admin|online-admin|online_admin|online-admin-contract|online_admin_contract) echo "online-admin" ;;
     broadcast|broadcasts|broadcast-contract|broadcast_contract) echo "broadcast" ;;
     release|release-manifest|release_manifest) echo "release" ;;
+    release-rollout|release_rollout|rollout|release-rollout-contract|release_rollout_contract) echo "release-rollout" ;;
     *) echo "$1" ;;
   esac
 }
 
 required_gate_csv() {
   if [[ "$REQUIRE_ALL" == "1" ]]; then
-    echo "migrations,schema,pairing,device-auth,settings,heartbeat,stream,cache,online-admin,broadcast,release"
+    echo "migrations,schema,pairing,device-auth,settings,heartbeat,stream,cache,online-admin,broadcast,release,release-rollout"
   else
     echo "$REQUIRED_LIST"
   fi
@@ -139,6 +141,7 @@ run_gate "cache" "AUTOPOIESIS_CACHE_CONTRACT_SOURCE" "cache-contract-check.sh" "
 run_gate "online-admin" "AUTOPOIESIS_ONLINE_ADMIN_CONTRACT_SOURCE" "online-admin-contract-check.sh" "Hosted Profile/Admin contract"
 run_gate "broadcast" "AUTOPOIESIS_BROADCAST_CONTRACT_SOURCE" "broadcast-contract-check.sh" "Hosted broadcast contract"
 run_gate "release" "AUTOPOIESIS_RELEASE_MANIFEST_SOURCE" "release-manifest-check.sh" "Release manifest contract"
+run_gate "release-rollout" "AUTOPOIESIS_RELEASE_ROLLOUT_CONTRACT_SOURCE" "release-rollout-contract-check.sh" "Hosted release rollout contract"
 
 if [[ "$RAN_COUNT" -eq 0 ]]; then
   usage

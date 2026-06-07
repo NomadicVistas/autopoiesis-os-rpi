@@ -1,5 +1,47 @@
 # Progress
 
+## 2026-06-07 - Hosted release rollout contract
+
+Date: 2026-06-07
+
+Milestone: LEAD / INTEGRATION - release/update rollout readiness
+
+Changed files:
+
+- `scripts/release-rollout-contract-check.sh`
+- `scripts/hosted-contract-suite-check.sh`
+- `README.md`
+- `docs/api-contract.md`
+- `docs/database-schema.md`
+- `docs/agent-notes/backend-release-rollout-contract-issue.md`
+- `docs/agent-notes/hosted-contract-suite-issue.md`
+- `docs/agent-notes/pulse.md`
+- `docs/progress.md`
+- `/data/.openclaw/workspace/autopoiesis-os-program/ROLLING-LOG.md`
+
+Implemented:
+
+- Added `scripts/release-rollout-contract-check.sh`, a read-only saved-bundle/live-URL verifier for hosted Admin > Frames release rollout evidence.
+- The checker validates durable release rows, per-device rollout progress rows, queued `update_device` commands, approved authorization/audit metadata, optional admin audits, heartbeat-ingested `release_history` events, duplicate ids/event keys, unknown references, and redaction of credentials, tokens, artifact URLs, checksums, and local appliance paths.
+- Wired `release-rollout` into `scripts/hosted-contract-suite-check.sh` after release manifest validation so strict hosted readiness now proves both a device-acceptable release manifest and durable rollout/admin evidence.
+- Added a backend handoff note for generating the bundle from `aos_software_releases`, `aos_release_rollouts`, `aos_device_commands`, `aos_admin_command_audits`, and `aos_device_events` projections.
+
+Verification:
+
+- `scripts/release-rollout-contract-check.sh` passed against a representative release/update rollout bundle.
+- `scripts/release-rollout-contract-check.sh` rejected a bundle with an `update_device` command missing authorization metadata.
+- `scripts/release-rollout-contract-check.sh` rejected a rollout row referencing an unknown release id.
+- `scripts/hosted-contract-suite-check.sh` passed with `AUTOPOIESIS_HOSTED_CONTRACT_REQUIRE=release-rollout` and the release-rollout source provided.
+- `scripts/hosted-contract-suite-check.sh` rejected a missing required release-rollout source.
+- `node --check local-ui/server.js` passed.
+- `bash -n install.sh update.sh uninstall-dev-tools.sh factory-reset.sh scripts/*.sh` passed.
+- `git diff --check` passed.
+- `scripts/security-smoke.sh` passed.
+
+Next step:
+
+Generate the release-rollout bundle from hosted staging or CI and run the strict hosted suite with both `AUTOPOIESIS_RELEASE_MANIFEST_SOURCE` and `AUTOPOIESIS_RELEASE_ROLLOUT_CONTRACT_SOURCE` before enabling broad Admin > Frames update controls.
+
 ## 2026-06-07 - Online admin device action availability
 
 Date: 2026-06-07
