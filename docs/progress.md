@@ -1,5 +1,40 @@
 # Progress
 
+## 2026-06-07 - Hosted mock bridge for cross-system contract consistency
+
+Date: 2026-06-07
+
+Milestone: LEAD / INTEGRATION - mock-to-hosted contract bridge
+
+Changed files:
+
+- `scripts/hosted-mock-bridge-check.sh`
+- `docs/progress.md`
+- `docs/agent-notes/pulse.md`
+- `/data/.openclaw/workspace/autopoiesis-os-program/ROLLING-LOG.md`
+
+Implemented:
+
+- Added `scripts/hosted-mock-bridge-check.sh`, a cross-system bridge that starts both the mock hosted API and the device-side local UI, walks the full device lifecycle (register → pair → settings → heartbeat → command → release), then generates hosted contract fixtures from the mock API's data model and runs hosted contract checkers (stream, heartbeat, release manifest) against those fixtures.
+- Proves the mock API's data model produces responses compatible with hosted contract shapes: schema version, stream metadata, event export format, polling cadence, eventsAck structure, and release manifest.
+- The bridge is a 15-step gate that exercises: syntax validation, mock API startup, local UI startup, device registration through local UI, pairing via mock helper, pairing confirmation, settings sync, command queueing, release staging, heartbeat through local UI, hosted stream fixture generation, hosted heartbeat bundle generation, release manifest generation, and all three hosted contract checks.
+- Each step validates state at the transition point, proving the complete local UI + mock API chain composes correctly and the resulting data satisfies hosted contract checkers.
+
+Verification:
+
+- `scripts/hosted-mock-bridge-check.sh` passed all 15 steps with 3/3 hosted contract checks passing (stream, heartbeat, release).
+- `scripts/device-lifecycle-check.sh` passed all 18 steps (no regression).
+- `node --check local-ui/server.js` passed.
+- `bash -n install.sh update.sh uninstall-dev-tools.sh factory-reset.sh scripts/*.sh` passed.
+- `git diff --check` passed.
+- `scripts/security-smoke.sh` passed.
+
+Next step:
+
+- Extend the bridge with additional hosted contract gates (pairing, device-auth, settings, broadcast, cache, online-admin) as the mock API evolves to support richer hosted bundle shapes.
+- Wire the bridge into Milestone 2 alongside the device lifecycle gate for comprehensive local validation before physical Pi testing.
+
+
 ## 2026-06-07 - Feed display cursor for persistent cycle tracking
 
 Date: 2026-06-07

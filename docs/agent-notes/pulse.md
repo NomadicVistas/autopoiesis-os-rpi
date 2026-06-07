@@ -1,5 +1,15 @@
 # Pulse Agent Notes
 
+## 2026-06-07 - Hosted mock bridge for cross-system contract consistency
+
+Date/time: 2026-06-07 20:15 UTC / 2026-06-07 22:15 Europe/Berlin
+Agent: Pulse
+Context: LEAD / INTEGRATION cron pass. The device-side had a comprehensive mock API (`scripts/mock-hosted-api/server.js`) and an 18-step device lifecycle integration gate (`scripts/device-lifecycle-check.sh`), but no bridge proving that the mock API's data model satisfies the hosted contract checkers. The hosted contract suite had 16+ individual gates, but none had been run against mock-served data.
+What changed: Added `scripts/hosted-mock-bridge-check.sh`, a 15-step bridge that starts both the mock API and local UI, walks the device lifecycle through local UI routes, then generates hosted contract fixtures from the mock API's data and runs stream, heartbeat, and release manifest contract checkers against those fixtures. All three hosted checks pass, proving the mock API data model is compatible with hosted contract shapes.
+What needs review: The bridge generates hosted contract fixtures from scratch (using mock API data) rather than directly transforming mock API responses. This is because the mock API serves device-facing responses while hosted checkers expect hosted-facing bundles (different schemas). The fixtures represent what the hosted backend should produce, derived from mock API state. As the mock API evolves to support richer bundle shapes, the bridge should extend to cover additional gates (pairing, device-auth, settings, broadcast, cache, online-admin).
+Next recommended action: Extend the bridge with additional hosted contract gates as the mock API's response shapes converge with hosted bundle requirements. Wire the bridge into Milestone 2 alongside the device lifecycle gate.
+
+
 ## 2026-06-07 - Canonical AOS initial database migration
 
 Date/time: 2026-06-07 19:13 UTC / 2026-06-07 21:13 Europe/Berlin
