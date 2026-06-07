@@ -1,5 +1,44 @@
 # Progress
 
+## 2026-06-07 - Profile action policy coherence
+
+Date: 2026-06-07
+
+Milestone: ONLINE ADMIN - role-gated Profile/Admin remote actions
+
+Changed files:
+
+- `scripts/online-admin-contract-check.sh`
+- `README.md`
+- `docs/api-contract.md`
+- `docs/admin-system.md`
+- `docs/online-frames-profile.md`
+- `docs/database-schema.md`
+- `docs/agent-notes/backend-online-admin-subscription-consistency-issue.md`
+- `docs/agent-notes/pulse.md`
+- `docs/progress.md`
+- `/data/.openclaw/workspace/autopoiesis-os-program/ROLLING-LOG.md`
+
+Implemented:
+
+- Tightened the hosted online-admin checker so Profile > Frames device action availability is validated against the canonical Admin remote command policy.
+- The checker now rejects owner-facing device rows that allow risky actions without the authorization, audit-id, or local-confirmation flags required by `adminFrames.remoteActions.commands`.
+- Documented that Profile-owned devices and Admin fleet devices should use one command-policy evaluator before restart/update/factory-reset controls are enabled.
+
+Verification:
+
+- Representative online-admin bundle with coherent Profile/Admin action policy passed.
+- Profile bundle missing `requiresLocalConfirmation` for allowed `factory_reset_request` was rejected.
+- Hosted suite required-online-admin pass path accepted the coherent fixture.
+- `node --check local-ui/server.js` passed.
+- `bash -n install.sh update.sh uninstall-dev-tools.sh factory-reset.sh scripts/*.sh` passed.
+- `git diff --check` passed.
+- `scripts/security-smoke.sh` passed.
+
+Next step:
+
+Generate the staging online-admin bundle from the same authorization/device-state evaluator for Profile-owned devices and Admin fleet rows, then run it through the strict hosted suite before enabling broad owner-facing remote actions.
+
 ## 2026-06-07 - Command state updatedAt ordering
 
 Date: 2026-06-07

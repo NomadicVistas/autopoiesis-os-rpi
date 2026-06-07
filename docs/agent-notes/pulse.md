@@ -1,5 +1,14 @@
 # Pulse Agent Notes
 
+## 2026-06-07 - Profile action policy coherence
+
+Date/time: 2026-06-07 16:05 UTC / 2026-06-07 18:05 Europe/Berlin
+Agent: Pulse
+Context: ONLINE ADMIN cron pass. The hosted online-admin checker already validated Admin fleet action policy against risky command metadata, but Profile-owned device rows were only checked for explicit allow/deny decisions. That left owner-facing controls able to drift from Admin remote-action requirements.
+What changed: `scripts/online-admin-contract-check.sh` now validates Profile device `actionAvailability` against the same `adminFrames.remoteActions.commands` policy used for Admin fleet devices. Allowed risky Profile actions must expose required authorization, audit-id, and local-confirmation flags.
+What needs review: Hosted staging should generate Profile-owned device action availability and Admin fleet action availability from one command-policy evaluator, then decorate each row with target-specific disabled reasons.
+Next recommended action: Run the staging online-admin bundle through the required hosted suite before enabling restart/update/factory-reset controls in Profile > Frames.
+
 ## 2026-06-07 - Settings user preference conflict coverage
 
 Date/time: 2026-06-07 10:45 UTC / 2026-06-07 12:45 Europe/Berlin

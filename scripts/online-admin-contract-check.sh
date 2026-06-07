@@ -522,7 +522,7 @@ function validateRoleActionMatrix(remoteActions, field, roles, commandPolicies) 
   if (!criticalDeniedCount) fail(field + ".roleActionMatrix must deny at least one critical action");
 }
 
-function validateProfileFrames(profileFrames) {
+function validateProfileFrames(profileFrames, commandPolicies = null) {
   if (!isObject(profileFrames)) fail("profileFrames must be an object");
   requiredString(profileFrames.userId, "profileFrames.userId");
   if (profileFrames.preferences === undefined) fail("profileFrames.preferences is required");
@@ -600,7 +600,8 @@ function validateProfileFrames(profileFrames) {
   for (const [index, device] of devices.entries()) {
     validateDevice(device, "profileFrames.devices[" + index + "]", profileFrames.userId, {
       requireActions: true,
-      requireOwner: true
+      requireOwner: true,
+      commandPolicies
     });
   }
 }
@@ -721,6 +722,8 @@ function validateAdminFrames(adminFrames) {
       fail("adminFrames.subscribers user " + userId + " must have a matching adminFrames.subscriptions row");
     }
   }
+
+  return { commandPolicies };
 }
 
 let payload;
@@ -741,8 +744,8 @@ if (payload.kind !== "autopoiesis_frames_online_admin_bundle") fail("kind must b
 if (payload.schemaVersion !== 1) fail("schemaVersion must be 1");
 if (!validIso(payload.generatedAt)) fail("generatedAt is missing or invalid");
 
-validateProfileFrames(payload.profileFrames);
-validateAdminFrames(payload.adminFrames);
+const adminContext = validateAdminFrames(payload.adminFrames);
+validateProfileFrames(payload.profileFrames, adminContext.commandPolicies);
 
 const profileDeviceCount = payload.profileFrames.devices.length;
 const adminDeviceCount = (payload.adminFrames.devices || payload.adminFrames.deviceFleet).items.length;
