@@ -18,16 +18,39 @@ if [[ -z "$RELEASE_JSON" || ! -f "$RELEASE_JSON" ]]; then
   exit 2
 fi
 
-"$(dirname "$0")/release-manifest-check.sh" "$RELEASE_JSON" >> "$LOG_DIR/update.log"
+read_device_update_channel() {
+  node -e "const fs=require('fs');const p=process.argv[1];try{const d=JSON.parse(fs.readFileSync(p,'utf8'));const c=d.updateChannel||d.update_channel||d.releaseChannel||d.release_channel;if(typeof c==='string'&&c.trim())process.stdout.write(c.trim());}catch{}" "$DATA_DIR/device.json"
+}
 
 read_release_field() {
   local field="$1"
-  node -e "const fs=require('fs');const p=process.argv[1];const f=process.argv[2];const aliases={artifact_url:['artifact_url','artifactUrl','assetUrl','downloadUrl'],checksum:['checksum','sha256','artifactSha256','artifact_sha256'],version:['version','targetVersion','target_version']};const d=JSON.parse(fs.readFileSync(p,'utf8'));const r=d.release||d;for(const k of aliases[f]||[f]){if(typeof r[k]==='string'&&r[k].trim()){process.stdout.write(r[k].trim());process.exit(0);}}process.stdout.write('');" "$RELEASE_JSON" "$field"
+  node -e "const fs=require('fs');const p=process.argv[1];const f=process.argv[2];const aliases={artifact_url:['artifact_url','artifactUrl','assetUrl','downloadUrl'],checksum:['checksum','sha256','artifactSha256','artifact_sha256'],version:['version','targetVersion','target_version'],channel:['channel','updateChannel','update_channel'],tag:['tagName','tag_name','tag'],release_id:['id','releaseId','release_id']};const d=JSON.parse(fs.readFileSync(p,'utf8'));const r=d.release||d;for(const k of aliases[f]||[f]){if(typeof r[k]==='string'&&r[k].trim()){process.stdout.write(r[k].trim());process.exit(0);}}process.stdout.write('');" "$RELEASE_JSON" "$field"
 }
+
+if [[ -z "${AUTOPOIESIS_RELEASE_CHANNEL:-}" ]]; then
+  DEVICE_UPDATE_CHANNEL="$(read_device_update_channel)"
+  if [[ -n "$DEVICE_UPDATE_CHANNEL" ]]; then
+    export AUTOPOIESIS_RELEASE_CHANNEL="$DEVICE_UPDATE_CHANNEL"
+  fi
+fi
+
+if [[ -n "${AUTOPOIESIS_RELEASE_CHANNEL:-}" && -z "${AUTOPOIESIS_RELEASE_REQUIRE_CHANNEL+x}" ]]; then
+  export AUTOPOIESIS_RELEASE_REQUIRE_CHANNEL=1
+fi
+
+if ! MANIFEST_CHECK_OUTPUT="$("$(dirname "$0")/release-manifest-check.sh" "$RELEASE_JSON" 2>&1)"; then
+  echo "$(date -Is) release update failed: $MANIFEST_CHECK_OUTPUT" >> "$LOG_DIR/update.log"
+  echo "$MANIFEST_CHECK_OUTPUT" >&2
+  exit 2
+fi
+echo "$MANIFEST_CHECK_OUTPUT" >> "$LOG_DIR/update.log"
 
 VERSION_TARGET="$(read_release_field version)"
 ARTIFACT_URL="$(read_release_field artifact_url)"
 CHECKSUM="$(read_release_field checksum)"
+RELEASE_CHANNEL="$(read_release_field channel)"
+RELEASE_TAG="$(read_release_field tag)"
+RELEASE_ID="$(read_release_field release_id)"
 
 if [[ -z "$VERSION_TARGET" ]]; then
   echo "$(date -Is) release update failed: release has no version" >> "$LOG_DIR/update.log"
@@ -41,7 +64,7 @@ if [[ -d "$APP_DIR/.git" ]]; then
   PREVIOUS_REV="$(git -C "$APP_DIR" rev-parse --short HEAD 2>/dev/null || true)"
 fi
 write_rollback_metadata() {
-  node -e "const fs=require('fs');const file=process.argv[1];const previousVersion=process.argv[2];const previousRevision=process.argv[3]||null;const targetVersion=process.argv[4];const backupDir=process.argv[5]||null;fs.writeFileSync(file, JSON.stringify({previousVersion,previousRevision,targetVersion,backupDir,startedAt:new Date().toISOString()}, null, 2)+'\n')" "$ROLLBACK_FILE" "$PREVIOUS_VERSION" "$PREVIOUS_REV" "$VERSION_TARGET" "$ROLLBACK_BACKUP_DIR"
+  node -e "const fs=require('fs');const file=process.argv[1];const previousVersion=process.argv[2];const previousRevision=process.argv[3]||null;const targetVersion=process.argv[4];const backupDir=process.argv[5]||null;const releaseChannel=process.argv[6]||null;const releaseTag=process.argv[7]||null;const releaseId=process.argv[8]||null;fs.writeFileSync(file, JSON.stringify({previousVersion,previousRevision,targetVersion,backupDir,releaseChannel,releaseTag,releaseId,startedAt:new Date().toISOString()}, null, 2)+'\n')" "$ROLLBACK_FILE" "$PREVIOUS_VERSION" "$PREVIOUS_REV" "$VERSION_TARGET" "$ROLLBACK_BACKUP_DIR" "$RELEASE_CHANNEL" "$RELEASE_TAG" "$RELEASE_ID"
 }
 
 if [[ -z "$ARTIFACT_URL" ]]; then

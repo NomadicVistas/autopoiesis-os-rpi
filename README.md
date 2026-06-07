@@ -428,7 +428,7 @@ Validate a release manifest before a device applies it:
 AUTOPOIESIS_RELEASE_CHANNEL=stable AUTOPOIESIS_RELEASE_REQUIRE_CHANNEL=1 AUTOPOIESIS_RELEASE_REQUIRE_TAG=1 AUTOPOIESIS_RELEASE_REQUIRE_ROLLBACK_NOTES=1 ./scripts/release-manifest-check.sh /path/to/release.json
 ```
 
-The updater runs this check automatically before applying `/local/release/apply` or an `update_device` command. Artifact releases must use HTTPS and include a SHA-256 checksum unless explicitly overridden for local testing. Strict rollout can require channel, GitHub tag, and rollback notes before a production device accepts an update.
+The updater runs this check automatically before applying `/local/release/apply` or an `update_device` command. When a frame has `updateChannel` in local `device.json`, release apply infers that channel, requires the manifest to declare a matching `channel`/`updateChannel`, and rejects mismatches before rollback metadata, downloads, git fallback, or app-code mutation. Artifact releases must use HTTPS and include a SHA-256 checksum unless explicitly overridden for local testing. Strict rollout can also require GitHub tag, artifact, and rollback notes before a production device accepts an update.
 
 Validate hosted release rollout evidence before treating Admin > Frames updates as rollout-ready:
 

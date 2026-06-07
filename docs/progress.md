@@ -1,5 +1,45 @@
 # Progress
 
+## 2026-06-07 - Device update channel enforcement
+
+Date: 2026-06-07
+
+Milestone: RELEASE / ROLLOUT - channel-safe updater behavior
+
+Changed files:
+
+- `scripts/update-from-release.sh`
+- `local-ui/server.js`
+- `README.md`
+- `docs/api-contract.md`
+- `docs/github-updates.md`
+- `docs/installation.md`
+- `docs/agent-notes/pulse.md`
+- `docs/progress.md`
+- `/data/.openclaw/workspace/autopoiesis-os-program/ROLLING-LOG.md`
+
+Implemented:
+
+- Hardened `scripts/update-from-release.sh` so release apply automatically reads the device-local `updateChannel` from `device.json` when `AUTOPOIESIS_RELEASE_CHANNEL` is not already set.
+- When a device has a configured update channel, release apply now requires the manifest to declare a matching `channel`/`updateChannel` before rollback metadata, download, git fallback, or app-code mutation begins.
+- Manifest validation failures are now appended to `update.log` before release apply exits, so channel/metadata rejections are visible in device support logs.
+- Extended release field extraction so rollback metadata records release channel, tag, and release id alongside previous version/revision and artifact snapshot path.
+- Added release tag metadata to local release history events and recorded release channel/tag in in-progress, completed, and failed local `release-state.json` values.
+
+Verification:
+
+- Device-channel mismatch smoke rejected a beta manifest on a stable device before writing rollback metadata and recorded the mismatch in `update.log`.
+- Explicit `AUTOPOIESIS_RELEASE_CHANNEL=stable` manifest check passed for a stable fixture and rejected a beta fixture.
+- `node --check local-ui/server.js` passed.
+- `bash -n install.sh update.sh uninstall-dev-tools.sh factory-reset.sh scripts/*.sh` passed.
+- `git diff --check` passed.
+- `scripts/security-smoke.sh` passed.
+
+Next step:
+
+Have hosted release generation always include `channel`/`updateChannel`, `tagName`/`tag`, and rollback notes, then run one artifact update on physical Pi hardware to confirm channel-safe apply plus rollback metadata under `/var/lib/autopoiesis-os/release-rollback.json`.
+
+
 ## 2026-06-07 - Hosted suite manifest requirements
 
 Date: 2026-06-07

@@ -1,5 +1,15 @@
 # Pulse Agent Notes
 
+## 2026-06-07 - Device update channel enforcement
+
+Date/time: 2026-06-07 06:00 UTC / 2026-06-07 08:00 Europe/Berlin
+Agent: Pulse
+Context: RELEASE / ROLLOUT cron pass. The manifest checker could enforce channels, but release apply still depended on callers or services remembering to set `AUTOPOIESIS_RELEASE_CHANNEL` and `AUTOPOIESIS_RELEASE_REQUIRE_CHANNEL`.
+What changed: `scripts/update-from-release.sh` now infers the expected channel from device-local `device.json` when no explicit env channel is provided, requires a manifest channel when a device channel exists, and rejects mismatches before rollback metadata, artifact download, git fallback, or app-code mutation. Manifest validation failures are recorded in `update.log`. Rollback metadata now records release channel, tag, and id. Local release state/history also carries tag/channel context.
+What needs review: Hosted release generation should always emit channel and tag metadata. Physical Pi validation still needs one staged artifact apply plus rollback inspection to prove the runtime service environment and local device channel behave the same as the isolated smoke.
+Next recommended action: Cut a staging artifact on the `stable` channel, apply it to a stable-channel Pi, inspect release history and rollback metadata, then repeat only the manifest check with a mismatched beta manifest to confirm the device refuses it.
+
+
 ## 2026-06-07 - Hosted suite manifest requirements
 
 Date/time: 2026-06-07 05:15 UTC / 2026-06-07 07:15 Europe/Berlin

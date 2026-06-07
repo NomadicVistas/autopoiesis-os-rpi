@@ -65,6 +65,11 @@ Chromium is
 running with the expected kiosk flags, Linux sees a touchscreen-class input
 device, NetworkManager reports device state, and both services restart cleanly.
 
+Release updates use the local `device.json` `updateChannel` as the default
+expected channel. A production or staged frame on `stable` will reject a `beta`,
+`dev`, or channel-less manifest before it writes rollback metadata or mutates
+app code. Override `AUTOPOIESIS_RELEASE_CHANNEL` only for an explicit test.
+
 Isolated systemd render verification:
 
 ```bash

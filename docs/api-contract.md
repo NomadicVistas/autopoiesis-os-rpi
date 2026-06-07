@@ -413,10 +413,10 @@ Release manifest validation:
 - `GET /api/frames/device/{deviceId}/release` should return either `{ release: null }` when current or a `release` object that passes `scripts/release-manifest-check.sh`.
 - Required release fields: `version`. Artifact-based releases also require `artifact_url` or `artifactUrl` and a SHA-256 `checksum`/`sha256`.
 - Recommended release fields for rollout: `channel` or `updateChannel`, `tagName` or `tag`, `publishedAt`, `rolloutPercent`, `changelogUrl` or `releaseNotesUrl`, and `rollbackNotes`.
-- Channels accepted by the device gate are `stable`, `beta`, `dev`, `canary`, `nightly`, `staged`, and `test`. Set `AUTOPOIESIS_RELEASE_CHANNEL` on a frame to reject a manifest for a different channel.
+- Channels accepted by the device gate are `stable`, `beta`, `dev`, `canary`, `nightly`, `staged`, and `test`. Release apply automatically uses device-local `device.json.updateChannel` as the expected channel when `AUTOPOIESIS_RELEASE_CHANNEL` is not set, and requires a matching manifest channel before mutating app code. Set `AUTOPOIESIS_RELEASE_CHANNEL` only to override the local device channel for an explicit test or service environment.
 - Artifact URLs must use HTTPS by default and must not point at localhost. Local testing may opt in with `AUTOPOIESIS_RELEASE_ALLOW_INSECURE_URLS=1`.
 - Release manifests must not expose device API keys, pairing-code hashes, private/admin tokens, secrets, passwords, local appliance paths, artifact checksums in public local support endpoints, or raw updater stdout/stderr.
-- `scripts/update-from-release.sh` runs the manifest check before it writes rollback metadata, downloads artifacts, or fast-forwards git. Strict production gates can set `AUTOPOIESIS_RELEASE_REQUIRE_CHANNEL=1`, `AUTOPOIESIS_RELEASE_REQUIRE_TAG=1`, `AUTOPOIESIS_RELEASE_REQUIRE_ARTIFACT=1`, and `AUTOPOIESIS_RELEASE_REQUIRE_ROLLBACK_NOTES=1`.
+- `scripts/update-from-release.sh` runs the manifest check before it writes rollback metadata, downloads artifacts, or fast-forwards git. Rollback metadata records previous version/revision plus release channel, tag, and id. Strict production gates can still set `AUTOPOIESIS_RELEASE_REQUIRE_TAG=1`, `AUTOPOIESIS_RELEASE_REQUIRE_ARTIFACT=1`, and `AUTOPOIESIS_RELEASE_REQUIRE_ROLLBACK_NOTES=1`.
 
 Hosted release rollout contract:
 
@@ -510,8 +510,8 @@ Local command acknowledgement retry:
 
 Release history:
 
-- `POST /local/release/check` appends a metadata-only `release_checked` event to `release-log.json` with current version, update availability, release id, target version, channel, and rollout id when supplied by the API.
-- `POST /local/release/apply`, `POST /local/system/update-now`, and `update_device` commands append `release_apply_started`, `release_apply_completed`, `release_apply_failed`, or `release_skipped` events.
+- `POST /local/release/check` appends a metadata-only `release_checked` event to `release-log.json` with current version, update availability, release id, target version, channel, tag, and rollout id when supplied by the API.
+- `POST /local/release/apply`, `POST /local/system/update-now`, and `update_device` commands append `release_apply_started`, `release_apply_completed`, `release_apply_failed`, or `release_skipped` events with the same release channel/tag context.
 - `GET /local/release/history?limit=25` returns newest entries first. Entries intentionally omit artifact URLs, checksums, local file paths, stdout/stderr, command payloads, and stored device API keys.
 - Heartbeat diagnostics, compact health, readiness, and `/local/support-bundle` include a compact release-history summary for admin rollout adapters.
 - Backend `aos_` release rows should treat repeated device reports as idempotent and persist per-device rollout progress from these event names.

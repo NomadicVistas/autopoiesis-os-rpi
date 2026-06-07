@@ -572,6 +572,7 @@ function releaseSubject(release = {}) {
     releaseId: release.id || release.releaseId || null,
     version: release.version || release.targetVersion || null,
     channel: release.channel || release.updateChannel || release.update_channel || null,
+    tag: release.tagName || release.tag_name || release.tag || null,
     rolloutId: release.rolloutId || release.rollout_id || null
   };
 }
@@ -711,6 +712,7 @@ function publicDeviceEvents(options = {}) {
       rolloutId: entry.rolloutId || null,
       version: entry.version || null,
       channel: entry.channel || null,
+      tag: entry.tag || null,
       currentVersion: entry.currentVersion || null,
       targetVersion: entry.targetVersion || null,
       updateAvailable: entry.updateAvailable === true,
@@ -4266,13 +4268,14 @@ async function applyRelease(release) {
   if (!release) return { ok: false, skipped: true, reason: "No release available" };
   const targetVersion = release.version;
   if (!targetVersion) return { ok: false, error: "Release has no version" };
+  const releaseMetadata = releaseSubject(release);
   if (targetVersion === version()) {
     appendReleaseEvent({
       eventType: "release_skipped",
       status: "current",
       reason: "Already on target version",
       currentVersion: version(),
-      ...releaseSubject(release)
+      ...releaseMetadata
     });
     return { ok: true, skipped: true, reason: "Already on target version", version: targetVersion };
   }
@@ -4282,6 +4285,8 @@ async function applyRelease(release) {
     status: "in_progress",
     targetVersion,
     releaseId: release.id || null,
+    releaseChannel: releaseMetadata.channel,
+    releaseTag: releaseMetadata.tag,
     startedAt,
     previousVersion: version()
   });
@@ -4290,7 +4295,7 @@ async function applyRelease(release) {
     status: "in_progress",
     previousVersion: version(),
     startedAt,
-    ...releaseSubject(release)
+    ...releaseMetadata
   });
   try {
     const execution = await execFilePromise(UPDATE_SCRIPT, [paths.release], {
@@ -4310,6 +4315,8 @@ async function applyRelease(release) {
       status: "completed",
       targetVersion,
       releaseId: release.id || null,
+      releaseChannel: releaseMetadata.channel,
+      releaseTag: releaseMetadata.tag,
       previousVersion: readJson(paths.releaseState, {}).previousVersion || null,
       completedAt: new Date().toISOString(),
       stdout: execution.stdout.trim(),
@@ -4321,7 +4328,7 @@ async function applyRelease(release) {
       status: "completed",
       previousVersion: stateValue.previousVersion || null,
       completedAt: stateValue.completedAt,
-      ...releaseSubject(release)
+      ...releaseMetadata
     });
     return { ok: true, release, version: version(), update: stateValue };
   } catch (error) {
@@ -4329,6 +4336,8 @@ async function applyRelease(release) {
       status: "error",
       targetVersion,
       releaseId: release.id || null,
+      releaseChannel: releaseMetadata.channel,
+      releaseTag: releaseMetadata.tag,
       previousVersion: readJson(paths.releaseState, {}).previousVersion || null,
       failedAt: new Date().toISOString(),
       error: error.stderr || error.message
@@ -4340,7 +4349,7 @@ async function applyRelease(release) {
       previousVersion: stateValue.previousVersion || null,
       failedAt: stateValue.failedAt,
       error: stateValue.error,
-      ...releaseSubject(release)
+      ...releaseMetadata
     });
     return { ok: false, release, error: stateValue.error, update: stateValue };
   }
