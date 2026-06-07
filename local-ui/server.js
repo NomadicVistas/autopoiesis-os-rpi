@@ -60,7 +60,8 @@ const paths = {
   commandAudit: path.join(DATA_DIR, "command-audit.json"),
   deliveryLog: path.join(DATA_DIR, "delivery-log.json"),
   releaseLog: path.join(DATA_DIR, "release-log.json"),
-  eventCursor: path.join(DATA_DIR, "event-cursor.json")
+  eventCursor: path.join(DATA_DIR, "event-cursor.json"),
+  feedCursor: path.join(DATA_DIR, "feed-cursor.json")
 };
 
 const DIAGNOSTIC_SERVICES = [
@@ -560,6 +561,45 @@ function deliverySummary() {
     lastObservedAt: last ? last.observedAt || null : null,
     recentBroadcastEvents: recent.filter(entry => String(entry.eventType || "").startsWith("broadcast_")).length,
     recentFeedEvents: recent.filter(entry => String(entry.eventType || "").startsWith("feed_")).length
+  };
+}
+
+const FEED_CURSOR_MAX_SHOWN = Number(process.env.AUTOPOIESIS_FEED_CURSOR_MAX_SHOWN || 500);
+
+function feedCursor() {
+  const cursor = readJson(paths.feedCursor, null);
+  return cursor && typeof cursor === "object" ? cursor : { syncedAt: null, shownItemIds: [], updatedAt: null };
+}
+
+function feedCursorMarkShown(itemId) {
+  if (!itemId) return;
+  const cursor = feedCursor();
+  const id = String(itemId);
+  if (cursor.shownItemIds.includes(id)) return;
+  cursor.shownItemIds.push(id);
+  if (cursor.shownItemIds.length > FEED_CURSOR_MAX_SHOWN) {
+    cursor.shownItemIds = cursor.shownItemIds.slice(-FEED_CURSOR_MAX_SHOWN);
+  }
+  cursor.updatedAt = new Date().toISOString();
+  writeJson(paths.feedCursor, cursor);
+}
+
+function feedCursorReset(syncedAt) {
+  const cursor = {
+    syncedAt: syncedAt || new Date().toISOString(),
+    shownItemIds: [],
+    updatedAt: new Date().toISOString()
+  };
+  writeJson(paths.feedCursor, cursor);
+  return cursor;
+}
+
+function feedCursorSummary() {
+  const cursor = feedCursor();
+  return {
+    syncedAt: cursor.syncedAt || null,
+    shownCount: (cursor.shownItemIds || []).length,
+    updatedAt: cursor.updatedAt || null
   };
 }
 
@@ -1429,6 +1469,7 @@ function mixedFeedQueue(feed = readJson(paths.feed, {}), preferences = readJson(
   const eligibleItems = eligibleFeedItems(feed, preferences);
   const queueLimit = safeLimit(limit, 100, 500);
   const categoryOrder = ["broadcast", "curatorial", "artwork", "blog", "news", "content"];
+  const shownIds = new Set((feedCursor().shownItemIds || []).map(id => String(id)));
   const priorityGroups = new Map();
 
   for (const item of eligibleItems) {
@@ -1440,8 +1481,13 @@ function mixedFeedQueue(feed = readJson(paths.feed, {}), preferences = readJson(
   const queue = [];
   const ranks = Array.from(priorityGroups.keys()).sort((a, b) => b - a);
   for (const rank of ranks) {
+    const items = priorityGroups.get(rank) || [];
+    const fresh = items.filter(item => !shownIds.has(String(item.id)));
+    const replay = items.filter(item => shownIds.has(String(item.id)));
+    const ordered = [...fresh, ...replay];
+
     const buckets = new Map(categoryOrder.map(category => [category, []]));
-    for (const item of priorityGroups.get(rank) || []) {
+    for (const item of ordered) {
       const category = feedItemCategory(item);
       if (!buckets.has(category)) buckets.set(category, []);
       buckets.get(category).push(item);
@@ -1469,7 +1515,13 @@ function mixedFeedQueue(feed = readJson(paths.feed, {}), preferences = readJson(
 }
 
 function writeFeedState(feed) {
+  const prevFeed = readJson(paths.feed, { syncedAt: null, items: [] });
+  const prevSyncedAt = prevFeed.syncedAt || null;
+  const newSyncedAt = feed.syncedAt || null;
   writeJson(paths.feed, feed);
+  if (newSyncedAt && newSyncedAt !== prevSyncedAt) {
+    feedCursorReset(newSyncedAt);
+  }
   const preferences = readJson(paths.preferences, {});
   const displayQueue = mixedFeedQueue(feed, preferences);
   const pollingStatus = feedPollingSummary(feed);
@@ -1523,6 +1575,7 @@ function publicFeed() {
     cacheEligibleItems: cache.count || 0,
     categories: feedCategoryCounts(items),
     displayQueueItems: displayQueue.length,
+    displayCursor: feedCursorSummary(),
     displayQueue,
     items
   };
@@ -1666,6 +1719,7 @@ function publicFrameState() {
     playableItems: playableItems.length,
     cachedPlayableItems: playableItems.filter(item => item.media.cached).length,
     categories: feedCategoryCounts(displayQueue),
+    displayCursor: feedCursorSummary(),
     items: playableItems
   };
   frame.playback = framePlaybackSummary(frame);
@@ -1700,6 +1754,7 @@ function recordFrameItemDisplay(body = {}) {
     currentArtworkId: item.displayCategory === "artwork" ? item.id : null,
     lastFrameItemShownAt: observedAt
   });
+  feedCursorMarkShown(item.id);
   return {
     ok: true,
     itemId: item.id,
@@ -2741,7 +2796,8 @@ async function collectDiagnostics(options = {}) {
       cacheIndexedItems: Array.isArray(cacheIndex.items) ? cacheIndex.items.length : 0,
       cacheCachedItems: cacheIndex.cachedCount || 0,
       cacheFailedItems: cacheIndex.failedCount || 0,
-      offlinePlayableItems: cachedOfflineItems().length
+      offlinePlayableItems: cachedOfflineItems().length,
+      displayCursor: feedCursorSummary()
     },
     broadcast: broadcast
       ? {
@@ -3330,6 +3386,7 @@ async function supportBundle(options = {}) {
       timers: diagnostics.timers || null,
       pendingCommands: health.pendingCommands || 0,
       feedPolling: diagnostics.feed ? diagnostics.feed.pollingStatus || null : null,
+      feedCursor: diagnostics.feed ? diagnostics.feed.displayCursor || null : null,
       framePlayback: diagnostics.framePlayback || null,
       offlinePlayableItems: offlineCache.playableItems || 0,
       commandAudit: {

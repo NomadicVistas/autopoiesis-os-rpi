@@ -1,5 +1,41 @@
 # Progress
 
+## 2026-06-07 - Feed display cursor for persistent cycle tracking
+
+Date: 2026-06-07
+
+Milestone: BROADCAST / FEED - persistent display cycle tracking
+
+Changed files:
+
+- `local-ui/server.js`
+- `scripts/feed-cursor-check.sh`
+- `docs/progress.md`
+- `/data/.openclaw/workspace/autopoiesis-os-program/ROLLING-LOG.md`
+
+Implemented:
+
+- Added a server-side feed display cursor (`feed-cursor.json`) that tracks which feed items have been displayed since the last successful feed sync.
+- On feed sync (`writeFeedState`), the cursor is reset when a new `syncedAt` timestamp is detected, so every sync starts a fresh display cycle.
+- On frame item display (`recordFrameItemDisplay`), the displayed item ID is recorded in the cursor (idempotent — re-displaying the same item does not inflate the count).
+- The display queue builder (`mixedFeedQueue`) now deprioritizes already-shown items within each priority band: unshown items round-robin first, then previously-shown items fill remaining slots. This means the frame naturally cycles through the full queue before replaying items.
+- The cursor is exposed through `GET /local/feed` (`displayCursor`), `GET /local/frame-state` (`displayCursor`), diagnostics (`diagnostics.feed.displayCursor`), and the support bundle (`summary.feedCursor`).
+- Added `scripts/feed-cursor-check.sh`, a 5-step isolated gate proving: initial cursor creation, shown-item tracking with display queue reordering, idempotent re-display, cursor reset on re-sync with new-item priority, and support bundle propagation.
+
+Verification:
+
+- `scripts/feed-cursor-check.sh` passed all 5 steps.
+- `scripts/feed-targeting-check.sh` passed (no regression).
+- `scripts/stream-playback-check.sh` passed (no regression).
+- `scripts/broadcast-command-check.sh` passed (no regression).
+- `node --check local-ui/server.js` passed.
+- `bash -n install.sh update.sh uninstall-dev-tools.sh factory-reset.sh scripts/*.sh` passed.
+
+Next step:
+
+- Confirm on a physical Pi that the frame resumes from the cursor position after a page reload (e.g., from a broadcast interrupting playback), and that new items from a sync are shown before replaying old items.
+
+
 ## 2026-06-07 - Canonical AOS initial database migration
 
 Date: 2026-06-07
