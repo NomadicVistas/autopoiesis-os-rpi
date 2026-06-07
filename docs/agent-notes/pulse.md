@@ -1,5 +1,15 @@
 # Pulse Agent Notes
 
+## 2026-06-07 - Hosted suite JSON readiness report
+
+Date/time: 2026-06-07 06:15 UTC / 2026-06-07 08:15 Europe/Berlin
+Agent: Pulse
+Context: LEAD / INTEGRATION cron pass. The hosted suite could run manifest-driven gates, but CI and rollout handoffs still had to interpret terminal output to know which gates passed, skipped, or blocked.
+What changed: Added optional `AUTOPOIESIS_HOSTED_CONTRACT_REPORT` output to `scripts/hosted-contract-suite-check.sh`. The report is written on pass and fail, names the failed gate when available, summarizes required/passed/skipped gates, and records only source-presence booleans rather than raw paths or URLs.
+What needs review: Hosted CI should archive the report beside the contract manifest and use it as the backend readiness artifact for release and physical-Pi handoff decisions.
+Next recommended action: Generate one staging report from the strict hosted suite, then wire the report fields into deployment annotations or GitHub issue comments.
+
+
 ## 2026-06-07 - Device update channel enforcement
 
 Date/time: 2026-06-07 06:00 UTC / 2026-06-07 08:00 Europe/Berlin

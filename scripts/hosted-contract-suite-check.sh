@@ -9,17 +9,123 @@ MANIFEST_FILE=""
 MANIFEST_BASE=""
 MANIFEST_REQUIRE_ALL=0
 MANIFEST_REQUIRED_LIST=""
+REPORT_PATH="${AUTOPOIESIS_HOSTED_CONTRACT_REPORT:-}"
 TMP_FILES=()
 RAN_COUNT=0
 SKIPPED=()
 PASSED=()
+REPORT_ROWS=()
+FAILED_GATE=""
+FAILURE_REASON=""
 
 cleanup() {
   if [[ "${#TMP_FILES[@]}" -gt 0 ]]; then
     rm -f "${TMP_FILES[@]}"
   fi
 }
-trap cleanup EXIT
+
+write_report() {
+  local exit_code="$1"
+  if [[ -z "$REPORT_PATH" ]]; then
+    return 0
+  fi
+
+  local report_dir
+  report_dir="$(dirname "$REPORT_PATH")"
+  mkdir -p "$report_dir"
+
+  local rows required_csv passed_csv skipped_csv
+  rows="$(printf '%s\n' "${REPORT_ROWS[@]}")"
+  required_csv="$(normalized_required_gate_csv)"
+  passed_csv="$(printf '%s,' "${PASSED[@]}")"
+  skipped_csv="$(printf '%s,' "${SKIPPED[@]}")"
+
+  REPORT_ROWS_CONTENT="$rows" \
+  REPORT_REQUIRED_CSV="$required_csv" \
+  REPORT_PASSED_CSV="$passed_csv" \
+  REPORT_SKIPPED_CSV="$skipped_csv" \
+  REPORT_EXIT_CODE="$exit_code" \
+  REPORT_RAN_COUNT="$RAN_COUNT" \
+  REPORT_FAILURE_REASON="$FAILURE_REASON" \
+  REPORT_FAILED_GATE="$FAILED_GATE" \
+  REPORT_MANIFEST_SOURCE_PROVIDED="$([[ -n "$MANIFEST_SOURCE" ]] && echo 1 || echo 0)" \
+  REPORT_MANIFEST_REQUIRE_ALL="$MANIFEST_REQUIRE_ALL" \
+  REPORT_CLI_REQUIRE_ALL="$REQUIRE_ALL" \
+  node - "$REPORT_PATH" <<'NODE'
+const fs = require("fs");
+
+const reportPath = process.argv[2];
+const exitCode = Number(process.env.REPORT_EXIT_CODE || "0");
+const required = new Set(
+  String(process.env.REPORT_REQUIRED_CSV || "")
+    .split(",")
+    .map(entry => entry.trim())
+    .filter(Boolean)
+);
+const rows = String(process.env.REPORT_ROWS_CONTENT || "")
+  .split("\n")
+  .filter(Boolean)
+  .map(row => {
+    const [gate, status, requiredFlag, sourceProvided, envName, ...labelParts] = row.split("|");
+    return {
+      gate,
+      status,
+      required: requiredFlag === "1" || required.has(gate),
+      sourceProvided: sourceProvided === "1",
+      sourceEnv: envName,
+      label: labelParts.join("|")
+    };
+  });
+
+const passed = String(process.env.REPORT_PASSED_CSV || "")
+  .split(",")
+  .map(entry => entry.trim())
+  .filter(Boolean);
+const skipped = String(process.env.REPORT_SKIPPED_CSV || "")
+  .split(",")
+  .map(entry => entry.trim())
+  .filter(Boolean);
+const failedGate = process.env.REPORT_FAILED_GATE || "";
+const failureReason = process.env.REPORT_FAILURE_REASON || "";
+
+const report = {
+  schemaVersion: 1,
+  suite: "hosted-contract-suite",
+  generatedAt: new Date().toISOString(),
+  status: exitCode === 0 ? "passed" : "failed",
+  exitCode,
+  manifest: {
+    provided: process.env.REPORT_MANIFEST_SOURCE_PROVIDED === "1",
+    requireAll: process.env.REPORT_MANIFEST_REQUIRE_ALL === "1"
+  },
+  cli: {
+    requireAll: process.env.REPORT_CLI_REQUIRE_ALL === "1"
+  },
+  requiredGates: Array.from(required),
+  summary: {
+    ran: Number(process.env.REPORT_RAN_COUNT || "0"),
+    passed: passed.length,
+    skipped: skipped.length,
+    failed: exitCode === 0 ? 0 : 1
+  },
+  gates: rows,
+  passed,
+  skipped
+};
+
+if (failedGate) report.failedGate = failedGate;
+if (failureReason) report.failureReason = failureReason;
+
+fs.writeFileSync(reportPath, JSON.stringify(report, null, 2) + "\n");
+NODE
+}
+
+on_exit() {
+  local exit_code="$?"
+  write_report "$exit_code"
+  cleanup
+}
+trap on_exit EXIT
 
 usage() {
   cat >&2 <<'EOF'
@@ -32,6 +138,7 @@ Environment:
   AUTOPOIESIS_HOSTED_CONTRACT_MANIFEST_TOKEN optional bearer token for manifest URL fetches
   AUTOPOIESIS_HOSTED_CONTRACT_REQUIRE       comma-separated required gates
                                             migrations,schema,pairing,device-auth,settings,profile-ownership,heartbeat,command-poll,command-ack,stream,cache,online-admin,broadcast,release,release-rollout
+  AUTOPOIESIS_HOSTED_CONTRACT_REPORT        optional JSON report output path
   AUTOPOIESIS_AOS_MIGRATION_CONTRACT_SOURCE migration directory or manifest
   AUTOPOIESIS_AOS_SCHEMA_CONTRACT_SOURCE    schema JSON or SQLite database
   AUTOPOIESIS_PAIRING_CONTRACT_SOURCE       pairing lifecycle bundle file or URL
@@ -58,6 +165,9 @@ optional requirements from a JSON object such as
 Set {"strict":true} or {"requireAll":true} in the manifest to require every
 hosted gate. Relative file paths are resolved from the manifest directory.
 Per-gate source environment variables override manifest entries.
+When AUTOPOIESIS_HOSTED_CONTRACT_REPORT is set, the suite writes a redacted JSON
+summary with gate names, pass/skip status, required gates, and source-presence
+booleans. Raw source paths and URLs are not stored in the report.
 
 Token and strictness environment variables for the individual gates are passed
 through unchanged, for example AUTOPOIESIS_STREAM_CONTRACT_TOKEN or
@@ -100,6 +210,31 @@ required_gate_csv() {
     fi
     echo "$required_csv"
   fi
+}
+
+normalized_required_gate_csv() {
+  local required_csv entry normalized output
+  required_csv="$(required_gate_csv)"
+  output=""
+  [[ -n "$required_csv" ]] || return 0
+
+  IFS="," read -ra entries <<<"$required_csv"
+  for entry in "${entries[@]}"; do
+    entry="${entry//[[:space:]]/}"
+    [[ -n "$entry" ]] || continue
+    normalized="$(normalize_gate_name "$entry")"
+    case ",$output," in
+      *",$normalized,"*) ;;
+      *)
+        if [[ -n "$output" ]]; then
+          output="$output,$normalized"
+        else
+          output="$normalized"
+        fi
+        ;;
+    esac
+  done
+  echo "$output"
 }
 
 gate_is_required() {
@@ -292,12 +427,14 @@ load_manifest() {
       curl_args+=(-H "Authorization: Bearer ${AUTOPOIESIS_HOSTED_CONTRACT_MANIFEST_TOKEN}")
     fi
     curl "${curl_args[@]}" "$MANIFEST_SOURCE" >"$MANIFEST_FILE" || {
+      FAILURE_REASON="could not fetch manifest URL"
       echo "hosted contract suite failed: could not fetch manifest URL" >&2
       exit 1
     }
     MANIFEST_BASE="$MANIFEST_SOURCE"
   else
     [[ -f "$MANIFEST_SOURCE" ]] || {
+      FAILURE_REASON="manifest file not found"
       echo "hosted contract suite failed: manifest file not found: $MANIFEST_SOURCE" >&2
       exit 1
     }
@@ -306,6 +443,7 @@ load_manifest() {
   fi
 
   node -e 'JSON.parse(require("fs").readFileSync(process.argv[1], "utf8"))' "$MANIFEST_FILE" || {
+    FAILURE_REASON="manifest is not valid JSON"
     echo "hosted contract suite failed: manifest is not valid JSON: $MANIFEST_SOURCE" >&2
     exit 1
   }
@@ -464,6 +602,7 @@ for (const entry of rawEntries) {
 process.stdout.write(strict + "\n" + normalized.join(","));
 NODE
 )" || {
+    FAILURE_REASON="manifest requirements are invalid"
     echo "hosted contract suite failed: manifest requirements are invalid: $MANIFEST_SOURCE" >&2
     exit 1
   }
@@ -476,21 +615,36 @@ run_gate() {
   local env_name="$2"
   local script="$3"
   local label="$4"
-  local source
+  local source required_flag source_present
   source="$(source_value "$env_name" "$gate")"
+  required_flag=0
+  if gate_is_required "$gate"; then
+    required_flag=1
+  fi
 
   if [[ -z "$source" ]]; then
-    if gate_is_required "$gate"; then
+    if [[ "$required_flag" == "1" ]]; then
+      REPORT_ROWS+=("$gate|missing-required|$required_flag|0|$env_name|$label")
+      FAILED_GATE="$gate"
+      FAILURE_REASON="required source is missing"
       echo "hosted contract suite failed: required $gate source is missing ($env_name)" >&2
       exit 1
     fi
+    REPORT_ROWS+=("$gate|skipped|$required_flag|0|$env_name|$label")
     SKIPPED+=("$gate")
     return 0
   fi
 
+  source_present=1
   echo
   echo "==> $label"
-  "$SCRIPT_DIR/$script" "$source"
+  if ! "$SCRIPT_DIR/$script" "$source"; then
+    REPORT_ROWS+=("$gate|failed|$required_flag|$source_present|$env_name|$label")
+    FAILED_GATE="$gate"
+    FAILURE_REASON="$label failed"
+    exit 1
+  fi
+  REPORT_ROWS+=("$gate|passed|$required_flag|$source_present|$env_name|$label")
   PASSED+=("$gate")
   RAN_COUNT=$((RAN_COUNT + 1))
 }
@@ -506,6 +660,7 @@ for arg in "$@"; do
       ;;
     *)
       usage
+      FAILURE_REASON="unknown argument"
       echo "unknown argument: $arg" >&2
       exit 2
       ;;
@@ -532,6 +687,7 @@ run_gate "release-rollout" "AUTOPOIESIS_RELEASE_ROLLOUT_CONTRACT_SOURCE" "releas
 
 if [[ "$RAN_COUNT" -eq 0 ]]; then
   usage
+  FAILURE_REASON="no contract sources were provided"
   echo "hosted contract suite failed: no contract sources were provided" >&2
   exit 2
 fi

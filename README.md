@@ -361,6 +361,7 @@ AUTOPOIESIS_ONLINE_ADMIN_CONTRACT_SOURCE=/path/to/online-admin-bundle.json \
 AUTOPOIESIS_BROADCAST_CONTRACT_SOURCE=/path/to/broadcast-contract-bundle.json \
 AUTOPOIESIS_RELEASE_MANIFEST_SOURCE=/path/to/release.json \
 AUTOPOIESIS_RELEASE_ROLLOUT_CONTRACT_SOURCE=/path/to/release-rollout-contract-bundle.json \
+AUTOPOIESIS_HOSTED_CONTRACT_REPORT=/path/to/hosted-contract-report.json \
 ./scripts/hosted-contract-suite-check.sh --strict
 ```
 
@@ -407,10 +408,13 @@ CI can also hand the suite a single manifest instead of exporting every source:
 
 ```bash
 AUTOPOIESIS_HOSTED_CONTRACT_MANIFEST=/path/to/hosted-contract-manifest.json \
+AUTOPOIESIS_HOSTED_CONTRACT_REPORT=/path/to/hosted-contract-report.json \
 ./scripts/hosted-contract-suite-check.sh
 ```
 
-The suite runs the existing hosted gates in dependency order: migrations, final schema, pairing, device auth, settings conflict, profile ownership, heartbeat, command polling, command acknowledgement, stream, cache/offline, online admin, broadcast lifecycle, release manifest, then hosted release rollout evidence. Manifest paths are resolved relative to the manifest file, and per-gate `AUTOPOIESIS_*_SOURCE` variables override manifest entries. A manifest can declare required gates with `require`, `required`, `requireGates`, or `requiredGates`; set `strict` or `requireAll` to `true` when the manifest must provide every hosted source. In non-strict mode it runs every provided source and fails only if a gate named in the manifest or `AUTOPOIESIS_HOSTED_CONTRACT_REQUIRE` is missing. Individual token and strictness variables are passed through to the underlying checkers unchanged.
+The suite runs the existing hosted gates in dependency order: migrations, final schema, pairing, device auth, settings conflict, profile ownership, heartbeat, command polling, command acknowledgement, stream, cache/offline, online admin, broadcast lifecycle, release manifest, then hosted release rollout evidence. Manifest paths are resolved relative to the manifest file, and per-gate `AUTOPOIESIS_*_SOURCE` variables override manifest entries. A manifest can declare required gates with `require`, `required`, `requireGates`, `requiredGates`, or `required_gates`; set `strict` or `requireAll` to `true` when the manifest must provide every hosted source. In non-strict mode it runs every provided source and fails only if a gate named in the manifest or `AUTOPOIESIS_HOSTED_CONTRACT_REQUIRE` is missing. Individual token and strictness variables are passed through to the underlying checkers unchanged.
+
+When `AUTOPOIESIS_HOSTED_CONTRACT_REPORT` is set, the suite writes a redacted JSON report on both pass and fail with `status`, `exitCode`, `requiredGates`, summary counts, and per-gate pass/skip/missing-required status. The report records only source-presence booleans and source environment names, not fixture paths, URLs, bearer tokens, or local appliance paths.
 
 Validate the hosted broadcast lifecycle before treating Admin > Frames broadcasts as rollout-ready:
 

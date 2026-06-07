@@ -406,7 +406,8 @@ Hosted integration suite:
 - Use `--strict` for staging or CI jobs that must provide every source before physical Pi acceptance.
 - Use `AUTOPOIESIS_HOSTED_CONTRACT_REQUIRE=migrations,schema,pairing,device-auth,settings,profile-ownership,heartbeat,command-poll,command-ack,stream,cache,online-admin,broadcast,release,release-rollout` when a partial job should require only selected gates while still running any other provided sources.
 - CI/staging may pass saved fixtures or live URLs through the existing `AUTOPOIESIS_*_SOURCE` variables, or provide one `AUTOPOIESIS_HOSTED_CONTRACT_MANIFEST` JSON file with a `sources` object keyed by gate name. Manifest-relative file paths are resolved from the manifest directory, and individual `AUTOPOIESIS_*_SOURCE` variables override manifest entries for targeted reruns.
-- A manifest may self-declare required gates with `require`, `required`, `requireGates`, or `requiredGates`, either as a comma-separated string, array, or object whose truthy keys are required. Set `strict` or `requireAll` to `true` in the manifest to require every hosted gate without also passing `--strict`.
+- A manifest may self-declare required gates with `require`, `required`, `requireGates`, `requiredGates`, or `required_gates`, either as a comma-separated string, array, or object whose truthy keys are required. Set `strict` or `requireAll` to `true` in the manifest to require every hosted gate without also passing `--strict`.
+- Set `AUTOPOIESIS_HOSTED_CONTRACT_REPORT=/path/to/hosted-contract-report.json` when CI or staging needs a machine-readable readiness artifact. The report is written on pass and fail, includes `status`, `exitCode`, required gates, summary counts, failed gate/reason when available, and per-gate source-presence booleans, and deliberately omits raw source paths, URLs, tokens, and local appliance paths.
 
 Release manifest validation:
 

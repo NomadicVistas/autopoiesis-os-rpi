@@ -1,5 +1,42 @@
 # Progress
 
+## 2026-06-07 - Hosted suite JSON readiness report
+
+Date: 2026-06-07
+
+Milestone: LEAD / INTEGRATION - hosted contract orchestration
+
+Changed files:
+
+- `scripts/hosted-contract-suite-check.sh`
+- `README.md`
+- `docs/api-contract.md`
+- `docs/agent-notes/hosted-contract-suite-issue.md`
+- `docs/agent-notes/pulse.md`
+- `docs/progress.md`
+- `/data/.openclaw/workspace/autopoiesis-os-program/ROLLING-LOG.md`
+
+Implemented:
+
+- Added optional `AUTOPOIESIS_HOSTED_CONTRACT_REPORT` output to the hosted contract suite.
+- The suite now writes a redacted JSON report on pass and fail with status, exit code, manifest/CLI strictness, required gates, summary counts, per-gate pass/skip/missing-required state, and failed gate/reason when available.
+- The report intentionally records source-presence booleans and source environment names only, avoiding raw fixture paths, URLs, bearer tokens, or local appliance paths.
+- Gate execution now captures checker failures explicitly so failing gates can be named in the report before the suite exits.
+
+Verification:
+
+- Hosted-suite report smoke passed for a required release manifest gate and confirmed the report did not leak the fixture path.
+- Hosted-suite report failure smoke passed for a missing required release source and recorded `failedGate=release`.
+- `node --check local-ui/server.js` passed.
+- `bash -n install.sh update.sh uninstall-dev-tools.sh factory-reset.sh scripts/*.sh` passed.
+- `git diff --check` passed.
+- `scripts/security-smoke.sh` passed.
+
+Next step:
+
+Have hosted CI/staging set `AUTOPOIESIS_HOSTED_CONTRACT_REPORT` beside the manifest artifact, archive the report, and use its `status`/per-gate fields for rollout annotations before physical Pi validation.
+
+
 ## 2026-06-07 - Device update channel enforcement
 
 Date: 2026-06-07
