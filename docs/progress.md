@@ -1,5 +1,42 @@
 # Progress
 
+## 2026-06-07 - Online admin mock bridge for Profile/Admin bundle consistency
+
+Date: 2026-06-07
+
+Milestone: ONLINE ADMIN - mock-to-bundle contract bridge
+
+Changed files:
+
+- `scripts/mock-hosted-api/server.js`
+- `scripts/online-admin-mock-bridge-check.sh`
+- `docs/progress.md`
+- `docs/agent-notes/pulse.md`
+- `/data/.openclaw/workspace/autopoiesis-os-program/ROLLING-LOG.md`
+
+Implemented:
+
+- Added admin user, subscriber, and subscription state to the mock hosted API, with `ensureDefaultAdminUser()` auto-creating the default owner account on first pair.
+- Added `GET /mock/online-admin-bundle` endpoint that assembles a full contract-compliant online-admin bundle from the mock API's live state, including Profile > Frames (userId, preferences, cache preferences, active artists, liked artworks, owned devices with actionAvailability) and Admin > Frames (actor, paged users/subscribers/subscriptions/fleet devices, remote actions with 9 command policies and a 4-role action matrix).
+- Added `POST /mock/add-user` test helper to add additional admin users with optional subscriber/subscription records.
+- Added `scripts/online-admin-mock-bridge-check.sh`, a 12-step integration gate that starts the mock API, walks the full device lifecycle (register → pair → settings sync → heartbeat → command queue/ack → release stage), adds a second trial user, fetches the online-admin bundle, validates the bundle structure, verifies device state propagation into the bundle (online status, settings, release, owner), and runs the full online-admin contract checker against the generated bundle.
+- The bridge proves the mock API's data model produces responses compatible with the online-admin contract shape: kind, schema version, user/subscriber/subscription joins, device ownership, fleet device online/settings/release state, cache preference coherence, active artist/liked artwork shape, and complete role-gated remote action policy.
+
+Verification:
+
+- `scripts/online-admin-mock-bridge-check.sh` passed all 12 steps with the online-admin contract checker passing.
+- `scripts/device-lifecycle-check.sh` passed all 18 steps (no regression).
+- `node --check scripts/mock-hosted-api/server.js` passed.
+- `node --check local-ui/server.js` passed.
+- `bash -n install.sh update.sh uninstall-dev-tools.sh factory-reset.sh scripts/*.sh` passed.
+- `git diff --check` passed.
+- `scripts/security-smoke.sh` passed.
+
+Next step:
+
+- Extend the bridge with a multi-device, multi-owner scenario to prove fleet device isolation and cross-owner subscription consistency.
+- Wire the bridge into the hosted mock bridge check alongside the stream/heartbeat/release contract gates.
+
 ## 2026-06-07 - Hosted mock bridge for cross-system contract consistency
 
 Date: 2026-06-07

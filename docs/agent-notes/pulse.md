@@ -1,5 +1,14 @@
 # Pulse Agent Notes
 
+## 2026-06-07 - Online admin mock bridge for Profile/Admin bundle consistency
+
+Date/time: 2026-06-07 20:19 UTC / 2026-06-07 22:19 Europe/Berlin
+Agent: Pulse
+Context: ONLINE ADMIN cron pass. The mock hosted API had device-facing endpoints but no admin-facing state or online-admin bundle generation. The online-admin contract checker validated hand-crafted fixtures but had never been run against a dynamically generated bundle from working mock state. This was a foundational gap in the testing infrastructure: the admin/profile contract checker and the mock API lived in separate worlds.
+What changed: Added admin user/subscriber/subscription state and `GET /mock/online-admin-bundle` endpoint to the mock hosted API. The endpoint assembles a full contract-compliant online-admin bundle from live mock state, including Profile > Frames (userId, preferences, cache preferences, active artists, liked artworks, owned devices with actionAvailability) and Admin > Frames (actor, paged users/subscribers/subscriptions/fleet devices, 9 remote action command policies, 4-role action matrix). Added `POST /mock/add-user` for multi-user testing. Created `scripts/online-admin-mock-bridge-check.sh`, a 12-step gate proving the mock API generates contract-compliant bundles after walking the full device lifecycle.
+What needs review: The mock API's online-admin bundle is generated from in-memory state, not from durable `aos_` tables. The backend adapter should produce the same shape from the canonical migration schema. The role-action matrix is currently hardcoded; production should derive it from a configurable policy.
+Next recommended action: Extend the bridge with multi-device, multi-owner scenarios to prove fleet device isolation and cross-owner subscription consistency. Wire into the hosted mock bridge alongside stream/heartbeat/release gates.
+
 ## 2026-06-07 - Hosted mock bridge for cross-system contract consistency
 
 Date/time: 2026-06-07 20:15 UTC / 2026-06-07 22:15 Europe/Berlin
