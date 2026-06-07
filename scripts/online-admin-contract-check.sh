@@ -128,7 +128,28 @@ function requirePageShape(section, field) {
   optionalNumber(section.total, field + ".total");
   optionalNumber(section.page, field + ".page");
   optionalNumber(section.pageSize, field + ".pageSize");
-  return asArray(section.items, field + ".items");
+  const items = asArray(section.items, field + ".items");
+  if (section.total !== undefined && Number(section.total) < items.length) {
+    fail(field + ".total cannot be smaller than items.length");
+  }
+  return items;
+}
+
+function normalizedId(value, field) {
+  if (typeof value !== "string" || !value.trim()) fail(field + " is required");
+  return value.trim();
+}
+
+function assertUnique(map, id, field) {
+  if (map.has(id)) fail(field + " duplicates id " + id);
+  map.set(id, true);
+  return id;
+}
+
+function optionalStatus(value, field, allowed) {
+  if (value === undefined || value === null || value === "") return;
+  if (typeof value !== "string") fail(field + " must be a string when present");
+  if (!allowed.has(value)) fail(field + " is unsupported: " + value);
 }
 
 function validatePreferences(preferences, field) {
@@ -263,6 +284,7 @@ function validateDeviceActionAvailability(device, field, commandPolicies = null)
 function validateSubscription(subscription, field) {
   if (subscription === undefined || subscription === null) return;
   if (!isObject(subscription)) fail(field + " must be an object when present");
+  optionalString(subscription.subscriptionId || subscription.id, field + ".subscriptionId");
   optionalString(subscription.status, field + ".status");
   optionalString(subscription.plan, field + ".plan");
   optionalString(subscription.tier, field + ".tier");
@@ -512,33 +534,62 @@ function validateAdminFrames(adminFrames) {
   const subscriptions = requirePageShape(adminFrames.subscriptions, "adminFrames.subscriptions");
   const devices = requirePageShape(adminFrames.devices || adminFrames.deviceFleet, "adminFrames.devices");
 
+  const subscriptionStatuses = new Set(["active", "trialing", "past_due", "canceled", "cancelled", "comped", "paused", "incomplete", "unpaid"]);
+  const subscriberStatuses = new Set(["active", "trialing", "past_due", "canceled", "cancelled", "comped", "paused", "test", "inactive"]);
+  const entitledSubscriptionStatuses = new Set(["active", "trialing", "past_due", "comped"]);
+  const usersById = new Map();
+  const subscribersByUserId = new Map();
+  const subscriptionsById = new Map();
+  const subscriptionsByUserId = new Map();
+  const deviceIds = new Map();
+
   for (const [index, user] of users.entries()) {
     const prefix = "adminFrames.users.items[" + index + "]";
     if (!isObject(user)) fail(prefix + " must be an object");
-    requiredString(user.userId || user.id, prefix + ".userId");
+    const userId = assertUnique(usersById, normalizedId(user.userId || user.id, prefix + ".userId"), "adminFrames.users");
+    usersById.set(userId, user);
     optionalString(user.email, prefix + ".email");
     optionalNumber(user.frameCount, prefix + ".frameCount");
     validateSubscription(user.subscription, prefix + ".subscription");
+    if (user.subscription) {
+      optionalStatus(user.subscription.status, prefix + ".subscription.status", subscriptionStatuses);
+    }
   }
 
   for (const [index, subscriber] of subscribers.entries()) {
     const prefix = "adminFrames.subscribers.items[" + index + "]";
     if (!isObject(subscriber)) fail(prefix + " must be an object");
-    requiredString(subscriber.userId || subscriber.id, prefix + ".userId");
-    optionalString(subscriber.status, prefix + ".status");
+    const userId = assertUnique(subscribersByUserId, normalizedId(subscriber.userId || subscriber.id, prefix + ".userId"), "adminFrames.subscribers");
+    subscribersByUserId.set(userId, subscriber);
+    if (!usersById.has(userId)) fail(prefix + ".userId must reference adminFrames.users");
+    optionalStatus(subscriber.status, prefix + ".status", subscriberStatuses);
     optionalString(subscriber.plan, prefix + ".plan");
+    optionalString(subscriber.tier, prefix + ".tier");
+    optionalString(subscriber.subscriptionId, prefix + ".subscriptionId");
     optionalBoolean(subscriber.testAccount, prefix + ".testAccount");
   }
 
   for (const [index, subscription] of subscriptions.entries()) {
     const prefix = "adminFrames.subscriptions.items[" + index + "]";
     if (!isObject(subscription)) fail(prefix + " must be an object");
-    requiredString(subscription.subscriptionId || subscription.id, prefix + ".subscriptionId");
-    requiredString(subscription.userId, prefix + ".userId");
-    optionalString(subscription.status, prefix + ".status");
+    const subscriptionId = assertUnique(subscriptionsById, normalizedId(subscription.subscriptionId || subscription.id, prefix + ".subscriptionId"), "adminFrames.subscriptions");
+    const userId = normalizedId(subscription.userId, prefix + ".userId");
+    subscriptionsById.set(subscriptionId, subscription);
+    if (!subscriptionsByUserId.has(userId)) subscriptionsByUserId.set(userId, []);
+    subscriptionsByUserId.get(userId).push(subscription);
+    if (!usersById.has(userId)) fail(prefix + ".userId must reference adminFrames.users");
+    optionalStatus(subscription.status, prefix + ".status", subscriptionStatuses);
     optionalString(subscription.plan, prefix + ".plan");
+    optionalString(subscription.tier, prefix + ".tier");
     optionalIso(subscription.currentPeriodEnd, prefix + ".currentPeriodEnd");
     optionalBoolean(subscription.cancelAtPeriodEnd, prefix + ".cancelAtPeriodEnd");
+    if (entitledSubscriptionStatuses.has(subscription.status) && !subscribersByUserId.has(userId)) {
+      fail(prefix + ".userId with entitled status must also appear in adminFrames.subscribers");
+    }
+    const subscriber = subscribersByUserId.get(userId);
+    if (subscriber && subscriber.subscriptionId && subscriber.subscriptionId !== subscriptionId) {
+      fail(prefix + ".subscriptionId does not match subscriber.subscriptionId");
+    }
   }
 
   validateRemoteActions(adminFrames.remoteActions, "adminFrames.remoteActions");
@@ -549,8 +600,28 @@ function validateAdminFrames(adminFrames) {
       requireActions: true,
       commandPolicies
     });
+    assertUnique(deviceIds, device.deviceId, "adminFrames.devices");
     if (device.ownerUserId === undefined || device.ownerUserId === null || device.ownerUserId === "") {
       fail("adminFrames.devices.items[" + index + "].ownerUserId is required for fleet admin");
+    }
+    if (!usersById.has(device.ownerUserId)) {
+      fail("adminFrames.devices.items[" + index + "].ownerUserId must reference adminFrames.users");
+    }
+    if (device.subscription) {
+      optionalStatus(device.subscription.status, "adminFrames.devices.items[" + index + "].subscription.status", subscriptionStatuses);
+      const subscriptionId = device.subscription.subscriptionId || device.subscription.id;
+      if (subscriptionId && !subscriptionsById.has(subscriptionId)) {
+        fail("adminFrames.devices.items[" + index + "].subscription.subscriptionId must reference adminFrames.subscriptions");
+      }
+    }
+  }
+
+  for (const [userId, subscriber] of subscribersByUserId.entries()) {
+    if (subscriber.subscriptionId && !subscriptionsById.has(subscriber.subscriptionId)) {
+      fail("adminFrames.subscribers user " + userId + " references unknown subscriptionId");
+    }
+    if (!subscriptionsByUserId.has(userId) && subscriber.status !== "test" && subscriber.status !== "inactive") {
+      fail("adminFrames.subscribers user " + userId + " must have a matching adminFrames.subscriptions row");
     }
   }
 }

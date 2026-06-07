@@ -1,5 +1,49 @@
 # Progress
 
+## 2026-06-07 - Online admin subscription consistency
+
+Date: 2026-06-07
+
+Milestone: ONLINE ADMIN - account/subscription admin readiness
+
+Changed files:
+
+- `scripts/online-admin-contract-check.sh`
+- `README.md`
+- `docs/api-contract.md`
+- `docs/database-schema.md`
+- `docs/admin-system.md`
+- `docs/online-frames-profile.md`
+- `docs/agent-notes/backend-online-admin-subscription-consistency-issue.md`
+- `docs/agent-notes/pulse.md`
+- `docs/progress.md`
+- `/data/.openclaw/workspace/autopoiesis-os-program/ROLLING-LOG.md`
+
+Implemented:
+
+- Tightened `scripts/online-admin-contract-check.sh` so Admin > Frames account pages must be join-consistent, not only shape-valid.
+- Added duplicate-id checks for users, subscribers, subscriptions, and fleet devices.
+- Added page-total validation so paged admin sections cannot report totals smaller than returned rows.
+- Required subscribers, subscriptions, fleet device owners, and device subscription summaries to reference the corresponding listed user/subscription rows.
+- Required entitled subscription statuses to have a matching subscriber row before subscription-gated fleet controls are considered ready.
+- Added a backend handoff note for generating this evidence from canonical account/subscription models plus durable `aos_` device rows.
+
+Verification:
+
+- Representative online-admin bundle acceptance passed.
+- Unknown subscriber user rejection passed.
+- Entitled subscription missing subscriber rejection passed.
+- Fleet device owner reference rejection passed.
+- Hosted suite required-online-admin pass and missing-source rejection passed.
+- `node --check local-ui/server.js` passed.
+- `bash -n install.sh update.sh uninstall-dev-tools.sh factory-reset.sh scripts/*.sh` passed.
+- `git diff --check` passed.
+- `scripts/security-smoke.sh` passed.
+
+Next step:
+
+Generate the online-admin bundle from hosted staging using the canonical billing/subscription provider, normalize entitlement statuses once, and run the strict hosted suite before enabling subscription-gated remote actions or fleet subscription filters.
+
 ## 2026-06-07 - Hosted command polling contract
 
 Date: 2026-06-07

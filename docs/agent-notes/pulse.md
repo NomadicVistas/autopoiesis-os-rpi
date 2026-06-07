@@ -1,5 +1,14 @@
 # Pulse Agent Notes
 
+## 2026-06-07 - Online admin subscription consistency
+
+Date/time: 2026-06-07 04:05 UTC / 2026-06-07 06:05 Europe/Berlin
+Agent: Pulse
+Context: ONLINE ADMIN cron pass. The online-admin bundle checked users, subscribers, subscriptions, fleet devices, cache preferences, and action availability, but it still allowed those admin pages to pass as disconnected lists.
+What changed: Tightened `scripts/online-admin-contract-check.sh` so Admin > Frames users, subscribers, subscriptions, and fleet devices must cross-reference cleanly. The gate now rejects duplicate ids, page totals smaller than returned items, subscribers without listed users, subscription rows without listed users, entitled subscriptions without subscriber rows, subscriber/device subscription ids missing from the subscription page, and fleet device owners missing from the user page. Added `docs/agent-notes/backend-online-admin-subscription-consistency-issue.md`.
+What needs review: Hosted staging should generate the online-admin bundle from the canonical account/subscription provider plus durable `aos_` device rows, normalizing billing statuses once before Admin/Profile controls consume them.
+Next recommended action: Run the strict hosted suite with the updated online-admin bundle before enabling subscription-gated remote actions or fleet subscription filters.
+
 ## 2026-06-07 - Hosted command polling contract
 
 Date/time: 2026-06-07 03:15 UTC / 2026-06-07 05:15 Europe/Berlin
