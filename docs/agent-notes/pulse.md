@@ -794,3 +794,12 @@ Context: ONLINE ADMIN cron pass. The online-admin bundle validated the broad Pro
 What changed: Tightened `scripts/online-admin-contract-check.sh` so profile cache preferences must agree with mirrored cache fields in `preferences`, active artist ids are unique and coherent with `preferences.activeArtists`, liked artwork ids are unique in flat and paged forms, and paged liked-artwork totals cover returned rows. Added `docs/agent-notes/backend-online-admin-profile-coherence-issue.md` as the hosted backend handoff.
 What needs review: Hosted staging should assemble Profile > Frames from one canonical preference/cache/artist/like projection instead of stitching independent endpoint responses that can drift.
 Next recommended action: Run the strict hosted suite with a real online-admin bundle before enabling cache controls, active artist toggles, or liked artwork pagination in staging.
+
+## 2026-06-07 - Hosted suite planning mode
+
+Date/time: 2026-06-07 07:15 UTC / 2026-06-07 09:15 Europe/Berlin
+Agent: Pulse
+Context: LEAD / INTEGRATION cron pass. The hosted suite had strict execution and a JSON readiness report, but staging still lacked a cheap way to inspect the exact manifest/env gate matrix before running every downstream checker.
+What changed: Added `--plan` / `--dry-run` to `scripts/hosted-contract-suite-check.sh`. Plan mode validates manifest and required-gate configuration, fails missing required sources, records source-present gates as `planned`, and writes the same redacted report shape with `mode: "plan"`. Required-gate names from `AUTOPOIESIS_HOSTED_CONTRACT_REQUIRE` are now typo-checked before any checker executes.
+What needs review: Hosted CI should run plan mode against the generated manifest, archive the report, then run the full strict suite using the same manifest so rollout annotations and actual gate execution cannot drift silently.
+Next recommended action: Add a hosted CI step that publishes both the plan report and the full run report before physical Pi validation.

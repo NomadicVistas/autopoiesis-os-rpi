@@ -33,7 +33,9 @@ The suite runner gives the hosted app one ordered contract pass:
 - Manifest-relative paths resolve from the manifest directory, and per-gate `AUTOPOIESIS_*_SOURCE` variables override manifest entries for targeted reruns.
 - Staging runs `scripts/hosted-contract-suite-check.sh --strict`, or emits a manifest with `strict: true` / `requireAll: true`, before physical Pi acceptance.
 - Partial backend jobs use manifest `require`/`requiredGates` or `AUTOPOIESIS_HOSTED_CONTRACT_REQUIRE` to require the gate(s) they own while still running any other provided sources.
-- CI sets `AUTOPOIESIS_HOSTED_CONTRACT_REPORT` to archive the redacted JSON readiness report, then uses `status`, `requiredGates`, `summary`, `failedGate`, and per-gate statuses for deploy/rollout annotations instead of scraping terminal output.
+- CI runs `scripts/hosted-contract-suite-check.sh --plan` against the same manifest before the full suite when it needs a redacted rollout/source matrix without fetching live fixtures or executing individual checkers.
+- Required-gate typos in `AUTOPOIESIS_HOSTED_CONTRACT_REQUIRE` or manifest requirements fail before any gate runs.
+- CI sets `AUTOPOIESIS_HOSTED_CONTRACT_REPORT` to archive the redacted JSON readiness report, then uses `status`, `mode`, `requiredGates`, `summary`, `failedGate`, and per-gate statuses for deploy/rollout annotations instead of scraping terminal output.
 - Profile ownership staging exports `AUTOPOIESIS_PROFILE_OWNERSHIP_CONTRACT_SOURCE` with owned Profile success, cross-owner denial, anonymous denial, and admin-boundary evidence from real account/session checks.
 - Cache/offline staging exports `AUTOPOIESIS_CACHE_CONTRACT_SOURCE` with explicit cache policy, cache candidates, and ingested device cache summary evidence.
 - Broadcast staging exports `AUTOPOIESIS_BROADCAST_CONTRACT_SOURCE` with durable broadcast rows, queued `show_broadcast` command evidence, approved authorization/audit metadata, and delivery/display rows.

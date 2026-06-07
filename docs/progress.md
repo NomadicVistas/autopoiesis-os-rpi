@@ -1,5 +1,43 @@
 # Progress
 
+## 2026-06-07 - Hosted suite planning mode
+
+Date: 2026-06-07
+
+Milestone: LEAD / INTEGRATION - hosted contract orchestration
+
+Changed files:
+
+- `scripts/hosted-contract-suite-check.sh`
+- `README.md`
+- `docs/api-contract.md`
+- `docs/agent-notes/hosted-contract-suite-issue.md`
+- `docs/agent-notes/pulse.md`
+- `docs/progress.md`
+- `/data/.openclaw/workspace/autopoiesis-os-program/ROLLING-LOG.md`
+
+Implemented:
+
+- Added `--plan` / `--dry-run` to the hosted contract suite so CI can inspect a redacted gate/source matrix without executing individual checkers.
+- Plan mode validates manifest and required-gate configuration, fails missing required sources, and marks source-present gates as `planned`.
+- The JSON readiness report now includes `mode` and `summary.planned`, and can be emitted for plan runs as well as pass/fail runs.
+- Required-gate names supplied by `AUTOPOIESIS_HOSTED_CONTRACT_REQUIRE` are now normalized and typo-checked before gate execution.
+
+Verification:
+
+- Plan mode with a manifest source produced a redacted report with `mode: plan`, `summary.planned: 1`, and no raw fixture path.
+- Plan mode rejected a missing required source.
+- Unknown required gate names in `AUTOPOIESIS_HOSTED_CONTRACT_REQUIRE` were rejected before checker execution.
+- Existing required-release report generation passed.
+- `node --check local-ui/server.js` passed.
+- `bash -n install.sh update.sh uninstall-dev-tools.sh factory-reset.sh scripts/*.sh` passed.
+- `git diff --check` passed.
+- `scripts/security-smoke.sh` passed.
+
+Next step:
+
+Have hosted CI generate a plan report and a full run report from the same manifest, then use the plan report for rollout annotations before physical Pi validation.
+
 ## 2026-06-07 - Online admin profile coherence
 
 Date: 2026-06-07

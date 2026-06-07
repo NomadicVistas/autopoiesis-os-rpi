@@ -3,6 +3,7 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REQUIRE_ALL=0
+PLAN_ONLY=0
 REQUIRED_LIST="${AUTOPOIESIS_HOSTED_CONTRACT_REQUIRE:-}"
 MANIFEST_SOURCE="${AUTOPOIESIS_HOSTED_CONTRACT_MANIFEST:-${AUTOPOIESIS_HOSTED_CONTRACT_BUNDLE:-}}"
 MANIFEST_FILE=""
@@ -14,6 +15,7 @@ TMP_FILES=()
 RAN_COUNT=0
 SKIPPED=()
 PASSED=()
+PLANNED=()
 REPORT_ROWS=()
 FAILED_GATE=""
 FAILURE_REASON=""
@@ -34,16 +36,18 @@ write_report() {
   report_dir="$(dirname "$REPORT_PATH")"
   mkdir -p "$report_dir"
 
-  local rows required_csv passed_csv skipped_csv
+  local rows required_csv passed_csv skipped_csv planned_csv
   rows="$(printf '%s\n' "${REPORT_ROWS[@]}")"
   required_csv="$(normalized_required_gate_csv)"
   passed_csv="$(printf '%s,' "${PASSED[@]}")"
   skipped_csv="$(printf '%s,' "${SKIPPED[@]}")"
+  planned_csv="$(printf '%s,' "${PLANNED[@]}")"
 
   REPORT_ROWS_CONTENT="$rows" \
   REPORT_REQUIRED_CSV="$required_csv" \
   REPORT_PASSED_CSV="$passed_csv" \
   REPORT_SKIPPED_CSV="$skipped_csv" \
+  REPORT_PLANNED_CSV="$planned_csv" \
   REPORT_EXIT_CODE="$exit_code" \
   REPORT_RAN_COUNT="$RAN_COUNT" \
   REPORT_FAILURE_REASON="$FAILURE_REASON" \
@@ -51,6 +55,7 @@ write_report() {
   REPORT_MANIFEST_SOURCE_PROVIDED="$([[ -n "$MANIFEST_SOURCE" ]] && echo 1 || echo 0)" \
   REPORT_MANIFEST_REQUIRE_ALL="$MANIFEST_REQUIRE_ALL" \
   REPORT_CLI_REQUIRE_ALL="$REQUIRE_ALL" \
+  REPORT_PLAN_ONLY="$PLAN_ONLY" \
   node - "$REPORT_PATH" <<'NODE'
 const fs = require("fs");
 
@@ -85,6 +90,10 @@ const skipped = String(process.env.REPORT_SKIPPED_CSV || "")
   .split(",")
   .map(entry => entry.trim())
   .filter(Boolean);
+const planned = String(process.env.REPORT_PLANNED_CSV || "")
+  .split(",")
+  .map(entry => entry.trim())
+  .filter(Boolean);
 const failedGate = process.env.REPORT_FAILED_GATE || "";
 const failureReason = process.env.REPORT_FAILURE_REASON || "";
 
@@ -101,14 +110,17 @@ const report = {
   cli: {
     requireAll: process.env.REPORT_CLI_REQUIRE_ALL === "1"
   },
+  mode: process.env.REPORT_PLAN_ONLY === "1" ? "plan" : "run",
   requiredGates: Array.from(required),
   summary: {
     ran: Number(process.env.REPORT_RAN_COUNT || "0"),
+    planned: planned.length,
     passed: passed.length,
     skipped: skipped.length,
     failed: exitCode === 0 ? 0 : 1
   },
   gates: rows,
+  planned,
   passed,
   skipped
 };
@@ -130,7 +142,7 @@ trap on_exit EXIT
 usage() {
   cat >&2 <<'EOF'
 Usage:
-  scripts/hosted-contract-suite-check.sh [--strict]
+  scripts/hosted-contract-suite-check.sh [--strict] [--plan]
 
 Environment:
   AUTOPOIESIS_HOSTED_CONTRACT_MANIFEST      optional JSON manifest mapping gates to sources
@@ -159,6 +171,11 @@ Environment:
 --strict requires every hosted gate source. Otherwise the suite runs all
 provided sources and fails if a gate named in AUTOPOIESIS_HOSTED_CONTRACT_REQUIRE
 is missing.
+
+--plan validates manifest and required-gate configuration, then prints a
+redacted gate/source matrix without running the individual contract checkers.
+Required gates still fail when their source is missing. This is useful for CI
+and rollout annotations before fetching live fixtures or mutating staging state.
 
 When AUTOPOIESIS_HOSTED_CONTRACT_MANIFEST is set, the suite reads sources and
 optional requirements from a JSON object such as
@@ -198,9 +215,21 @@ normalize_gate_name() {
   esac
 }
 
+all_gate_csv() {
+  echo "migrations,schema,pairing,device-auth,settings,profile-ownership,heartbeat,command-poll,command-ack,command-state,stream,cache,online-admin,broadcast,release,release-rollout"
+}
+
+gate_exists() {
+  local gate="$1"
+  case ",$(all_gate_csv)," in
+    *",$gate,"*) return 0 ;;
+    *) return 1 ;;
+  esac
+}
+
 required_gate_csv() {
   if [[ "$REQUIRE_ALL" == "1" || "$MANIFEST_REQUIRE_ALL" == "1" ]]; then
-    echo "migrations,schema,pairing,device-auth,settings,profile-ownership,heartbeat,command-poll,command-ack,command-state,stream,cache,online-admin,broadcast,release,release-rollout"
+    all_gate_csv
   else
     local required_csv="$REQUIRED_LIST"
     if [[ -n "$MANIFEST_REQUIRED_LIST" ]]; then
@@ -237,6 +266,25 @@ normalized_required_gate_csv() {
     esac
   done
   echo "$output"
+}
+
+validate_required_gates() {
+  local required_csv entry normalized
+  required_csv="$(required_gate_csv)"
+  [[ -n "$required_csv" ]] || return 0
+
+  IFS="," read -ra entries <<<"$required_csv"
+  for entry in "${entries[@]}"; do
+    entry="${entry//[[:space:]]/}"
+    [[ -n "$entry" ]] || continue
+    normalized="$(normalize_gate_name "$entry")"
+    if ! gate_exists "$normalized"; then
+      FAILED_GATE="$entry"
+      FAILURE_REASON="unknown required gate"
+      echo "hosted contract suite failed: unknown required gate: $entry" >&2
+      exit 2
+    fi
+  done
 }
 
 gate_is_required() {
@@ -663,6 +711,13 @@ run_gate() {
   fi
 
   source_present=1
+  if [[ "$PLAN_ONLY" == "1" ]]; then
+    REPORT_ROWS+=("$gate|planned|$required_flag|$source_present|$env_name|$label")
+    PLANNED+=("$gate")
+    echo "plan: $gate source present ($env_name)"
+    return 0
+  fi
+
   echo
   echo "==> $label"
   if ! "$SCRIPT_DIR/$script" "$source"; then
@@ -681,6 +736,9 @@ for arg in "$@"; do
     --strict|--require-all)
       REQUIRE_ALL=1
       ;;
+    --plan|--dry-run)
+      PLAN_ONLY=1
+      ;;
     -h|--help)
       usage
       exit 0
@@ -695,6 +753,7 @@ for arg in "$@"; do
 done
 
 load_manifest
+validate_required_gates
 
 run_gate "migrations" "AUTOPOIESIS_AOS_MIGRATION_CONTRACT_SOURCE" "aos-migration-contract-check.sh" "AOS migration contract"
 run_gate "schema" "AUTOPOIESIS_AOS_SCHEMA_CONTRACT_SOURCE" "aos-schema-contract-check.sh" "AOS schema contract"
@@ -712,6 +771,12 @@ run_gate "online-admin" "AUTOPOIESIS_ONLINE_ADMIN_CONTRACT_SOURCE" "online-admin
 run_gate "broadcast" "AUTOPOIESIS_BROADCAST_CONTRACT_SOURCE" "broadcast-contract-check.sh" "Hosted broadcast contract"
 run_gate "release" "AUTOPOIESIS_RELEASE_MANIFEST_SOURCE" "release-manifest-check.sh" "Release manifest contract"
 run_gate "release-rollout" "AUTOPOIESIS_RELEASE_ROLLOUT_CONTRACT_SOURCE" "release-rollout-contract-check.sh" "Hosted release rollout contract"
+
+if [[ "$PLAN_ONLY" == "1" ]]; then
+  echo
+  echo "hosted contract suite plan ok: planned=${PLANNED[*]:-none} skipped=${SKIPPED[*]:-none}"
+  exit 0
+fi
 
 if [[ "$RAN_COUNT" -eq 0 ]]; then
   usage
