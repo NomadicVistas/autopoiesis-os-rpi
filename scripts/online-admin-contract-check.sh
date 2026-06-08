@@ -604,6 +604,32 @@ function validateProfileFrames(profileFrames, commandPolicies = null) {
       commandPolicies
     });
   }
+
+  // ── Entitlements validation ──
+  if (!isObject(profileFrames.entitlements)) fail("profileFrames.entitlements must be an object");
+  const ent = profileFrames.entitlements;
+  requiredString(ent.plan, "profileFrames.entitlements.plan");
+  requiredString(ent.tier, "profileFrames.entitlements.tier");
+  requiredString(ent.status, "profileFrames.entitlements.status");
+  if (ent.deviceLimit !== null && typeof ent.deviceLimit !== "number") fail("profileFrames.entitlements.deviceLimit must be a number or null");
+  if (typeof ent.deviceUsage !== "number") fail("profileFrames.entitlements.deviceUsage must be a number");
+  if (ent.deviceSlotsRemaining !== null && typeof ent.deviceSlotsRemaining !== "number") fail("profileFrames.entitlements.deviceSlotsRemaining must be a number or null");
+  if (typeof ent.canAddDevice !== "boolean") fail("profileFrames.entitlements.canAddDevice must be a boolean");
+  if (typeof ent.canUseRemoteActions !== "boolean") fail("profileFrames.entitlements.canUseRemoteActions must be a boolean");
+  if (typeof ent.cacheLimitMb !== "number") fail("profileFrames.entitlements.cacheLimitMb must be a number");
+  if (typeof ent.activeArtistsLimit !== "number" && ent.activeArtistsLimit !== null) fail("profileFrames.entitlements.activeArtistsLimit must be a number or null");
+  if (typeof ent.offlineCache !== "boolean") fail("profileFrames.entitlements.offlineCache must be a boolean");
+  if (typeof ent.degradedAccess !== "boolean") fail("profileFrames.entitlements.degradedAccess must be a boolean");
+  if (ent.degradedAccess && !ent.degradedReason) fail("profileFrames.entitlements.degradedReason required when degradedAccess is true");
+  if (!Array.isArray(ent.degradedActionsBlocked)) fail("profileFrames.entitlements.degradedActionsBlocked must be an array");
+  // Coherence: canAddDevice should be false when degraded
+  if (ent.degradedAccess && ent.canAddDevice) fail("profileFrames.entitlements.canAddDevice must be false when degradedAccess is true");
+  // Coherence: deviceSlotsRemaining should agree with deviceLimit and deviceUsage
+  if (ent.deviceLimit !== null && ent.deviceSlotsRemaining !== null) {
+    if (ent.deviceSlotsRemaining !== Math.max(0, ent.deviceLimit - ent.deviceUsage)) {
+      fail("profileFrames.entitlements.deviceSlotsRemaining must equal max(0, deviceLimit - deviceUsage)");
+    }
+  }
 }
 
 function validateAdminFrames(adminFrames) {
@@ -702,6 +728,40 @@ function validateAdminFrames(adminFrames) {
         requireMatchingOptional(device.subscription.plan, subscription.plan, "adminFrames.devices.items[" + index + "].subscription.plan");
         requireMatchingOptional(device.subscription.tier, subscription.tier, "adminFrames.devices.items[" + index + "].subscription.tier");
       }
+    }
+  }
+
+  // ── Plan limits validation ──
+  if (!isObject(adminFrames.planLimits)) fail("adminFrames.planLimits must be an object");
+  const planLimitKeys = Object.keys(adminFrames.planLimits);
+  if (planLimitKeys.length === 0) fail("adminFrames.planLimits must contain at least one plan");
+  for (const planKey of planLimitKeys) {
+    const prefix = "adminFrames.planLimits." + planKey;
+    const planDef = adminFrames.planLimits[planKey];
+    if (!isObject(planDef)) fail(prefix + " must be an object");
+    if (planDef.maxDevices !== null && typeof planDef.maxDevices !== "number") fail(prefix + ".maxDevices must be a number or null");
+    if (typeof planDef.maxDevicesLabel !== "string") fail(prefix + ".maxDevicesLabel must be a string");
+    if (typeof planDef.remoteActions !== "boolean") fail(prefix + ".remoteActions must be a boolean");
+    if (typeof planDef.cacheLimitMb !== "number") fail(prefix + ".cacheLimitMb must be a number");
+    if (typeof planDef.activeArtistsLimit !== "number" && planDef.activeArtistsLimit !== null) fail(prefix + ".activeArtistsLimit must be a number or null");
+    if (typeof planDef.offlineCache !== "boolean") fail(prefix + ".offlineCache must be a boolean");
+  }
+
+  // ── User entitlements validation ──
+  for (const [index, user] of users.entries()) {
+    if (!isObject(user.entitlements)) fail("adminFrames.users.items[" + index + "].entitlements must be an object");
+    const ue = user.entitlements;
+    if (typeof ue.plan !== "string") fail("adminFrames.users.items[" + index + "].entitlements.plan must be a string");
+    if (typeof ue.canAddDevice !== "boolean") fail("adminFrames.users.items[" + index + "].entitlements.canAddDevice must be a boolean");
+    if (typeof ue.degradedAccess !== "boolean") fail("adminFrames.users.items[" + index + "].entitlements.degradedAccess must be a boolean");
+    // Cross-reference: entitlement plan should match user subscription plan
+    if (user.subscription && ue.plan !== user.subscription.plan) {
+      fail("adminFrames.users.items[" + index + "].entitlements.plan must match user.subscription.plan");
+    }
+    // Cross-reference: entitlement deviceLimit should match planLimits
+    const planDef = adminFrames.planLimits[ue.plan];
+    if (planDef && ue.deviceLimit !== planDef.maxDevices) {
+      fail("adminFrames.users.items[" + index + "].entitlements.deviceLimit must match adminFrames.planLimits." + ue.plan + ".maxDevices");
     }
   }
 

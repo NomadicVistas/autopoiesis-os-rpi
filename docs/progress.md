@@ -1,5 +1,75 @@
 # Progress
 
+## 2026-06-08 - Subscription-tier device limits and feature entitlements
+
+Date: 2026-06-08
+
+Milestone: ONLINE ADMIN — subscription-tier device limits, feature entitlements, and subscription-gated remote actions
+
+Changed files:
+
+- `scripts/mock-hosted-api/server.js`
+- `scripts/online-admin-contract-check.sh`
+- `scripts/online-admin-entitlements-check.sh` (new)
+- `docs/progress.md`
+- `/data/.openclaw/workspace/autopoiesis-os-program/ROLLING-LOG.md`
+
+Implemented:
+
+- Added `PLAN_LIMITS` constant defining four subscription tiers: frames_trial (1 device, 256MB cache, 5 active artists, no offline cache), frames_basic (3 devices, 512MB cache, 20 active artists, offline cache), frames_premium (10 devices, 2GB cache, 100 active artists), frames_enterprise (unlimited devices, 8GB cache, unlimited artists).
+- Added `DEGRADED_STATUSES` (expired, cancelled, past_due) and `ENTITLED_STATUSES` (trial, active) for subscription-state classification.
+- Added `computeEntitlements(userId)` — computes the full entitlement set for a user based on their subscription plan and status. Returns plan, tier, status, deviceLimit, deviceLimitLabel, deviceUsage, deviceSlotsRemaining, canAddDevice, canUseRemoteActions, cacheLimitMb, activeArtistsLimit, offlineCache, degradedAccess, degradedReason, and degradedActionsBlocked.
+- Device limits: trial users can pair 1 device, basic users 3, premium 10, enterprise unlimited. Users at their limit cannot pair new devices.
+- Degraded access: expired/cancelled/past_due users have `canAddDevice=false`, `canUseRemoteActions=false`, `offlineCache=false`, and `degradedActionsBlocked` listing high-risk remote actions that are blocked.
+- Entitlement coherence: `canAddDevice` is always false for degraded users. `deviceSlotsRemaining` equals `max(0, deviceLimit - deviceUsage)`.
+- Updated `handleMockPairDevice` — enforces subscription-tier device limits before pairing. Returns 403 with reason code `subscription_degraded` or `device_limit_reached` when blocked. Includes entitlements summary in the error response.
+- Updated `buildActionAvailability` — checks device owner's subscription status. For degraded owners, high-risk remote actions (restart_device, update_device, factory_reset_request, show_broadcast) are overridden to `allowed: false` with `degradedBySubscription: true` regardless of actor role.
+- Added entitlements to `profileFrames` in the online admin bundle — the profile section now includes a full `entitlements` object for the viewing user.
+- Added entitlements to each `adminFrames.users` entry — admin dashboard can see per-user entitlement status, device limits, and degradation state.
+- Added `adminFrames.planLimits` to the bundle — a reference table of all plan tiers with their limits, enabling the UI to render plan comparison, upgrade prompts, and limit indicators.
+- Extended `scripts/online-admin-contract-check.sh` with validation for:
+  - `profileFrames.entitlements`: 15 validation rules covering all entitlement fields, type checks, coherence rules (degraded→canAddDevice=false, deviceSlotsRemaining math).
+  - `adminFrames.planLimits`: validates each plan has required fields (maxDevices, maxDevicesLabel, remoteActions, cacheLimitMb, activeArtistsLimit, offlineCache).
+  - `adminFrames.users[].entitlements`: validates per-user entitlements, cross-references plan with subscription and planLimits.
+- Added `scripts/online-admin-entitlements-check.sh`, a 12-step isolated validation gate (23 checks) proving:
+  1. Syntax validation (mock API, contract check, self)
+  2. Static contract: PLAN_LIMITS shape (26 checks: 4 plans, 5 limit fields, degraded/entitled statuses, computeEntitlements function, 11 entitlement fields)
+  3. computeEntitlements unit tests (29 checks: default/trial, active basic, expired, past_due, cancelled, premium with devices, trial at limit, enterprise unlimited)
+  4. Mock API startup
+  5. Trial user device limit enforcement: 1-device limit blocks second pairing with device_limit_reached
+  6. Subscription upgrade unlocks device limit: trial→active with plan upgrade, second pairing succeeds
+  7. Entitlements in admin bundle: profileFrames.entitlements (12 checks), adminFrames.planLimits (9 checks)
+  8. Degraded subscription blocks remote actions: expired user entitlements (6 checks), degraded remote action gating (10 checks: blocked actions have degradedBySubscription, allowed actions remain)
+  9. User entitlements in admin users list (6 checks: entitlements present, plan matches subscription, degradedAccess, canAddDevice, cross-reference)
+  10. Device limit blocks pairing for expired user: 403 with subscription_degraded
+  11. Online admin contract checker passes for both active and expired bundles
+  12. Regression: online-admin-mock-bridge-check passes
+
+Why this matters:
+
+The online admin platform had subscription tiers (trial, basic, premium) but no mechanism to enforce what each tier actually entitles users to. There was no device limit enforcement — a trial user could pair unlimited devices. There was no degraded-access mode — expired users retained full remote action capabilities. And the admin bundle had no entitlement data — the UI had no way to know what a user's plan allowed. This change establishes the complete entitlement layer: plan-tier limits define the boundary, computeEntitlements evaluates a user's current state against their plan, pairing enforces device limits, remote actions are gated by subscription status, and the admin bundle exposes all of this to the UI. The four-tier model (trial/basic/premium/enterprise) maps directly to the business model and can be extended with additional limits (e.g., broadcast targeting, stream profile) without changing the entitlement computation architecture.
+
+Verification:
+
+- `scripts/online-admin-entitlements-check.sh` passed all 23 checks (12 steps).
+- `scripts/online-admin-contract-check.sh` passed on both active and expired bundles.
+- `scripts/online-admin-subscription-lifecycle-check.sh` passed all 54 checks (no regression).
+- `scripts/online-admin-mock-bridge-check.sh` passed (no regression).
+- `scripts/hosted-mock-bridge-check.sh` passed all 6 contract gates (no regression).
+- `scripts/security-smoke.sh` passed.
+- `node --check local-ui/server.js` passed.
+- `node --check scripts/mock-hosted-api/server.js` passed.
+- `bash -n install.sh update.sh uninstall-dev-tools.sh factory-reset.sh scripts/*.sh` passed.
+
+Next step:
+
+- Wire entitlements into the hosted backend: the real `aos_subscriptions` table drives `computeEntitlements`, the pairing endpoint checks entitlements before creating `aos_frame_devices` rows.
+- Add entitlement-gated UI in Profile > Frames: show device limit usage, plan upgrade prompt when at limit, degraded-access banner when subscription is expired/past_due.
+- Add entitlement-gated features: expired users should see reduced active artists limit, no offline cache option, and limited stream profiles.
+- Test entitlement enforcement across multiple users with mixed subscription states in the admin dashboard.
+
+---
+
 ## 2026-06-08 - Owner preference cascade to devices
 
 Date: 2026-06-08

@@ -54,6 +54,47 @@ const adminSubscribers = new Map(); // userId -> subscriber record
 const adminSubscriptions = new Map(); // subscriptionId -> subscription record
 const ownerPreferences = new Map(); // userId -> owner-level preference overrides
 
+// ── Plan limits and entitlements ─────────────────────────────────────────────
+
+const PLAN_LIMITS = {
+  frames_trial:     { maxDevices: 1,       remoteActions: true,  cacheLimitMb: 256, activeArtistsLimit: 5,   offlineCache: false },
+  frames_basic:     { maxDevices: 3,       remoteActions: true,  cacheLimitMb: 512, activeArtistsLimit: 20,  offlineCache: true },
+  frames_premium:   { maxDevices: 10,      remoteActions: true,  cacheLimitMb: 2048, activeArtistsLimit: 100, offlineCache: true },
+  frames_enterprise:{ maxDevices: Infinity, remoteActions: true,  cacheLimitMb: 8192, activeArtistsLimit: Infinity, offlineCache: true }
+};
+
+const DEGRADED_STATUSES = new Set(["expired", "cancelled", "past_due"]);
+const ENTITLED_STATUSES = new Set(["trial", "active"]);
+
+function computeEntitlements(userId) {
+  const subscriber = adminSubscribers.get(userId);
+  const plan = subscriber ? subscriber.plan : "frames_trial";
+  const tier = subscriber ? subscriber.tier : "trial";
+  const status = subscriber ? subscriber.status : "trial";
+  const limits = PLAN_LIMITS[plan] || PLAN_LIMITS.frames_trial;
+  const ownedDevices = [...devices.values()].filter((d) => d.ownerUserId === userId);
+  const deviceCount = ownedDevices.length;
+  const isDegraded = DEGRADED_STATUSES.has(status);
+
+  return {
+    plan,
+    tier,
+    status,
+    deviceLimit: limits.maxDevices === Infinity ? null : limits.maxDevices,
+    deviceLimitLabel: limits.maxDevices === Infinity ? "unlimited" : String(limits.maxDevices),
+    deviceUsage: deviceCount,
+    deviceSlotsRemaining: limits.maxDevices === Infinity ? null : Math.max(0, limits.maxDevices - deviceCount),
+    canAddDevice: !isDegraded && deviceCount < limits.maxDevices,
+    canUseRemoteActions: limits.remoteActions && !isDegraded,
+    cacheLimitMb: limits.cacheLimitMb,
+    activeArtistsLimit: limits.activeArtistsLimit === Infinity ? null : limits.activeArtistsLimit,
+    offlineCache: limits.offlineCache && !isDegraded,
+    degradedAccess: isDegraded,
+    degradedReason: isDegraded ? ("Subscription " + status) : null,
+    degradedActionsBlocked: isDegraded ? ["restart_device", "update_device", "factory_reset_request", "show_broadcast"] : []
+  };
+}
+
 function ensureDefaultAdminUser() {
   const userId = "user_mock_001";
   if (!adminUsers.has(userId)) {
@@ -489,6 +530,32 @@ function handleMockPairDevice(deviceId, body) {
   const record = devices.get(deviceId);
   if (!record) return { status: 404, body: { ok: false, error: "Device not found" } };
   const ownerUserId = (body && body.ownerUserId) || ensureDefaultAdminUser();
+
+  // Enforce subscription-tier device limits
+  const entitlements = computeEntitlements(ownerUserId);
+  if (!entitlements.canAddDevice) {
+    const currentOwned = [...devices.values()].filter((d) => d.ownerUserId === ownerUserId && d.deviceId !== deviceId).length;
+    const atLimit = entitlements.deviceLimit === null ? false : currentOwned >= entitlements.deviceLimit;
+    // Block if degraded (subscription expired/cancelled/past_due) OR at device limit
+    if (entitlements.degradedAccess || atLimit) {
+      return {
+        status: 403,
+        body: {
+          ok: false,
+          error: entitlements.degradedAccess ? "Subscription degraded" : "Device limit reached",
+          reason: entitlements.degradedReason || ("Plan " + entitlements.plan + " allows " + entitlements.deviceLimitLabel + " device(s)"),
+          reasonCode: entitlements.degradedAccess ? "subscription_degraded" : "device_limit_reached",
+          entitlements: {
+            deviceLimit: entitlements.deviceLimit,
+            deviceUsage: entitlements.deviceUsage,
+            plan: entitlements.plan,
+            status: entitlements.status
+          }
+        }
+      };
+    }
+  }
+
   record.paired = true;
   record.ownerUserId = ownerUserId;
   record.pairingCode = null;
@@ -735,6 +802,7 @@ function buildOnlineAdminBundle(profileUserId = null) {
         };
       }
     }
+    userEntry.entitlements = computeEntitlements(userId);
     usersItems.push(userEntry);
   }
 
@@ -885,7 +953,8 @@ function buildOnlineAdminBundle(profileUserId = null) {
         { artworkId: "artwork-001", likedAt: generatedAt, artistId: "artist-001", title: "Dream Fragment" },
         { artworkId: "artwork-002", likedAt: generatedAt, artistId: "artist-002", title: "Cellular Memory" }
       ],
-      devices: profileDevices
+      devices: profileDevices,
+      entitlements: computeEntitlements(effectiveUserId)
     },
     adminFrames: {
       actor: {
@@ -904,7 +973,20 @@ function buildOnlineAdminBundle(profileUserId = null) {
         criticalRiskRequiresAuditId: true,
         commands: REMOTE_ACTION_COMMANDS,
         roleActionMatrix: ROLE_ACTION_MATRIX
-      }
+      },
+      planLimits: Object.fromEntries(
+        Object.entries(PLAN_LIMITS).map(([plan, limits]) => [
+          plan,
+          {
+            maxDevices: limits.maxDevices === Infinity ? null : limits.maxDevices,
+            maxDevicesLabel: limits.maxDevices === Infinity ? "unlimited" : String(limits.maxDevices),
+            remoteActions: limits.remoteActions,
+            cacheLimitMb: limits.cacheLimitMb,
+            activeArtistsLimit: limits.activeArtistsLimit === Infinity ? null : limits.activeArtistsLimit,
+            offlineCache: limits.offlineCache
+          }
+        ])
+      )
     }
   };
 }
@@ -915,9 +997,22 @@ function buildActionAvailability(record, actorRole) {
   const roleRow = ROLE_ACTION_MATRIX.find((r) => r.role === actorRole);
   if (!roleRow) return { generatedAt, actions: {} };
 
+  // Check subscription entitlements for the device owner
+  const ownerId = record.ownerUserId;
+  const ownerEntitlements = ownerId ? computeEntitlements(ownerId) : null;
+  const ownerDegraded = ownerEntitlements && ownerEntitlements.degradedAccess;
+
   for (const cmd of REMOTE_ACTION_COMMANDS) {
     const roleAction = roleRow.actions[cmd.commandType];
-    if (!roleAction) {
+    // Subscription degradation overrides role policy for owner-scoped devices
+    if (ownerDegraded && ownerEntitlements.degradedActionsBlocked.includes(cmd.commandType)) {
+      actions[cmd.commandType] = {
+        allowed: false,
+        reason: ownerEntitlements.degradedReason,
+        reasonCode: "subscription_degraded",
+        degradedBySubscription: true
+      };
+    } else if (!roleAction) {
       actions[cmd.commandType] = { allowed: false, reason: "No policy for action", reasonCode: "no_policy" };
     } else if (roleAction.allowed) {
       actions[cmd.commandType] = {

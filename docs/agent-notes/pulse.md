@@ -1,5 +1,16 @@
 # Pulse Agent Notes
 
+## 2026-06-08 - Subscription-tier device limits and feature entitlements
+
+Date/time: 2026-06-08 10:19 UTC / 2026-06-08 12:19 Europe/Berlin
+Agent: Pulse
+Context: ONLINE ADMIN cron pass. The admin platform had subscription tiers but no mechanism to enforce what each tier actually entitles users to. No device limit enforcement, no degraded-access mode, no entitlement data in the admin bundle.
+What changed: Added PLAN_LIMITS (4 tiers), computeEntitlements(), device limit enforcement on pairing, subscription-status-gated remote actions, entitlements in profileFrames and adminFrames.users, planLimits reference table in admin bundle, contract checker extensions, and a 12-step validation gate.
+What needs review: The four-tier model (trial/basic/premium/enterprise) maps to the business model. Enterprise has null limits (unlimited). When the hosted backend is built, computeEntitlements should read from durable aos_subscriptions rows.
+Next recommended action: Add entitlement-gated UI in Profile > Frames: device limit usage bars, plan upgrade prompts, degraded-access banners. Wire entitlements into the hosted backend pairing endpoint.
+
+---
+
 ## 2026-06-08 - Owner preference cascade system
 
 Date/time: 2026-06-08 10:32 UTC / 2026-06-08 12:32 Europe/Berlin
