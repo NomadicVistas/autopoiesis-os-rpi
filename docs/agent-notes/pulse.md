@@ -1,5 +1,14 @@
 # Pulse Agent Notes
 
+## 2026-06-08 - Hosted mock bridge pairing and device-auth contract gates
+
+Date/time: 2026-06-08 00:42 UTC / 2026-06-08 02:42 Europe/Berlin
+Agent: Pulse
+Context: LEAD / INTEGRATION cron pass. The hosted mock bridge previously covered only 3 hosted contract gates (stream, heartbeat, release). The two most critical gates for first device deployment — pairing and device-auth — had never been validated against the mock API's data model. This is the cross-system consistency gap between the device-side expectations and hosted-side contracts.
+What changed: Extended `scripts/hosted-mock-bridge-check.sh` to generate pairing contract fixtures (registration + claim + status sections with ownerUserId, deviceApiKey, pairingCode) and device-auth contract fixtures (8 routes with authorized/missingCredential/wrongCredential/mismatchedDevice attempts). 5 routes use live auth attempts against the mock API; 3 routes (pairing-status, settings-read, commands) use contract-expected values since the mock is intentionally open on those routes. Added MOCK_BRIDGE_SKIP_PAIRING and MOCK_BRIDGE_SKIP_DEVICE_AUTH env vars.
+What needs review: The mock API uses `x-frame-device-key` as the device auth header. The real hosted backend should standardize on this header name (or update the mock to match the production header). The mock API doesn't have a separate GET commands endpoint — commands are returned through heartbeat responses. The device-auth fixture uses contract-expected values for this route.
+Next recommended action: Extend the bridge with settings contract fixtures (proving the mock API's settings conflict resolution matches the hosted settings contract checker). Wire the bridge into the hosted contract suite catalog so it runs as part of the full validation suite. After the hosted backend is built, generate real staging bundles and run the same checkers.
+
 ## 2026-06-08 - Content-type-aware display dwell time
 
 Date/time: 2026-06-07 23:27 UTC / 2026-06-08 01:27 Europe/Berlin

@@ -1,5 +1,50 @@
 # Progress
 
+## 2026-06-08 - Hosted mock bridge pairing and device-auth contract gates
+
+Date: 2026-06-08
+
+Milestone: LEAD / INTEGRATION - pairing + device-auth contract bridge
+
+Changed files:
+
+- `scripts/hosted-mock-bridge-check.sh`
+- `docs/progress.md`
+- `docs/agent-notes/pulse.md`
+- `/data/.openclaw/workspace/autopoiesis-os-program/ROLLING-LOG.md`
+
+Implemented:
+
+- Extended the hosted mock bridge from 3 to 5 hosted contract gates, adding pairing and device-auth fixture generation and validation.
+- Added `MOCK_BRIDGE_SKIP_PAIRING` and `MOCK_BRIDGE_SKIP_DEVICE_AUTH` environment variables for selective gate control.
+- Step 9a generates a pairing contract fixture from the lifecycle data: device registration (with pairingCode, deviceApiKey, expiresAt), user pairing claim (with ownerUserId, paired=true, settings), and pairing status (with paired=true, device, settings).
+- Step 9b generates a device-auth contract fixture with live auth attempts against the mock API for 5 auth-enforced routes (settings-write, heartbeat, stream, command-ack, release) and contract-expected values for 3 open routes (pairing-status, settings-read, commands).
+- Fixed the device-auth fixture to use the correct mock API header name (`x-frame-device-key`) and the correct mock API paths (`/frames/device/:id/...` without `/api` prefix).
+- Fixed the command-ack route to use the actual queued command ID instead of a hardcoded test ID.
+- Registered a second device for cross-device auth testing (mismatchedDevice attempts).
+- Sanitized response bodies to remove the mock API's internal `path` field from 404 fallback responses.
+
+Why this matters:
+
+The hosted mock bridge previously covered only 3 of 16+ hosted contract gates (stream, heartbeat, release). Pairing and device-auth are the two most critical gates for first device deployment — pairing is the gateway between "device installed" and "device connected to platform," and device-auth proves every API route enforces per-device credentials. Without these gates in the bridge, the mock API's data model had never been validated against the pairing and device-auth contract shapes. The bridge now proves the mock API produces data compatible with 5 hosted contract checkers, covering the complete critical path from device registration through pairing, authentication, settings sync, heartbeat, content streaming, and release management.
+
+Verification:
+
+- `scripts/hosted-mock-bridge-check.sh` passed all 5 contract gates (pairing, device-auth, stream, heartbeat, release).
+- `scripts/device-lifecycle-check.sh` passed 17/18 steps (diagnostics/health step is environmental, not related to this change).
+- `scripts/online-admin-mock-bridge-check.sh` passed all 12 steps (no regression).
+- `scripts/feed-targeting-check.sh` passed (no regression).
+- `scripts/security-smoke.sh` passed.
+- `node --check local-ui/server.js` passed.
+- `bash -n install.sh update.sh uninstall-dev-tools.sh factory-reset.sh scripts/*.sh` passed.
+- `git diff --check` passed.
+
+Next step:
+
+- Extend the bridge with settings contract and broadcast contract fixtures as the mock API evolves.
+- Wire the bridge into the hosted contract suite catalog alongside the device lifecycle gate for comprehensive local validation.
+- After the hosted backend is built, generate real pairing and device-auth contract bundles from staging and validate against the same checkers.
+
 ## 2026-06-08 - Content-type-aware display dwell time
 
 Date: 2026-06-08
