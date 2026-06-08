@@ -1,5 +1,14 @@
 # Pulse Agent Notes
 
+## 2026-06-08 - Admin subscription lifecycle gate
+
+Date/time: 2026-06-08 05:06 UTC / 2026-06-08 07:06 Europe/Berlin
+Agent: Pulse
+Context: ONLINE ADMIN cron pass. The mock API had admin users with subscriptions but no way to transition subscription state. The online-admin contract checker had never been run against a post-transition bundle. The contract checker also didn't recognize "expired" as a valid subscription status. This meant the entire subscription lifecycle — trial sign-up, activation, payment failure, recovery, cancellation, and expiry — was untested territory in the admin platform.
+What changed: Added `POST /mock/transition-subscription/:userId` to the mock API enforcing a finite state machine for subscription transitions. The helper validates current → target state, rejects invalid paths, and updates both subscriber and subscription records atomically. Created `scripts/online-admin-subscription-lifecycle-check.sh` — a 12-step gate proving all 5 lifecycle states produce correct bundle outputs across 4 admin collections. Extended the contract checker to accept "expired" as a valid status.
+What needs review: The lifecycle gate uses a dedicated port (3151) to avoid conflicts with other mock API instances. The expired state is terminal — no transitions out of it are allowed. In production, a new subscription would need to be created rather than reactivating an expired one. The fleet isolation check seems to hang in some environments (possibly port conflicts from prior mock API instances) — needs investigation.
+Next recommended action: Wire the lifecycle gate into `scripts/verify-all.sh`. After the hosted backend implements subscription management, run the contract suite with real subscription transitions. Add subscription-gated feature entitlements: expired users should have reduced device limits, no remote actions, limited cache preferences.
+
 ## 2026-06-08 - Unified offline verification runner
 
 Date/time: 2026-06-08 04:42 UTC / 2026-06-08 06:42 Europe/Berlin

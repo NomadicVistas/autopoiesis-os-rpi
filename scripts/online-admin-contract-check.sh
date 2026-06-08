@@ -618,8 +618,8 @@ function validateAdminFrames(adminFrames) {
   const subscriptions = requirePageShape(adminFrames.subscriptions, "adminFrames.subscriptions");
   const devices = requirePageShape(adminFrames.devices || adminFrames.deviceFleet, "adminFrames.devices");
 
-  const subscriptionStatuses = new Set(["active", "trialing", "past_due", "canceled", "cancelled", "comped", "paused", "incomplete", "unpaid"]);
-  const subscriberStatuses = new Set(["active", "trialing", "past_due", "canceled", "cancelled", "comped", "paused", "test", "inactive"]);
+  const subscriptionStatuses = new Set(["active", "trialing", "past_due", "canceled", "cancelled", "comped", "paused", "incomplete", "unpaid", "expired"]);
+  const subscriberStatuses = new Set(["active", "trialing", "past_due", "canceled", "cancelled", "comped", "paused", "test", "inactive", "expired"]);
   const entitledSubscriptionStatuses = new Set(["active", "trialing", "past_due", "comped"]);
   const usersById = new Map();
   const subscribersByUserId = new Map();

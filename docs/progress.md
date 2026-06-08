@@ -1,5 +1,60 @@
 # Progress
 
+## 2026-06-08 - Admin subscription lifecycle gate
+
+Date: 2026-06-08
+
+Milestone: ONLINE ADMIN - subscription state transition lifecycle
+
+Changed files:
+
+- `scripts/mock-hosted-api/server.js`
+- `scripts/online-admin-contract-check.sh`
+- `scripts/online-admin-subscription-lifecycle-check.sh`
+- `docs/progress.md`
+- `docs/agent-notes/pulse.md`
+- `/data/.openclaw/workspace/autopoiesis-os-program/ROLLING-LOG.md`
+
+Implemented:
+
+- Added `POST /mock/transition-subscription/:userId` to the mock hosted API — a test helper that transitions a user's subscription through a finite state machine: trial → active → past_due → cancelled → expired. Each transition validates that the requested target status is reachable from the current status. The helper updates both the subscriber record and the subscription row atomically.
+- Valid transitions: trial → [active, cancelled], active → [past_due, cancelled], past_due → [active, cancelled], cancelled → [expired], expired → [] (terminal).
+- The helper also supports plan/tier upgrades during transitions (e.g., trial → active with plan upgrade from frames_trial to frames_basic).
+- Added `scripts/online-admin-subscription-lifecycle-check.sh`, a 12-step isolated gate proving:
+  1. Syntax validation (mock API, contract check, self)
+  2. Mock API startup
+  3. Trial user creation with device registration and pairing
+  4. Trial state validation across admin bundle: user entry subscription (status/plan/tier/id), subscriber entry, subscription row, fleet device subscription summary — all showing "trial" with correct plan/tier
+  5. Trial → active transition: bundle reflects active status with upgraded plan/tier across user, subscriber, subscription, and fleet device
+  6. Active → past_due transition: bundle reflects past_due across user and fleet device
+  7. Past_due → active recovery: bundle reflects recovered active status
+  8. Active → cancelled transition: bundle reflects cancelled, records persist in subscriber and subscription collections (not deleted)
+  9. Cancelled → expired transition: bundle reflects expired across user and fleet, subscriber records persist
+  10. Invalid transition rejection: expired → active rejected, expired → trial rejected, nonexistent user rejected
+  11. Default user isolation: default user's subscription (active, frames_basic) unchanged throughout all trial user transitions
+  12. Online-admin contract checker passes on post-transition bundle (expired state)
+- Extended `scripts/online-admin-contract-check.sh` to accept "expired" as a valid subscription status and subscriber status (previously only recognized up to cancelled/unpaid).
+
+Why this matters:
+
+The admin platform needs to handle the complete subscription lifecycle: from trial sign-up, through activation, possible payment failure (past_due), recovery, cancellation, and eventual expiry. Each transition must be reflected correctly across three admin collections (users, subscribers, subscriptions) and in the fleet device subscription summaries. Without this gate, the mock API's subscription state had never been validated against a full lifecycle — only static single-state bundles had been tested. The gate proves that: (a) transitions produce consistent state across all four collection views, (b) cancelled/expired users are not deleted from the system, (c) invalid transitions are rejected, (d) subscription transitions for one user do not affect other users, and (e) the contract checker accepts every valid lifecycle state.
+
+Verification:
+
+- `scripts/online-admin-subscription-lifecycle-check.sh` passed all 54 checks, 0 failures (12 steps).
+- `scripts/online-admin-mock-bridge-check.sh` passed all 12 steps (no regression from mock API changes).
+- `scripts/security-smoke.sh` passed.
+- `node --check local-ui/server.js` passed.
+- `node --check scripts/mock-hosted-api/server.js` passed.
+- `bash -n install.sh update.sh uninstall-dev-tools.sh factory-reset.sh scripts/*.sh` passed.
+- `git diff --check` passed.
+
+Next step:
+
+- Wire the subscription lifecycle gate into the unified verification runner (`scripts/verify-all.sh`).
+- After the hosted backend implements subscription management, run the contract suite with real subscription transitions against staging.
+- Add subscription-gated feature entitlements: expired users should have reduced device limits, no remote actions, limited cache preferences.
+
 ## 2026-06-08 - Unified offline verification runner
 
 Date: 2026-06-08

@@ -24,6 +24,7 @@
  *   GET  /frames/device/:id/admin-snapshot          – Admin device snapshot
  *   GET  /mock/online-admin-bundle                   – Online admin bundle (contract)
  *   POST /mock/add-user                              – Test helper: add admin user+subscription
+ *   POST /mock/transition-subscription/:userId        – Test helper: transition subscription status
  *   POST /mock/pair-device/:id                      – Test helper: force-pair a device
  *   POST /mock/queue-command/:id                    – Test helper: queue a command
  *   GET  /mock/state                                – Test helper: dump server state
@@ -817,6 +818,58 @@ function handleMockOnlineAdminBundle(userId = null) {
   return { status: 200, body: buildOnlineAdminBundle(userId) };
 }
 
+function handleMockTransitionSubscription(userId, body) {
+  const subscriber = adminSubscribers.get(userId);
+  if (!subscriber) return { status: 404, body: { ok: false, error: "Subscriber not found" } };
+
+  const validTransitions = {
+    trial: ["active", "cancelled"],
+    active: ["past_due", "cancelled"],
+    past_due: ["active", "cancelled"],
+    cancelled: ["expired"],
+    expired: []
+  };
+
+  const currentStatus = subscriber.status;
+  const newStatus = body.status;
+  const allowed = (validTransitions[currentStatus] || []).includes(newStatus);
+
+  if (!allowed) {
+    return {
+      status: 400,
+      body: { ok: false, error: `Invalid transition: ${currentStatus} -> ${newStatus}`, currentStatus }
+    };
+  }
+
+  // Update subscriber record
+  subscriber.status = newStatus;
+  if (body.plan) subscriber.plan = body.plan;
+  if (body.tier) subscriber.tier = body.tier;
+  if (body.cancelAtPeriodEnd !== undefined) subscriber.cancelAtPeriodEnd = body.cancelAtPeriodEnd;
+
+  // Update subscription record
+  const sub = adminSubscriptions.get(subscriber.subscriptionId);
+  if (sub) {
+    sub.status = newStatus;
+    if (body.plan) sub.plan = body.plan;
+    if (body.tier) sub.tier = body.tier;
+    if (body.currentPeriodEnd) sub.currentPeriodEnd = body.currentPeriodEnd;
+    if (body.cancelAtPeriodEnd !== undefined) sub.cancelAtPeriodEnd = body.cancelAtPeriodEnd;
+    sub.updatedAt = now();
+  }
+
+  return {
+    status: 200,
+    body: {
+      ok: true,
+      userId,
+      previousStatus: currentStatus,
+      status: newStatus,
+      subscriptionId: subscriber.subscriptionId
+    }
+  };
+}
+
 function handleMockAddUser(body) {
   const userId = body.userId || ("user_mock_" + (adminUsers.size + 2));
   adminUsers.set(userId, {
@@ -916,6 +969,13 @@ async function handle(req, res) {
   if (method === "POST" && pathname === "/mock/add-user") {
     const body = JSON.parse((await readBody(req)) || "{}");
     return sendJson(res, ...Object.values(handleMockAddUser(body)));
+  }
+
+  // POST /mock/transition-subscription/:userId
+  const subTransitionMatch = pathname.match(/^\/mock\/transition-subscription\/([^/]+)$/);
+  if (method === "POST" && subTransitionMatch) {
+    const body = JSON.parse((await readBody(req)) || "{}");
+    return sendJson(res, ...Object.values(handleMockTransitionSubscription(subTransitionMatch[1], body)));
   }
 
   // ── Frames API endpoints ────────────────────────────────────────────────
