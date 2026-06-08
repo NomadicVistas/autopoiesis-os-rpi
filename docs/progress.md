@@ -1,5 +1,56 @@
 # Progress
 
+## 2026-06-08 - Content feed model contract gate
+
+Date: 2026-06-08
+
+Milestone: BROADCAST / FEED — content feed model data contract validation
+
+Changed files:
+
+- `scripts/feed-model-contract-check.sh`
+- `docs/progress.md`
+- `docs/agent-notes/pulse.md`
+- `/data/.openclaw/workspace/autopoiesis-os-program/ROLLING-LOG.md`
+
+Implemented:
+
+- Added `scripts/feed-model-contract-check.sh`, a 12-step isolated gate validating the complete content feed model contract across 10 static checks and 2 live integration checks.
+- **Step 1**: Syntax validation (local-ui/server.js, self).
+- **Step 2 (23 checks)**: Normalized feed item shape — verifies `normalizeFeedItem` produces all 20 required output fields (id, source, type, title, artist, artistId, body, url, mediaUrl, thumbnailUrl, duration, soundRequired, cacheAllowed, priority, visibility, createdAt, startsAt, expiresAt, dismissible, order), coerces id to String, rejects null/non-object input, and rejects items without id.
+- **Step 3 (13 checks)**: Content type classification — verifies `feedItemCategory` returns all six recognized categories (broadcast, curatorial, artwork, blog, news, content), broadcast takes precedence before artwork, and all five artwork-eligible sub-types (image, video, audio, sound, generative) are recognized.
+- **Step 4 (8 checks)**: Eligibility pipeline — verifies the 6-stage filter chain (isExpired, startsAt scheduling, feedItemTargetAllowed, feedItemTypeAllowed, feedItemArtistAllowed, feedItemStreamAllowed) and the 3-level sort order (priority → createdAt → position).
+- **Step 5 (7 checks)**: Mixed queue composition — verifies category ordering (broadcast → curatorial → artwork → blog → news → content), display cursor integration (fresh before replay), queue limit, displayCategory/displayPosition annotation, and priority grouping.
+- **Step 6 (7 checks)**: Priority ranking contract — verifies all five priority levels (emergency/500, critical/400, high/300, normal/200, low/100) and unknown-priority default to normal (200).
+- **Step 7 (7 checks)**: Cache eligibility — verifies normalizeFeedItem sets cacheAllowed with opt-out default (true), writeFeedState extracts cache-eligible items, and the offline cache builder checks asset usability and filters expired items.
+- **Step 8 (13 checks)**: Per-category display timing — verifies CATEGORY_DISPLAY_SECONDS defaults (broadcast:0, curatorial:45, artwork:60, blog:30, news:20), broadcast max cap (300s), categoryDisplaySeconds supports user overrides, frameItemDisplayMs uses category-aware timing, and video/audio items use native duration.
+- **Step 9 (5 checks)**: Expiry and scheduling enforcement — verifies isExpired function, eligibleFeedItems filters expired and future-start items, broadcast handler emits broadcast_expired, and broadcast handler skips future-scheduled broadcasts.
+- **Step 10 (16 checks)**: Feed public API shape — verifies publicFeed returns all 14 required response fields (ok, syncedAt, source, offline, offlineState, polling, pollingStatus, totalItems, eligibleItems, categories, displayQueueItems, displayCursor, displayQueue, items) and strips raw/visibility from public items.
+- **Step 11 (21 checks)**: Frame state display item shape — verifies publicFrameState produces items with all 18 required fields (id, source, type, title, artist, artistId, body, url, priority, displayCategory, displayPosition, duration, soundRequired, expiresAt, liked, media, displayMs), media object structure (url, role, cached, source), per-item displayMs computation, and raw stripping.
+- **Step 12 (live integration)**: Starts mock API and local UI, syncs mixed content (5 items across 4 categories + 1 expired), verifies: sync returns ok:true, feed endpoint returns correct shape, expired item filtered, category counts present, frame-state returns correct kind/schemaVersion, frame items have all required fields, items with media have role, media.cached is boolean, non-broadcast items have non-zero displayMs, and categoryDisplay config is present.
+
+Why this matters:
+
+The content feed model is the core data contract between the hosted API, the device-side local UI, and the kiosk frame display. Every broadcast/feed feature — targeting, display, caching, delivery tracking, offline fallback, priority ordering, category-aware dwell time — depends on normalized feed items having a consistent shape with correct fields, types, and semantics. Without a formal contract gate, regressions in the feed model (missing fields, wrong types, broken classification, broken eligibility) could silently propagate through the entire display pipeline. The gate validates the model at the source-code level (Steps 2–11) and at the live-integration level (Step 12), catching contract violations before they reach the kiosk. This is the foundational validation layer for the broadcast/feed workstream — every future feed model change should pass this gate before commit.
+
+Verification:
+
+- `scripts/feed-model-contract-check.sh` passed all 12 steps (100+ individual checks).
+- `scripts/feed-targeting-check.sh` passed (no regression).
+- `scripts/feed-display-dwell-check.sh` passed all 12 steps (no regression).
+- `scripts/broadcast-delivery-status-check.sh` passed all 12 steps (no regression).
+- `scripts/security-smoke.sh` passed.
+- `node --check local-ui/server.js` passed.
+- `bash -n install.sh update.sh uninstall-dev-tools.sh factory-reset.sh scripts/*.sh` passed.
+- `git diff --check` passed.
+- Note: `scripts/broadcast-command-check.sh` has a pre-existing failure (wrong-target command processing returns 500), unrelated to this change.
+
+Next step:
+
+- Investigate and fix the pre-existing `broadcast-command-check.sh` failure (wrong-target command returns 500 instead of graceful skip).
+- Extend the feed model contract with a hosted API feed response contract, validating that the hosted API's stream and feed endpoints produce items compatible with `normalizeFeedItem`.
+- Add feed composition metrics to diagnostics: age distribution, source distribution, and category health per sync cycle.
+
 ## 2026-06-08 - Hosted broadcast delivery ingestion round-trip
 
 Date: 2026-06-08

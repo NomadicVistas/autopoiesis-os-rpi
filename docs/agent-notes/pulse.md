@@ -1153,3 +1153,11 @@ Context: LEAD / INTEGRATION cron pass. The hosted suite had strict execution and
 What changed: Added `--plan` / `--dry-run` to `scripts/hosted-contract-suite-check.sh`. Plan mode validates manifest and required-gate configuration, fails missing required sources, records source-present gates as `planned`, and writes the same redacted report shape with `mode: "plan"`. Required-gate names from `AUTOPOIESIS_HOSTED_CONTRACT_REQUIRE` are now typo-checked before any checker executes.
 What needs review: Hosted CI should run plan mode against the generated manifest, archive the report, then run the full strict suite using the same manifest so rollout annotations and actual gate execution cannot drift silently.
 Next recommended action: Add a hosted CI step that publishes both the plan report and the full run report before physical Pi validation.
+
+---
+Date: 2026-06-08T09:31+02:00
+Agent: Pulse
+Context: BROADCAST / FEED cron pass. The feed model had extensive code but no formal contract gate validating the normalized item shape, content type classification, eligibility pipeline, mixed queue composition, cache eligibility, priority ranking, or per-category display timing.
+What changed: Added `scripts/feed-model-contract-check.sh`, a 12-step isolated gate with 100+ individual checks validating the complete content feed model at the source-code level and through live integration testing. Covers normalized item shape (20 required fields), content type classification (6 categories), eligibility pipeline (6-stage filter chain), mixed queue composition (priority + category interleaving), priority ranking (5 levels), cache eligibility (opt-out model), per-category display timing (5 defaults + overrides), expiry/scheduling enforcement, public feed API shape (14 fields), and frame state display item shape (18 fields + media object).
+What needs review: `scripts/broadcast-command-check.sh` has a pre-existing failure (wrong-target command processing returns 500). This should be investigated separately.
+Next recommended action: Fix the broadcast-command-check pre-existing failure, then extend the feed model contract with a hosted API feed response contract validating that hosted stream/feed endpoints produce normalizeFeedItem-compatible items.
