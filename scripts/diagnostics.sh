@@ -333,7 +333,126 @@ else
   check warn "cache" "No artworks cached" "Art will not display during offline mode"
 fi
 
-# ── offline state ────────────────────────────────────────────────────────────
+# ── feed sync health ─────────────────────────────────────────────────────────
+
+if [[ "$JSON" == "0" ]]; then echo ""; echo "Feed Sync"; echo "---------"; fi
+
+FEED_CACHE="$DATA_DIR/feed-cache.json"
+FEED_SYNC_LOG="$LOG_DIR/feed-sync.log"
+FEED_SYNC_LAST_TIME="never"
+FEED_SYNC_LAST_ITEMS=0
+FEED_SYNC_SOURCE="unknown"
+FEED_CACHE_ITEMS=0
+
+if [[ -f "$FEED_SYNC_LOG" ]]; then
+  FEED_SYNC_LAST_TIME="$(grep -oP '\d{4}-\d{2}-\d{2}T[\d:]+Z' "$FEED_SYNC_LOG" 2>/dev/null | tail -1 || echo "never")"
+  FEED_SYNC_LAST_ITEMS="$(grep -oP '"itemsReceived":\s*\K[0-9]+' "$FEED_SYNC_LOG" 2>/dev/null | tail -1 || echo 0)"
+  FEED_SYNC_SOURCE="$(grep -oP '"source":\s*"\K[^"]+' "$FEED_SYNC_LOG" 2>/dev/null | tail -1 || echo "unknown")"
+fi
+
+if [[ -f "$FEED_CACHE" ]]; then
+  FEED_CACHE_ITEMS="$(node -e "
+    try {
+      const fc = JSON.parse(require('fs').readFileSync(process.argv[1],'utf8'));
+      const items = Array.isArray(fc) ? fc : (fc.items || []);
+      process.stdout.write(String(items.length));
+    } catch(_) { process.stdout.write('0'); }
+  " "$FEED_CACHE" 2>/dev/null || echo 0)"
+fi
+
+if [[ "$FEED_SYNC_LAST_TIME" != "never" ]]; then
+  check pass "feed_sync_last" "Last sync: $FEED_SYNC_LAST_TIME" "${FEED_SYNC_LAST_ITEMS} items from $FEED_SYNC_SOURCE"
+else
+  check warn "feed_sync_last" "No feed sync recorded" "Feed cache may be stale"
+fi
+
+if [[ "$FEED_CACHE_ITEMS" -gt 0 ]]; then
+  check pass "feed_cache" "Feed cache has $FEED_CACHE_ITEMS items"
+else
+  check warn "feed_cache" "Feed cache is empty" "Run feed-sync.sh or wait for cache timer"
+fi
+
+# ── heartbeat delivery health ────────────────────────────────────────────────
+
+if [[ "$JSON" == "0" ]]; then echo ""; echo "Heartbeat Delivery"; echo "-------------------"; fi
+
+HEARTBEAT_LOG="$LOG_DIR/heartbeat.log"
+HB_LAST_SENT="never"
+HB_LAST_STATUS="unknown"
+HB_LAST_COMMANDS=0
+HB_SUCCESS_COUNT=0
+HB_FAIL_COUNT=0
+
+if [[ -f "$HEARTBEAT_LOG" ]]; then
+  HB_LAST_SENT="$(grep -oP '\d{4}-\d{2}-\d{2}T[\d:]+Z' "$HEARTBEAT_LOG" 2>/dev/null | tail -1 || echo "never")"
+  HB_LAST_STATUS="$(tail -5 "$HEARTBEAT_LOG" 2>/dev/null | grep -oP '(ok|error|failed|sent)' | tail -1 || echo "unknown")"
+  HB_SUCCESS_COUNT="$(grep -ci 'ok\|sent\|success' "$HEARTBEAT_LOG" 2>/dev/null || echo 0)"
+  HB_FAIL_COUNT="$(grep -ci 'error\|fail' "$HEARTBEAT_LOG" 2>/dev/null || echo 0)"
+fi
+
+# Also check release-state.json for command delivery
+RELEASE_STATE_FILE="$DATA_DIR/release-state.json"
+DELIVERY_LOG="$DATA_DIR/delivery-log.json"
+DELIVERIES_PENDING=0
+
+if [[ -f "$DELIVERY_LOG" ]]; then
+  DELIVERIES_PENDING="$(node -e "
+    try {
+      const dl = JSON.parse(require('fs').readFileSync(process.argv[1],'utf8'));
+      const entries = Array.isArray(dl) ? dl : (dl.entries || []);
+      const pending = entries.filter(e => e.status === 'pending' || e.status === 'displayed');
+      process.stdout.write(String(pending.length));
+    } catch(_) { process.stdout.write('0'); }
+  " "$DELIVERY_LOG" 2>/dev/null || echo 0)"
+fi
+
+if [[ "$HB_LAST_SENT" != "never" ]]; then
+  if [[ "$HB_FAIL_COUNT" -eq 0 ]]; then
+    check pass "heartbeat_delivery" "Last heartbeat: $HB_LAST_SENT" "${HB_SUCCESS_COUNT} successful deliveries"
+  else
+    check warn "heartbeat_delivery" "Heartbeat sent but ${HB_FAIL_COUNT} failures recorded" "Check: $HEARTBEAT_LOG"
+  fi
+else
+  check warn "heartbeat_delivery" "No heartbeat deliveries recorded" "Heartbeat timer may not be running"
+fi
+
+if [[ "$DELIVERIES_PENDING" -gt 0 ]]; then
+  check warn "broadcast_pending" "$DELIVERIES_PENDING broadcast deliveries pending" "May need heartbeat cycle to clear"
+else
+  check pass "broadcast_pending" "No pending broadcast deliveries"
+fi
+
+# ── release/update state ─────────────────────────────────────────────────────
+
+if [[ "$JSON" == "0" ]]; then echo ""; echo "Updates"; echo "-------"; fi
+
+RELEASE_STATE_STATUS="unknown"
+RELEASE_STATE_VERSION=""
+RELEASE_STATE_ERROR=""
+
+if [[ -f "$RELEASE_STATE_FILE" ]]; then
+  RELEASE_STATE_STATUS="$(jf "$RELEASE_STATE_FILE" status unknown)"
+  RELEASE_STATE_VERSION="$(jf "$RELEASE_STATE_FILE" targetVersion "")"
+  RELEASE_STATE_ERROR="$(jf "$RELEASE_STATE_FILE" error "")"
+fi
+
+if [[ "$RELEASE_STATE_STATUS" == "completed" ]]; then
+  check pass "release_state" "Last update completed" "${RELEASE_STATE_VERSION:+target: $RELEASE_STATE_VERSION}"
+elif [[ "$RELEASE_STATE_STATUS" == "in_progress" ]]; then
+  check warn "release_state" "Update in progress" "Target: ${RELEASE_STATE_VERSION:-unknown}"
+elif [[ "$RELEASE_STATE_STATUS" == "failed" ]]; then
+  check fail "release_state" "Last update failed" "${RELEASE_STATE_ERROR:-unknown error}"
+elif [[ "$RELEASE_STATE_STATUS" == "skipped" ]]; then
+  check pass "release_state" "Last update skipped (already current)"
+elif [[ "$RELEASE_STATE_STATUS" == "idle" ]]; then
+  check pass "release_state" "No update activity"
+else
+  check skip "release_state" "Release state unavailable"
+fi
+
+# ── offline state & readiness ────────────────────────────────────────────────
+
+if [[ "$JSON" == "0" ]]; then echo ""; echo "Offline Readiness"; echo "-----------------"; fi
 
 STATE_JSON="$DATA_DIR/state.json"
 STATE_OFFLINE="unknown"
@@ -352,6 +471,22 @@ elif [[ "$STATE_OFFLINE" == "inactive" ]]; then
   check pass "offline_mode" "Online mode"
 else
   check skip "offline_mode" "State unknown"
+fi
+
+# Composite offline readiness: can the device show content without network?
+FALLBACK_DIR="$INSTALL_DIR/cache/fallback"
+FALLBACK_COUNT=0
+if [[ -d "$FALLBACK_DIR" ]]; then
+  FALLBACK_COUNT="$(find "$FALLBACK_DIR" -type f \( -name '*.jpg' -o -name '*.png' -o -name '*.webp' -o -name '*.mp4' \) 2>/dev/null | wc -l || echo 0)"
+fi
+
+OFFLINE_TOTAL=$((CACHE_COUNT + FALLBACK_COUNT))
+if [[ "$OFFLINE_TOTAL" -ge 5 ]]; then
+  check pass "offline_readiness" "Ready: $OFFLINE_TOTAL items available offline" "$CACHE_COUNT cached + $FALLBACK_COUNT fallback"
+elif [[ "$OFFLINE_TOTAL" -gt 0 ]]; then
+  check warn "offline_readiness" "Low offline content: $OFFLINE_TOTAL items" "$CACHE_COUNT cached + $FALLBACK_COUNT fallback. Minimum 5 recommended."
+else
+  check fail "offline_readiness" "No offline content available" "Device will show blank screen if network drops. Wait for cache timer or run feed-sync.sh."
 fi
 
 # ── recent errors ────────────────────────────────────────────────────────────
@@ -439,7 +574,19 @@ if [[ "$JSON" == "1" ]]; then
     echo "LAST_HB=${LAST_HB:-never}"
     echo "CACHE_COUNT=${CACHE_COUNT}"
     echo "CACHE_SIZE=${CACHE_SIZE:-0}"
+    echo "FEED_SYNC_LAST_TIME=${FEED_SYNC_LAST_TIME:-never}"
+    echo "FEED_SYNC_LAST_ITEMS=${FEED_SYNC_LAST_ITEMS:-0}"
+    echo "FEED_CACHE_ITEMS=${FEED_CACHE_ITEMS:-0}"
+    echo "HB_LAST_SENT=${HB_LAST_SENT:-never}"
+    echo "HB_SUCCESS_COUNT=${HB_SUCCESS_COUNT:-0}"
+    echo "HB_FAIL_COUNT=${HB_FAIL_COUNT:-0}"
+    echo "DELIVERIES_PENDING=${DELIVERIES_PENDING:-0}"
+    echo "RELEASE_STATE_STATUS=${RELEASE_STATE_STATUS:-unknown}"
+    echo "RELEASE_STATE_VERSION=${RELEASE_STATE_VERSION:-}"
+    echo "RELEASE_STATE_ERROR=${RELEASE_STATE_ERROR:-}"
     echo "STATE_OFFLINE=${STATE_OFFLINE:-unknown}"
+    echo "FALLBACK_COUNT=${FALLBACK_COUNT:-0}"
+    echo "OFFLINE_TOTAL=${OFFLINE_TOTAL:-0}"
     echo "PASS=$PASS"
     echo "WARN=$WARN"
     echo "FAIL=$FAIL"
@@ -495,7 +642,29 @@ const r = {
     lastHeartbeat: vars.LAST_HB || 'never'
   },
   cache: { count: num(vars.CACHE_COUNT, 0), size: str(vars.CACHE_SIZE || '0') },
+  feedSync: {
+    lastSync: vars.FEED_SYNC_LAST_TIME || 'never',
+    lastItemsReceived: num(vars.FEED_SYNC_LAST_ITEMS, 0),
+    feedCacheItems: num(vars.FEED_CACHE_ITEMS, 0)
+  },
+  heartbeat: {
+    lastSent: vars.HB_LAST_SENT || 'never',
+    successCount: num(vars.HB_SUCCESS_COUNT, 0),
+    failCount: num(vars.HB_FAIL_COUNT, 0),
+    pendingDeliveries: num(vars.DELIVERIES_PENDING, 0)
+  },
+  release: {
+    status: vars.RELEASE_STATE_STATUS || 'unknown',
+    targetVersion: vars.RELEASE_STATE_VERSION || null,
+    error: vars.RELEASE_STATE_ERROR || null
+  },
   offline: vars.STATE_OFFLINE || 'unknown',
+  offlineReadiness: {
+    cachedItems: num(vars.CACHE_COUNT, 0),
+    fallbackItems: num(vars.FALLBACK_COUNT, 0),
+    totalItems: num(vars.OFFLINE_TOTAL, 0),
+    ready: num(vars.OFFLINE_TOTAL, 0) >= 5
+  },
   checks: {
     total: num(vars.TOTAL),
     pass: num(vars.PASS),

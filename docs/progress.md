@@ -1,5 +1,53 @@
 # Progress
 
+## 2026-06-09 - Diagnostics feed-sync, heartbeat delivery, release state, and offline readiness checks
+
+Date: 2026-06-09
+
+Milestone: RPI APPLIANCE — diagnostics enhanced with feed-sync health, heartbeat delivery tracking, release/update state, and offline readiness composite
+
+Changed files:
+
+- `scripts/diagnostics.sh` (4 new diagnostic sections + JSON output fields)
+- `docs/progress.md`
+- `docs/agent-notes/diagnostics-enhancement-note.md` (new)
+- `/data/.openclaw/workspace/autopoiesis-os-program/ROLLING-LOG.md`
+
+Implemented:
+
+- **Feed sync health checks**: Added "Feed Sync" section that reads `$LOG_DIR/feed-sync.log` for last sync timestamp, items received, and source. Checks `feed-cache.json` for cached item count. Reports: last sync time with item count and source, and feed cache population status. Warns when no sync has been recorded or feed cache is empty. This directly addresses the feed-sync progress next-step: "Add feed-sync metrics to diagnostics: last sync time, item count, sync source."
+
+- **Heartbeat delivery health checks**: Added "Heartbeat Delivery" section that reads `$LOG_DIR/heartbeat.log` for last heartbeat sent, success count, and failure count. Checks `$DATA_DIR/delivery-log.json` for pending broadcast deliveries. Reports: last heartbeat with success count, warns on failures, and flags pending broadcast deliveries that haven't been reported to the hosted API.
+
+- **Release/update state check**: Added "Updates" section that reads `$DATA_DIR/release-state.json` for update lifecycle status. Reports: completed (pass), in_progress (warn), failed (fail with error detail), skipped (pass), idle (pass), or unavailable (skip). Gives immediate visibility into whether the device is mid-update, has a failed update, or is up-to-date.
+
+- **Offline readiness composite check**: Added "Offline Readiness" section with a composite score combining cached artwork count + fallback directory media files. Passes with ≥5 items ("Ready: N items available offline — X cached + Y fallback"), warns with 1-4 items ("Low offline content"), fails with 0 items ("No offline content available — device will show blank screen if network drops"). Replaces the simple offline mode check with an actionable readiness assessment.
+
+- **JSON output enrichment**: Extended the JSON output with 4 new top-level objects: `feedSync` (lastSync, lastItemsReceived, feedCacheItems), `heartbeat` (lastSent, successCount, failCount, pendingDeliveries), `release` (status, targetVersion, error), and `offlineReadiness` (cachedItems, fallbackItems, totalItems, ready boolean). All new scalar variables are passed through the temp-file bridge to the JSON builder.
+
+Why this matters:
+
+The diagnostics script is the primary troubleshooting tool for Pi appliances — it runs from SSH when the local UI is down, produces human-readable summaries or machine-parseable JSON, and is the first thing to run when a device is misbehaving. Previously, diagnostics checked system health, services, network, local UI, device identity, cache count, offline mode, log errors, and kiosk process — but had no visibility into the content pipeline. A device could have an empty feed cache, a failed heartbeat, and a broken update, and diagnostics would report "all checks passed" because the cache count was 0 (a warning, not a failure) and offline mode was inactive. The new sections give operators immediate visibility into: (1) whether the feed sync pipeline is working (last sync time, item count, source), (2) whether heartbeats are being delivered to the hosted API (success vs failure count), (3) whether an update is stuck or failed (release state status), and (4) whether the device can actually show content if the network drops (offline readiness composite). The offline readiness composite is especially important: it combines cache count + fallback media into a single actionable score, so operators don't have to mentally combine multiple check results to assess whether a device is safe to disconnect from the network.
+
+Verification:
+
+- `scripts/diagnostics-check.sh` passed all 39 checks (12 steps, no regression).
+- Human-readable output shows all 4 new sections with correct formatting.
+- JSON output includes all 4 new objects with correct structure.
+- `node --check local-ui/server.js` passed.
+- `node --check hosted-api/server.js` passed.
+- `node --check hosted-api/db.js` passed.
+- `bash -n install.sh update.sh factory-reset.sh scripts/*.sh` passed.
+
+Next step:
+
+- Test diagnostics with populated feed-sync.log and heartbeat.log on a physical Pi.
+- Add diagnostics section for display/touchscreen hardware health.
+- Wire diagnostics JSON output into heartbeat payload for remote visibility.
+- Add --watch mode for continuous diagnostics monitoring.
+
+---
+
 ## 2026-06-09 - Liked-artwork → artist preference → stream composition weighting
 
 Date: 2026-06-09
