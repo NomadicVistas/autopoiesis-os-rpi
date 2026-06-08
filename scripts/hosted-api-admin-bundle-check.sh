@@ -11,6 +11,7 @@ DB="$R/data/test-admin-bundle-$$.db"
 API_PID=""
 API_PORT=$((31400 + $$ % 1000))
 API_BASE="http://127.0.0.1:$API_PORT"
+ADMIN_TOKEN="test-admin-token-$$"
 
 die()   { echo "FAIL: $*"; FAIL=$((FAIL+1)); }
 try()   { CHECKS=$((CHECKS+1)); if "$@"; then PASS=$((PASS+1)); else FAIL=$((FAIL+1)); fi; }
@@ -69,7 +70,7 @@ C "STEP-2" "Static contract done ($CHECKS checks so far)"
 C "STEP-3" "Server bootstrap"
 
 rm -f "$DB"
-AOS_DB="$DB" AOS_PORT="$API_PORT" AOS_HOST="127.0.0.1" \
+AOS_DB="$DB" AOS_PORT="$API_PORT" AOS_HOST="127.0.0.1" AUTOPOIESIS_FRAMES_ADMIN_TOKEN="$ADMIN_TOKEN" \
   node "$R/hosted-api/server.js" > /tmp/aos-admin-bundle-$$.log 2>&1 &
 API_PID=$!
 
@@ -174,7 +175,7 @@ C "STEP-4" "Devices registered and paired ($CHECKS checks so far)"
 # ── Step 5: Admin bundle — structure ──────────────────────────────────────────
 C "STEP-5" "Admin bundle structure"
 
-BUNDLE=$(curl -sf "$API_BASE/frames/admin/bundle?userId=user-alice")
+BUNDLE=$(curl -sf -H "x-admin-token: $ADMIN_TOKEN" "$API_BASE/frames/admin/bundle?userId=user-alice")
 assert "Bundle ok" 'echo "$BUNDLE" | jq -e ".ok == true" > /dev/null'
 assert "Bundle kind" 'echo "$BUNDLE" | jq -e ".kind == \"autopoiesis_frames_online_admin_bundle\"" > /dev/null'
 assert "Bundle schemaVersion" 'echo "$BUNDLE" | jq -e ".schemaVersion == 1" > /dev/null'
@@ -260,7 +261,7 @@ assert "Bob entitlements deviceLimit=1" 'echo "$BOB_ENTRY" | jq -e ".entitlement
 # ── Step 11: Admin bundle — default (no userId) ───────────────────────────────
 C "STEP-11" "Default bundle (no userId param)"
 
-DEFAULT_BUNDLE=$(curl -sf "$API_BASE/frames/admin/bundle")
+DEFAULT_BUNDLE=$(curl -sf -H "x-admin-token: $ADMIN_TOKEN" "$API_BASE/frames/admin/bundle")
 assert "Default bundle ok" 'echo "$DEFAULT_BUNDLE" | jq -e ".ok == true" > /dev/null'
 assert "Default bundle has profileFrames" 'echo "$DEFAULT_BUNDLE" | jq -e ".profileFrames != null" > /dev/null'
 assert "Default bundle has adminFrames" 'echo "$DEFAULT_BUNDLE" | jq -e ".adminFrames != null" > /dev/null'
@@ -269,7 +270,7 @@ assert "Default bundle has fleet devices" 'echo "$DEFAULT_BUNDLE" | jq -e ".admi
 # ── Step 12: Device admin snapshot ─────────────────────────────────────────────
 C "STEP-12" "Device admin snapshot"
 
-SNAP=$(curl -sf "$API_BASE/frames/device/$DEV1/admin-snapshot")
+SNAP=$(curl -sf -H "x-admin-token: $ADMIN_TOKEN" "$API_BASE/frames/device/$DEV1/admin-snapshot")
 assert "Snapshot ok" 'echo "$SNAP" | jq -e ".ok == true" > /dev/null'
 assert "Snapshot kind" 'echo "$SNAP" | jq -e ".kind == \"autopoiesis_frames_admin_device_snapshot\"" > /dev/null'
 assert "Snapshot has device" 'echo "$SNAP" | jq -e ".device != null" > /dev/null'
@@ -290,7 +291,7 @@ assert "Snapshot admin actions: sync_settings allowed" 'echo "$SNAP" | jq -e ".a
 assert "Snapshot admin actions: factory_reset allowed" 'echo "$SNAP" | jq -e ".actionAvailability.actions.factory_reset_request.allowed == true" > /dev/null'
 
 # 404 for nonexistent device
-SNAP_404=$(curl -s -o /dev/null -w "%{http_code}" "$API_BASE/frames/device/aos_nonexistent/admin-snapshot")
+SNAP_404=$(curl -s -o /dev/null -w "%{http_code}" -H "x-admin-token: $ADMIN_TOKEN" "$API_BASE/frames/device/aos_nonexistent/admin-snapshot")
 assert "Snapshot 404 for nonexistent" '[ "$SNAP_404" = "404" ]'
 
 # ── Step 13: Action availability — role gating ─────────────────────────────────

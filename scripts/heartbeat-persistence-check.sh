@@ -97,7 +97,7 @@ echo "  $PASS passed, $FAIL failed"
 # ── Step 4: Hosted API server startup ─────────────────────────────────────
 step "Hosted API server startup"
 
-AOS_DB="$DB_PATH" AOS_PORT=3199 timeout 30 node "$BASE_DIR/hosted-api/server.js" > "$TMPDIR/api.log" 2>&1 &
+AOS_DB="$DB_PATH" AOS_PORT=3199 AUTOPOIESIS_FRAMES_ADMIN_TOKEN="test-hb-persist" timeout 30 node "$BASE_DIR/hosted-api/server.js" > "$TMPDIR/api.log" 2>&1 &
 API_PID=$!
 sleep 2
 
@@ -199,6 +199,7 @@ step "Heartbeat with broadcast deliveries — persistence proof"
 # First create a broadcast to deliver
 BC_CREATE=$(curl -sf -X POST http://127.0.0.1:3199/frames/admin/broadcasts \
   -H "content-type: application/json" \
+  -H "x-admin-token: test-hb-persist" \
   -d '{
     "title": "Test Broadcast for Delivery Persistence",
     "type": "system_notice",
@@ -327,7 +328,7 @@ echo "  $PASS passed, $FAIL failed"
 # ── Step 9: Admin delivery endpoint returns persisted data ────────────────
 step "Admin delivery endpoint returns persisted data"
 
-ADMIN_DEL=$(curl -sf "http://127.0.0.1:3199/frames/admin/broadcast-deliveries" 2>/dev/null || echo '{"ok":false}')
+ADMIN_DEL=$(curl -sf -H "x-admin-token: test-hb-persist" "http://127.0.0.1:3199/frames/admin/broadcast-deliveries" 2>/dev/null || echo '{"ok":false}')
 
 echo "$ADMIN_DEL" | python3 -c "
 import sys,json
@@ -345,7 +346,7 @@ print('OK')
 " 2>&1 | grep -q OK && p || f "admin delivery list"
 
 # Per-broadcast detail
-BC_DETAIL=$(curl -sf "http://127.0.0.1:3199/frames/admin/broadcast-deliveries/$BC_ID" 2>/dev/null || echo '{"ok":false}')
+BC_DETAIL=$(curl -sf -H "x-admin-token: test-hb-persist" "http://127.0.0.1:3199/frames/admin/broadcast-deliveries/$BC_ID" 2>/dev/null || echo '{"ok":false}')
 
 echo "$BC_DETAIL" | python3 -c "
 import sys,json

@@ -100,6 +100,37 @@ function sendResult(res, result) {
   sendJson(res, result.status, result.body);
 }
 
+// ── Admin authentication ────────────────────────────────────────────────────
+
+const ADMIN_TOKEN = process.env.AUTOPOIESIS_FRAMES_ADMIN_TOKEN || null;
+
+/**
+ * Authenticate an admin request.
+ *
+ * Accepts the admin token via:
+ *   - Authorization: Bearer <token>
+ *   - x-admin-token: <token>
+ *
+ * Returns { ok: true } on success, { ok: false, status, error } on failure.
+ * When AUTOPOIESIS_FRAMES_ADMIN_TOKEN is not set, admin endpoints return 503
+ * to prevent accidental open access in development.
+ */
+function authenticateAdmin(req) {
+  if (!ADMIN_TOKEN) {
+    return { ok: false, status: 503, error: "Admin token not configured. Set AUTOPOIESIS_FRAMES_ADMIN_TOKEN to enable admin access." };
+  }
+  const bearer = (req.headers["authorization"] || "").replace(/^Bearer\s+/i, "");
+  const header = req.headers["x-admin-token"] || "";
+  const token = bearer || header;
+  if (!token) {
+    return { ok: false, status: 401, error: "Missing admin token. Provide via Authorization: Bearer <token> or x-admin-token header." };
+  }
+  if (token !== ADMIN_TOKEN) {
+    return { ok: false, status: 403, error: "Invalid admin token" };
+  }
+  return { ok: true };
+}
+
 // ── Device authentication ────────────────────────────────────────────────────
 
 function authenticateDevice(db, req, deviceId) {
@@ -1063,12 +1094,16 @@ async function handle(db, req, res) {
   // ── Admin broadcast delivery endpoints ────────────────────────────────
 
   if (method === "GET" && pathname === "/frames/admin/broadcast-deliveries") {
+    const adminAuth = authenticateAdmin(req);
+    if (!adminAuth.ok) return sendJson(res, adminAuth.status, { ok: false, error: adminAuth.error });
     const url = new URL(req.url, "http://localhost");
     return sendResult(res, handleAdminBroadcastDeliveries(db, url.searchParams));
   }
 
   const adminBdDetailMatch = pathname.match(/^\/frames\/admin\/broadcast-deliveries\/([^/]+)$/);
   if (method === "GET" && adminBdDetailMatch) {
+    const adminAuth = authenticateAdmin(req);
+    if (!adminAuth.ok) return sendJson(res, adminAuth.status, { ok: false, error: adminAuth.error });
     return sendResult(res, handleAdminBroadcastDeliveryDetail(db, adminBdDetailMatch[1]));
   }
 
@@ -1076,6 +1111,8 @@ async function handle(db, req, res) {
 
   // GET /frames/admin/bundle?userId=... — Online admin dashboard bundle
   if (method === "GET" && pathname === "/frames/admin/bundle") {
+    const adminAuth = authenticateAdmin(req);
+    if (!adminAuth.ok) return sendJson(res, adminAuth.status, { ok: false, error: adminAuth.error });
     const url = new URL(req.url, "http://localhost");
     const profileUserId = url.searchParams.get("userId") || null;
     return sendResult(res, handleAdminBundle(db, profileUserId));
@@ -1086,6 +1123,8 @@ async function handle(db, req, res) {
   // GET /frames/device/:id/admin-snapshot — Detailed device snapshot for admin
   const adminSnapshotMatch = pathname.match(/^\/frames\/device\/([^/]+)\/admin-snapshot$/);
   if (method === "GET" && adminSnapshotMatch) {
+    const adminAuth = authenticateAdmin(req);
+    if (!adminAuth.ok) return sendJson(res, adminAuth.status, { ok: false, error: adminAuth.error });
     return sendResult(res, handleAdminDeviceSnapshot(db, adminSnapshotMatch[1]));
   }
 
@@ -1093,17 +1132,23 @@ async function handle(db, req, res) {
 
   // POST /frames/admin/broadcasts — Create new broadcast/content item
   if (method === "POST" && pathname === "/frames/admin/broadcasts") {
+    const adminAuth = authenticateAdmin(req);
+    if (!adminAuth.ok) return sendJson(res, adminAuth.status, { ok: false, error: adminAuth.error });
     const body = JSON.parse((await readBody(req)) || "{}");
     return sendResult(res, handleAdminCreateBroadcast(db, body));
   }
 
   // GET /frames/admin/broadcasts/stats — Content statistics
   if (method === "GET" && pathname === "/frames/admin/broadcasts/stats") {
+    const adminAuth = authenticateAdmin(req);
+    if (!adminAuth.ok) return sendJson(res, adminAuth.status, { ok: false, error: adminAuth.error });
     return sendResult(res, handleAdminBroadcastStats(db));
   }
 
   // GET /frames/admin/broadcasts — List broadcasts with filters
   if (method === "GET" && pathname === "/frames/admin/broadcasts") {
+    const adminAuth = authenticateAdmin(req);
+    if (!adminAuth.ok) return sendJson(res, adminAuth.status, { ok: false, error: adminAuth.error });
     const url = new URL(req.url, "http://localhost");
     const filters = {};
     if (url.searchParams.get("status")) filters.status = url.searchParams.get("status");
@@ -1125,11 +1170,15 @@ async function handle(db, req, res) {
   if (method === "GET" && adminBcDetailMatch) {
     const id = adminBcDetailMatch[1];
     if (id === "stats") return; // already handled above
+    const adminAuth = authenticateAdmin(req);
+    if (!adminAuth.ok) return sendJson(res, adminAuth.status, { ok: false, error: adminAuth.error });
     return sendResult(res, handleAdminGetBroadcast(db, id));
   }
 
   // PATCH /frames/admin/broadcasts/:id — Update broadcast
   if (method === "PATCH" && adminBcDetailMatch) {
+    const adminAuth = authenticateAdmin(req);
+    if (!adminAuth.ok) return sendJson(res, adminAuth.status, { ok: false, error: adminAuth.error });
     const body = JSON.parse((await readBody(req)) || "{}");
     return sendResult(res, handleAdminUpdateBroadcast(db, adminBcDetailMatch[1], body));
   }
@@ -1137,17 +1186,23 @@ async function handle(db, req, res) {
   // POST /frames/admin/broadcasts/:id/publish — Publish a draft
   const adminBcPublishMatch = pathname.match(/^\/frames\/admin\/broadcasts\/([^/]+)\/publish$/);
   if (method === "POST" && adminBcPublishMatch) {
+    const adminAuth = authenticateAdmin(req);
+    if (!adminAuth.ok) return sendJson(res, adminAuth.status, { ok: false, error: adminAuth.error });
     return sendResult(res, handleAdminPublishBroadcast(db, adminBcPublishMatch[1]));
   }
 
   // POST /frames/admin/broadcasts/:id/unpublish — Revert to draft
   const adminBcUnpublishMatch = pathname.match(/^\/frames\/admin\/broadcasts\/([^/]+)\/unpublish$/);
   if (method === "POST" && adminBcUnpublishMatch) {
+    const adminAuth = authenticateAdmin(req);
+    if (!adminAuth.ok) return sendJson(res, adminAuth.status, { ok: false, error: adminAuth.error });
     return sendResult(res, handleAdminUnpublishBroadcast(db, adminBcUnpublishMatch[1]));
   }
 
   // DELETE /frames/admin/broadcasts/:id — Archive (soft-delete)
   if (method === "DELETE" && adminBcDetailMatch) {
+    const adminAuth = authenticateAdmin(req);
+    if (!adminAuth.ok) return sendJson(res, adminAuth.status, { ok: false, error: adminAuth.error });
     return sendResult(res, handleAdminArchiveBroadcast(db, adminBcDetailMatch[1]));
   }
 

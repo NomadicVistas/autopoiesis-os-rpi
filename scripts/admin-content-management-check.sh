@@ -32,6 +32,7 @@ check() { TOTAL_CHECKS=$((TOTAL_CHECKS+1)); }
 
 # ── Cleanup ──────────────────────────────────────────────────────────────────
 PORT=3201
+ADMIN_TOKEN="test-admin-token-check"
 TMP_DIR=""
 API_PID=""
 cleanup() {
@@ -44,13 +45,14 @@ trap cleanup EXIT
 api() {
   local method="$1" path="$2"
   shift 2
-  curl -s -X "$method" "http://127.0.0.1:$PORT$path" "$@"
+  curl -s -X "$method" "http://127.0.0.1:$PORT$path" -H "x-admin-token: $ADMIN_TOKEN" "$@"
 }
 
 api_body() {
   local method="$1" path="$2" body="$3"
   curl -s -X "$method" "http://127.0.0.1:$PORT$path" \
     -H "content-type: application/json" \
+    -H "x-admin-token: $ADMIN_TOKEN" \
     -d "$body"
 }
 
@@ -115,7 +117,7 @@ TMP_DIR=$(mktemp -d)
 DB_FILE="$TMP_DIR/aos-test.db"
 
 # Start the hosted API server
-AOS_DB="$DB_FILE" AOS_PORT="$PORT" AOS_HOST="127.0.0.1" node "$HOSTED_API" &
+AOS_DB="$DB_FILE" AOS_PORT="$PORT" AOS_HOST="127.0.0.1" AUTOPOIESIS_FRAMES_ADMIN_TOKEN="$ADMIN_TOKEN" node "$HOSTED_API" &
 API_PID=$!
 
 # Wait for server ready

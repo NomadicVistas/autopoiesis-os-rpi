@@ -1,5 +1,60 @@
 # Progress
 
+## 2026-06-08 - Admin token authentication for all hosted API admin endpoints
+
+Date: 2026-06-08
+
+Milestone: LEAD / INTEGRATION — admin token authentication gates all hosted API admin endpoints
+
+Changed files:
+
+- `hosted-api/server.js` (authenticateAdmin function, auth gates on all 11 admin routes)
+- `scripts/admin-auth-check.sh` (new)
+- `scripts/hosted-api-admin-bundle-check.sh` (admin token in API calls)
+- `scripts/admin-content-management-check.sh` (admin token in API helpers + server startup)
+- `scripts/hosted-api-server-check.sh` (admin token in server startup + admin delivery call)
+- `scripts/heartbeat-persistence-check.sh` (admin token in broadcast creation + delivery queries)
+- `docs/progress.md`
+- `docs/agent-notes/pulse.md`
+- `/data/.openclaw/workspace/autopoiesis-os-program/ROLLING-LOG.md`
+
+Implemented:
+
+- Added `authenticateAdmin(req)` to `hosted-api/server.js` — validates admin requests via `Authorization: Bearer <token>` or `x-admin-token: <token>` header against the `AUTOPOIESIS_FRAMES_ADMIN_TOKEN` environment variable.
+- Three auth states: (1) no token configured → 503 "Admin token not configured", (2) token missing from request → 401 "Missing admin token", (3) wrong token → 403 "Invalid admin token".
+- Applied the auth gate to all 11 admin routes: admin bundle, admin device snapshot, admin broadcast deliveries (list + detail), admin broadcast CRUD (create, list, stats, get, update, publish, unpublish, archive).
+- Device-facing endpoints are completely unaffected — they use `authenticateDevice()` which checks `x-frame-device-key` against the device's API key.
+- Health endpoint remains open.
+- Updated 4 existing check scripts to pass `AUTOPOIESIS_FRAMES_ADMIN_TOKEN` when starting the hosted API server and include `x-admin-token` header in admin endpoint requests.
+- Added `scripts/admin-auth-check.sh` — a 7-step 38-check isolated validation gate proving: syntax validation, static contract (authenticateAdmin function, AUTOPOIESIS_FRAMES_ADMIN_TOKEN reference, ≥11 auth gates on admin routes), no-token-configured → 503 (4 admin endpoints + health/device still work), missing token → 401 (bundle, stats, list), invalid token → 403 (x-admin-token + Bearer), valid token → 200 (full CRUD lifecycle: create, list, get, update, publish, unpublish, snapshot, deliveries, stats), device endpoints unaffected (registration, settings read, pairing status work without admin token; stream requires device key not admin token; admin token does NOT bypass device auth).
+
+Why this matters:
+
+All 11 admin endpoints in the hosted API were completely unauthenticated. Anyone who could reach the hosted API could read the full fleet admin bundle (all devices, users, subscriptions, entitlements), query broadcast delivery details, create/modify/delete broadcasts, and access device admin snapshots. This is the single highest-impact security gap in the system — it blocks production deployment of the admin dashboard, safe exposure of the hosted API, and any real-world usage. The admin token gate follows the principle of least privilege: admin endpoints require an explicit admin token, device endpoints use per-device API keys, and the health endpoint remains open. The `AUTOPOIESIS_FRAMES_ADMIN_TOKEN` environment variable was already referenced in PROJECT-MANAGEMENT.md as an immediate next task — this implements that requirement.
+
+Verification:
+
+- `scripts/admin-auth-check.sh` passed all 38 checks (7 steps).
+- `scripts/hosted-api-admin-bundle-check.sh` passed all 121 checks (14 steps, no regression).
+- `scripts/admin-content-management-check.sh` passed all 131 checks (15 steps, no regression).
+- `scripts/hosted-api-server-check.sh` passed all 74 checks (12 steps, no regression).
+- `scripts/heartbeat-persistence-check.sh` passed all 33 checks (10 steps, no regression).
+- `scripts/hosted-api-local-ui-bridge-check.sh` passed all 94 checks (19 steps, no regression).
+- `scripts/security-smoke.sh` passed (no regression).
+- `node --check hosted-api/server.js` passed.
+- `node --check hosted-api/db.js` passed.
+- `node --check local-ui/server.js` passed.
+- `bash -n install.sh update.sh uninstall-dev-tools.sh factory-reset.sh scripts/*.sh` passed.
+
+Next step:
+
+- Configure `AUTOPOIESIS_FRAMES_ADMIN_TOKEN` in the production/staging deployment environment.
+- Wire the admin token into the frontend admin dashboard (store in session, pass in API calls).
+- Add admin token to hosted-api-local-ui-bridge-check.sh if admin endpoints are tested there in future.
+- Consider token rotation mechanism for long-term fleet management.
+
+---
+
 ## 2026-06-08 - Unified verification suite: all 83 check scripts registered
 
 Date: 2026-06-08

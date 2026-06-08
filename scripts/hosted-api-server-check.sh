@@ -22,6 +22,7 @@ step() { STEP=$((STEP+1)); printf "\n── Step %d: %s ──\n" "$STEP" "$1"; 
 
 # ── Cleanup ──────────────────────────────────────────────────────────────────
 PORT=3199
+ADMIN_TOKEN="test-admin-server-check"
 TMP_DIR=""
 API_PID=""
 cleanup() {
@@ -130,7 +131,7 @@ for (const item of items) { stmt.run(item.id, item.title, item.body || null, ite
 db.close();
 " 2>/dev/null
 
-AOS_DB="$DB_FILE" AOS_PORT="$PORT" node "$HOSTED_API" &
+AOS_DB="$DB_FILE" AOS_PORT="$PORT" AUTOPOIESIS_FRAMES_ADMIN_TOKEN="$ADMIN_TOKEN" node "$HOSTED_API" &
 API_PID=$!
 
 # Wait for server to start
@@ -313,7 +314,7 @@ echo "$REL" | grep -q '"ok":true' && ok || fail "release ok"
 echo "$REL" | grep -q '"currentVersion"' && ok || fail "currentVersion"
 
 # Admin broadcast deliveries (empty)
-AD_BD=$(curl -sf "http://127.0.0.1:$PORT/frames/admin/broadcast-deliveries")
+AD_BD=$(curl -sf -H "x-admin-token: $ADMIN_TOKEN" "http://127.0.0.1:$PORT/frames/admin/broadcast-deliveries")
 echo "$AD_BD" | grep -q '"ok":true' && ok || fail "admin broadcast deliveries ok"
 
 echo "  Checks: $PASS passed, $FAIL failed"
