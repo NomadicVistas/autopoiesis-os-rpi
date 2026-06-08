@@ -1,5 +1,57 @@
 # Progress
 
+## 2026-06-08 - Hosted API security smoke: secret leak detection + admin PATCH fix
+
+Date: 2026-06-08
+
+Milestone: QA / SECURITY — hosted API security regression gate
+
+Changed files:
+
+- `scripts/hosted-api-security-smoke.sh` (new)
+- `hosted-api/server.js` (fix: admin device PATCH strips deviceApiKey from response)
+- `.gitignore` (added *.pem, *.key, secrets/ patterns)
+- `docs/progress.md`
+- `docs/agent-notes/qa-security-note.md` (new)
+- `/data/.openclaw/workspace/autopoiesis-os-program/ROLLING-LOG.md`
+
+Implemented:
+
+- **Hosted API security smoke test** (`scripts/hosted-api-security-smoke.sh`): A 9-step 41-check security regression gate for the hosted API that verifies device API keys, admin tokens, and other secrets never leak through any hosted API response. Covers: source code secret scan (hardcoded API key patterns, crypto randomness for device keys, env var references for admin token), gitignore hygiene (.env, .pem, .key, secrets/), server bootstrap, device registration + pairing lifecycle, authentication gate verification (device key vs admin token separation, wrong/missing key rejection, Bearer token support, cross-auth rejection, health endpoint openness), response body secret leak scan across 20+ hosted API endpoints (device endpoints, admin bundle, admin snapshot, admin broadcasts, admin subscriptions, admin device actions, artwork like, health), error response safety (404 responses for nonexistent devices don't leak real keys), and input sanitization (XSS payload rejection, prototype pollution rejection).
+
+- **Admin device PATCH secret leak fix**: Fixed `handleAdminUpdateDevice()` in `hosted-api/server.js` to strip `deviceApiKey` from the response before returning the updated device record. Previously, `PATCH /frames/admin/devices/:id` returned `{ ok: true, updated: true, device: <full mapped record including deviceApiKey> }`. The `_mapDevice()` function includes `deviceApiKey` from the database, and the PATCH handler returned the full mapped record. This meant any admin with the admin token could see every device's API key through a simple PATCH request. The fix destructures the mapped record to exclude the key: `const { deviceApiKey, ...safeDevice } = updated;`. The admin bundle and admin snapshot endpoints already explicitly selected safe fields, but the PATCH endpoint used the raw mapped record.
+
+- **Production hygiene gitignore hardening**: Added `*.pem`, `*.key`, `secrets/`, and `secrets/*` patterns to `.gitignore` alongside the existing `.env` patterns. Prevents accidental tracking of TLS certificates, private keys, and secret directories.
+
+- **Key findings documented as observations**: (1) `GET /frames/device/:id/settings` is intentionally unauthenticated — the device reads settings on boot before establishing auth. The security smoke verifies the unauthenticated response does not contain device API keys. (2) The `_mapDevice()` function includes `deviceApiKey` in its output — any future endpoint using this mapped record directly should destructure to exclude the key, following the pattern established by the admin bundle, snapshot, and now the PATCH endpoint.
+
+Why this matters:
+
+The project had a security smoke for the local UI (`scripts/security-smoke.sh`) that verified device API keys don't leak through local JSON endpoints. But there was no equivalent check for the hosted API — the server that exposes device data, admin bundles, fleet snapshots, subscription details, and content management to the network. The hosted API's `_mapDevice()` function includes the raw `deviceApiKey` in every mapped device record, and while the admin bundle and snapshot endpoints explicitly excluded it, the PATCH endpoint (`handleAdminUpdateDevice`) returned the full record including the key. Any admin dashboard user could extract every device's API key through `PATCH /frames/admin/devices/:id`. The new security smoke catches this class of regression by scanning every hosted API response for device keys and admin tokens. The 41-check gate runs against a live server, registers real devices, authenticates through every endpoint, and scans all response bodies for secret leakage.
+
+Verification:
+
+- `scripts/hosted-api-security-smoke.sh` passed all 41 checks (9 steps).
+- `scripts/security-smoke.sh` passed (no regression).
+- `scripts/admin-auth-check.sh` passed all 38 checks (no regression).
+- `scripts/online-admin-subscription-fleet-check.sh` passed all 100 checks (no regression).
+- `scripts/admin-content-management-check.sh` passed 127/131 (4 pre-existing static contract pattern mismatches).
+- `scripts/hosted-api-server-check.sh` passed 65/74 (9 pre-existing static contract pattern mismatches).
+- `node --check hosted-api/server.js` passed.
+- `node --check hosted-api/db.js` passed.
+- `node --check local-ui/server.js` passed.
+- `bash -n install.sh update.sh uninstall-dev-tools.sh factory-reset.sh` passed.
+- `bash -n scripts/*.sh` passed.
+
+Next step:
+
+- Add the hosted API security smoke to `scripts/verify-all.sh` Phase 3b.
+- Consider adding CORS and rate-limiting checks to the security smoke.
+- Add `_mapDevice()` destructure helper to reduce key leak surface area (e.g., `safeDeviceForResponse()`).
+- Consider authenticating `GET /settings` for devices that have already paired (post-pair auth).
+
+---
+
 ## 2026-06-08 - Gallery content seeding: real artwork into stream composition pipeline
 
 Date: 2026-06-08

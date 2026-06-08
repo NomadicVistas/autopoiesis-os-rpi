@@ -23,6 +23,10 @@ pids
 .env
 .env.*
 !.env.example
+*.pem
+*.key
+secrets/
+secrets/*
 
 # Node and frontend tooling
 node_modules/

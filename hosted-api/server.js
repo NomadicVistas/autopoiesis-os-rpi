@@ -1021,9 +1021,10 @@ function handleAdminUpdateDevice(db, deviceId, body) {
   }
 
   const updated = db.getDevice(deviceId);
+  const { deviceApiKey, ...safeDevice } = updated;
   return {
     status: 200,
-    body: { ok: true, updated: true, device: updated }
+    body: { ok: true, updated: true, device: safeDevice }
   };
 }
 
