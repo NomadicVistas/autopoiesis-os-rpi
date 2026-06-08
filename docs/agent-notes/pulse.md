@@ -1,5 +1,14 @@
 # Pulse Agent Notes
 
+## 2026-06-08 - CHANGELOG.md and changelog validation gate
+
+Date/time: 2026-06-08 07:58 UTC / 2026-06-08 09:58 Europe/Berlin
+Agent: Pulse
+Context: RELEASE / ROLLOUT cron pass. The project had no changelog — 100+ commits, 2 versions, no documented changes. Every release manifest field (rollbackNotes, notesUrl), GitHub release, and user-facing update notification needs release notes but there was no source of truth.
+What changed: Created CHANGELOG.md in Keep a Changelog format covering v0.1.0 (initial foundation) and v0.1.1 (development sprint). Each version has subsections with descriptive items, dates, and GitHub comparison link references. Added scripts/changelog-check.sh — a 10-step 22-check validation gate proving structure, version order, date format, required sections, link references, no empty subsections, and content quality.
+What needs review: The changelog is retroactive — reconstructed from progress.md and git log. Future changes should be documented as they're made (preferably in the commit message or as a running Unreleased section). The gate should be wired into scripts/verify-all.sh.
+Next recommended action: Create scripts/prepare-release.sh that reads the changelog, extracts current version notes, validates manifest fields, bumps VERSION, creates a git tag, and generates a release manifest JSON for the hosted API. This is the missing bridge between "changelog exists" and "can cut a release."
+
 ## 2026-06-08 - Hosted broadcast delivery ingestion round-trip
 
 Date/time: 2026-06-08 07:03 UTC / 2026-06-08 09:03 Europe/Berlin

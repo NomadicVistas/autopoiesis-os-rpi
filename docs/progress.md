@@ -1,5 +1,45 @@
 # Progress
 
+## 2026-06-08 - CHANGELOG.md and changelog validation gate
+
+Date: 2026-06-08
+
+Milestone: RELEASE / ROLLOUT — changelog foundation and format validation
+
+Changed files:
+
+- `CHANGELOG.md`
+- `scripts/changelog-check.sh`
+- `docs/progress.md`
+- `docs/agent-notes/pulse.md`
+- `/data/.openclaw/workspace/autopoiesis-os-program/ROLLING-LOG.md`
+
+Implemented:
+
+- Added `CHANGELOG.md` — structured changelog in Keep a Changelog format documenting all notable changes across two versions (0.1.0 and 0.1.1).
+- Version [0.1.0] covers the initial foundation (June 5): device registration, pairing, settings sync, heartbeat, feed sync, kiosk mode, bootstrap/install scripts, mock hosted API, device lifecycle gate, factory reset, initial database schema.
+- Version [0.1.1] covers the development sprint (June 5–8): one-command remote installer, release manifest validation, release rollback, release update bridge, content-type-aware dwell time, feed display cursor, feed offline fallback, broadcast delivery receipt tracking, delivery status summary, broadcast delivery ingestion round-trip, kiosk cross-fade transitions, night mode enforcement, admin subscription lifecycle, online admin mock bridge, database migration runner, unified verification runner (137 gates), hosted mock bridge (6 contract gates), systemd service sandboxing, security smoke gate, heartbeat commands normalization, and many more.
+- Each version entry includes subsections (Added, Fixed) with descriptive items, YYYY-MM-DD dates, and GitHub comparison link references.
+- Added `scripts/changelog-check.sh` — a 10-step 22-check validation gate proving: file existence, header structure (h1 title, Keep a Changelog reference, SemVer reference), Unreleased section, version heading count, semver extraction, descending version order, current VERSION documented, required subsections per version, date format validation, link reference presence and URL validity, no empty subsections, content quality (item count, no TODO/FIXME markers).
+
+Why this matters:
+
+The project had no changelog. Every release manifest field (`rollbackNotes`, `notesUrl`), every GitHub release description, every user-facing update notification, and every release tag annotation requires release notes — but there was no source of truth for what changed between versions. The changelog is the foundational release document that feeds all downstream communication: GitHub release descriptions, hosted API release endpoint responses, admin dashboard release notes, and the rollback notes that tell a user what they're reverting to. Without it, cutting a release requires manually reconstructing history from 100+ git commits. The validation gate ensures the changelog stays consistent as versions accumulate — version order, date format, required sections, and link references are all verified programmatically.
+
+Verification:
+
+- `scripts/changelog-check.sh` passed all 22 checks (10 steps).
+- `scripts/security-smoke.sh` passed.
+- `node --check local-ui/server.js` passed.
+- `bash -n install.sh update.sh uninstall-dev-tools.sh factory-reset.sh scripts/*.sh` passed.
+- `git diff --check` passed.
+
+Next step:
+
+- Add `scripts/prepare-release.sh` that reads the changelog, extracts the current version's notes, validates the manifest fields, bumps VERSION, creates a git tag, and generates a release manifest JSON for the hosted API.
+- Test the changelog extraction on the remote installer's release notes display.
+- Add the changelog gate to `scripts/verify-all.sh`.
+
 ## 2026-06-08 - Content feed model contract gate
 
 Date: 2026-06-08
