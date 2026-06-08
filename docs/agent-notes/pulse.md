@@ -1,5 +1,23 @@
 # Pulse Agent Notes
 
+## 2026-06-08 - Hosted API online admin bundle + device fleet snapshot
+
+Ported the complete online admin platform from the mock API to the real hosted API.
+
+Key additions to `hosted-api/db.js`: `listDevices(opts)`, `countDevicesByOwner(userId)`, `listSubscriptions(opts)`, `listOwnerUserIds()` — all fleet admin query methods for the real database.
+
+Key additions to `hosted-api/server.js`: `PLAN_LIMITS` (4 tiers), `ROLE_ACTION_MATRIX` (5 roles × 9 actions), `computeEntitlements()`, `buildActionAvailability()` (5-layer gating), `handleAdminBundle()`, `handleAdminDeviceSnapshot()`. Two new routes: `GET /frames/admin/bundle` and `GET /frames/device/:id/admin-snapshot`.
+
+The admin bundle endpoint queries real database tables (aos_frame_devices, aos_subscriptions, aos_frame_user_preferences, aos_artwork_likes, aos_device_events, aos_device_commands) and produces the same contract shape the frontend admin dashboard expects.
+
+Validated with `scripts/hosted-api-admin-bundle-check.sh` — 14 steps, 121 checks. No regressions.
+
+**Design note:** User list is derived from device ownership (listOwnerUserIds) + subscriptions. There is no `aos_frame_users` table — user identity comes from the external account system. For the admin bundle, we derive users from who owns devices and who has subscriptions.
+
+**Design note:** `getUserPreferences()` returns `{ preferences: {...}, updatedAt: "..." }` — the admin bundle unwraps to `rawPrefs.preferences` to get the actual preference values.
+
+Next: admin token auth on endpoints, subscription CRUD, device admin actions (enable/disable/queue commands), PostgreSQL testing.
+
 ## 2026-06-08 - Heartbeat event + broadcast delivery persistence fix
 
 Fixed a data loss bug in the hosted API's heartbeat handler. `handleHeartbeat()` was constructing a `heartbeatPayload` object that only included device status fields (softwareVersion, currentMode, etc.) and explicitly excluded `events` and `broadcastDeliveries` from the request body. The `db.ingestHeartbeat()` method already had complete upsert logic for both — events go to `aos_device_events` (ON CONFLICT by device_id + event_key) and broadcast deliveries go to `aos_broadcast_deliveries` (ON CONFLICT by broadcast_id + device_id). But the handler never passed these fields, so the upserts never fired.

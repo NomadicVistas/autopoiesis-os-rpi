@@ -1424,6 +1424,111 @@ class AosDb {
 
   // ── Internal helpers ─────────────────────────────────────────────────────
 
+  // ── Fleet Admin ──────────────────────────────────────────────────────
+
+  /**
+   * List all devices with optional filters.
+   *
+   * @param {object} [opts]
+   * @param {string} [opts.ownerUserId] - Filter to devices owned by this user.
+   * @param {boolean} [opts.pairedOnly] - Only include paired devices.
+   * @param {number} [opts.limit] - Max results (default 100).
+   * @param {number} [opts.offset] - Offset for pagination.
+   * @returns {{ items: Array<object>, total: number }}
+   */
+  listDevices(opts = {}) {
+    const { ownerUserId, pairedOnly = false, limit = 100, offset = 0 } = opts;
+    const conditions = [];
+    const params = [];
+
+    if (ownerUserId) {
+      conditions.push("owner_user_id = ?");
+      params.push(ownerUserId);
+    }
+    if (pairedOnly) {
+      conditions.push("paired = 1");
+    }
+
+    const where = conditions.length > 0 ? "WHERE " + conditions.join(" AND ") : "";
+
+    const countRow = this.db.prepare(
+      `SELECT COUNT(*) AS cnt FROM aos_frame_devices ${where}`
+    ).get(...params);
+    const total = countRow ? countRow.cnt : 0;
+
+    const rows = this.db.prepare(
+      `SELECT * FROM aos_frame_devices ${where} ORDER BY created_at DESC LIMIT ? OFFSET ?`
+    ).all(...params, limit, offset);
+
+    return {
+      items: rows.map(r => this._mapDevice(r)),
+      total
+    };
+  }
+
+  /**
+   * Count devices owned by a specific user. Used for entitlement computation.
+   *
+   * @param {string} userId
+   * @returns {number}
+   */
+  countDevicesByOwner(userId) {
+    if (!userId) return 0;
+    const row = this.db.prepare(
+      "SELECT COUNT(*) AS cnt FROM aos_frame_devices WHERE owner_user_id = ? AND paired = 1"
+    ).get(userId);
+    return row ? row.cnt : 0;
+  }
+
+  /**
+   * List all subscriptions. Used by the admin bundle for the subscriptions view.
+   *
+   * @param {object} [opts]
+   * @param {number} [opts.limit] - Max results (default 100).
+   * @param {number} [opts.offset] - Offset for pagination.
+   * @returns {{ items: Array<object>, total: number }}
+   */
+  listSubscriptions(opts = {}) {
+    const { limit = 100, offset = 0 } = opts;
+    const countRow = this.db.prepare(
+      "SELECT COUNT(*) AS cnt FROM aos_subscriptions"
+    ).get();
+    const total = countRow ? countRow.cnt : 0;
+
+    const rows = this.db.prepare(
+      "SELECT * FROM aos_subscriptions ORDER BY created_at DESC LIMIT ? OFFSET ?"
+    ).all(limit, offset);
+
+    return {
+      items: rows.map(r => ({
+        subscriptionId: r.id,
+        userId: r.user_id,
+        status: r.status,
+        plan: r.plan,
+        tier: r.plan, // tier mirrors plan in the DB schema
+        currentPeriodEnd: r.current_period_end || null,
+        cancelAtPeriodEnd: !!r.cancel_at,
+        provider: r.provider || 'manual',
+        createdAt: r.created_at,
+        updatedAt: r.updated_at
+      })),
+      total
+    };
+  }
+
+  /**
+   * List unique owner user IDs across all devices.
+   * Used to derive user list for the admin bundle.
+   *
+   * @returns {Array<string>}
+   */
+  listOwnerUserIds() {
+    const rows = this.db.prepare(
+      "SELECT DISTINCT owner_user_id FROM aos_frame_devices WHERE owner_user_id IS NOT NULL AND paired = 1"
+    ).all();
+    return rows.map(r => r.owner_user_id);
+  }
+
   /**
    * Map an aos_broadcasts row to a camelCase response object.
    * @param {object} row

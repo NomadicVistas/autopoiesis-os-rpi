@@ -21,7 +21,9 @@
  *   GET  /frames/device/:id/feed                    – Feed alias
  *   POST /frames/device/:id/commands/:cmdId/ack     – Command acknowledgement
  *   GET  /frames/device/:id/release                 – Release check
+ *   GET  /frames/device/:id/admin-snapshot          – Admin device snapshot
  *   POST /frames/artworks/:id/like                  – Like artwork
+ *   GET  /frames/admin/bundle                       – Online admin dashboard bundle
  *   GET  /frames/admin/broadcast-deliveries         – Admin: list broadcast deliveries
  *   GET  /frames/admin/broadcast-deliveries/:id     – Admin: per-broadcast delivery detail
  */
@@ -109,6 +111,238 @@ function authenticateDevice(db, req, deviceId) {
   if (!authResult) return { ok: false, status: 403, error: "Invalid device key" };
   if (!record.paired) return { ok: false, status: 403, error: "Device not paired" };
   return { ok: true, record };
+}
+
+// ── Admin platform constants ──────────────────────────────────────────────
+
+/**
+ * Subscription tier limits defining device counts, cache, artists, and features.
+ */
+const PLAN_LIMITS = {
+  frames_trial:     { maxDevices: 1,   cacheLimitMb: 256,   activeArtistsLimit: 5,   offlineCache: false, remoteActions: true },
+  frames_basic:     { maxDevices: 3,   cacheLimitMb: 512,   activeArtistsLimit: 20,  offlineCache: true,  remoteActions: true },
+  frames_premium:   { maxDevices: 10,  cacheLimitMb: 2048,  activeArtistsLimit: 100, offlineCache: true,  remoteActions: true },
+  frames_enterprise:{ maxDevices: Infinity, cacheLimitMb: 8192, activeArtistsLimit: Infinity, offlineCache: true, remoteActions: true }
+};
+
+/** Subscription statuses considered "degraded" (restricted access). */
+const DEGRADED_STATUSES = new Set(["expired", "cancelled", "past_due"]);
+
+/** Subscription statuses with full entitlements. */
+const ENTITLED_STATUSES = new Set(["trial", "active"]);
+
+/**
+ * Compute entitlements for a user based on their subscription plan and status.
+ *
+ * @param {object} subscription - { plan, status } from getSubscription()
+ * @param {number} deviceCount - Number of paired devices owned
+ * @returns {object} Full entitlement set
+ */
+function computeEntitlements(subscription, deviceCount = 0) {
+  const plan = (subscription && subscription.plan) || "frames_trial";
+  const status = (subscription && subscription.status) || "inactive";
+  const limits = PLAN_LIMITS[plan] || PLAN_LIMITS.frames_trial;
+  const isDegraded = DEGRADED_STATUSES.has(status);
+  const deviceLimit = limits.maxDevices;
+  const deviceSlotsRemaining = Math.max(0, deviceLimit - deviceCount);
+
+  return {
+    plan,
+    tier: plan,
+    status,
+    deviceLimit:          deviceLimit === Infinity ? null : deviceLimit,
+    deviceLimitLabel:     deviceLimit === Infinity ? "unlimited" : String(deviceLimit),
+    deviceUsage:          deviceCount,
+    deviceSlotsRemaining,
+    canAddDevice:         !isDegraded && deviceSlotsRemaining > 0,
+    canUseRemoteActions:  !isDegraded,
+    cacheLimitMb:         limits.cacheLimitMb,
+    activeArtistsLimit:   limits.activeArtistsLimit === Infinity ? null : limits.activeArtistsLimit,
+    offlineCache:         isDegraded ? false : limits.offlineCache,
+    degradedAccess:       isDegraded,
+    degradedReason:       isDegraded ? status + " subscription" : null,
+    degradedActionsBlocked: isDegraded
+      ? ["restart_device", "update_device", "factory_reset_request", "show_broadcast"]
+      : []
+  };
+}
+
+/**
+ * Role-action matrix defining which roles can perform which remote actions.
+ */
+const ROLE_ACTION_MATRIX = [
+  {
+    role: "admin",
+    actions: {
+      sync_settings:        { allowed: true, requiresAuthorization: true },
+      clear_cache:          { allowed: true, requiresAuthorization: true },
+      restart_display:      { allowed: true, requiresAuthorization: true },
+      enable_device:        { allowed: true, requiresAuthorization: true },
+      disable_device:       { allowed: true, requiresAuthorization: true },
+      restart_device:       { allowed: true, requiresAuthorization: true },
+      update_device:        { allowed: true, requiresAuthorization: true },
+      show_broadcast:       { allowed: true, requiresAuthorization: true },
+      factory_reset_request:{ allowed: true, requiresAuthorization: true }
+    }
+  },
+  {
+    role: "owner",
+    actions: {
+      sync_settings:        { allowed: true, requiresAuthorization: true },
+      clear_cache:          { allowed: true, requiresAuthorization: true },
+      restart_display:      { allowed: true, requiresAuthorization: true },
+      enable_device:        { allowed: true, requiresAuthorization: true },
+      disable_device:       { allowed: true, requiresAuthorization: true },
+      restart_device:       { allowed: true, requiresAuthorization: true },
+      update_device:        { allowed: true, requiresAuthorization: true },
+      show_broadcast:       { allowed: true, requiresAuthorization: true },
+      factory_reset_request:{ allowed: true, requiresAuthorization: true }
+    }
+  },
+  {
+    role: "maintainer",
+    actions: {
+      sync_settings:        { allowed: true, requiresAuthorization: true },
+      clear_cache:          { allowed: true, requiresAuthorization: true },
+      restart_display:      { allowed: true, requiresAuthorization: true },
+      enable_device:        { allowed: false, reason: "Insufficient permissions", reasonCode: "role_insufficient" },
+      disable_device:       { allowed: false, reason: "Insufficient permissions", reasonCode: "role_insufficient" },
+      restart_device:       { allowed: false, reason: "Requires admin or owner role", reasonCode: "role_insufficient" },
+      update_device:        { allowed: false, reason: "Requires admin or owner role", reasonCode: "role_insufficient" },
+      show_broadcast:       { allowed: true, requiresAuthorization: true },
+      factory_reset_request:{ allowed: false, reason: "Only admin can request factory reset", reasonCode: "role_insufficient" }
+    }
+  },
+  {
+    role: "support",
+    actions: {
+      sync_settings:        { allowed: false, reason: "Read-only support role", reasonCode: "role_readonly" },
+      clear_cache:          { allowed: false, reason: "Read-only support role", reasonCode: "role_readonly" },
+      restart_display:      { allowed: false, reason: "Read-only support role", reasonCode: "role_readonly" },
+      enable_device:        { allowed: false, reason: "Read-only support role", reasonCode: "role_readonly" },
+      disable_device:       { allowed: false, reason: "Read-only support role", reasonCode: "role_readonly" },
+      restart_device:       { allowed: false, reason: "Read-only support role", reasonCode: "role_readonly" },
+      update_device:        { allowed: false, reason: "Read-only support role", reasonCode: "role_readonly" },
+      show_broadcast:       { allowed: false, reason: "Read-only support role", reasonCode: "role_readonly" },
+      factory_reset_request:{ allowed: false, reason: "Read-only support role", reasonCode: "role_readonly" }
+    }
+  },
+  {
+    role: "curator",
+    actions: {
+      sync_settings:        { allowed: false, reason: "Read-only curator role", reasonCode: "role_readonly" },
+      clear_cache:          { allowed: false, reason: "Read-only curator role", reasonCode: "role_readonly" },
+      restart_display:      { allowed: false, reason: "Read-only curator role", reasonCode: "role_readonly" },
+      enable_device:        { allowed: false, reason: "Read-only curator role", reasonCode: "role_readonly" },
+      disable_device:       { allowed: false, reason: "Read-only curator role", reasonCode: "role_readonly" },
+      restart_device:       { allowed: false, reason: "Read-only curator role", reasonCode: "role_readonly" },
+      update_device:        { allowed: false, reason: "Read-only curator role", reasonCode: "role_readonly" },
+      show_broadcast:       { allowed: true, requiresAuthorization: true },
+      factory_reset_request:{ allowed: false, reason: "Read-only curator role", reasonCode: "role_readonly" }
+    }
+  }
+];
+
+/** Actions requiring device to be online */
+const ONLINE_REQUIRED_ACTIONS = new Set([
+  "sync_settings", "clear_cache", "restart_display",
+  "restart_device", "update_device", "show_broadcast"
+]);
+
+/** Actions blocked when device is disabled (enable_device is the escape hatch) */
+const DISABLED_BLOCKED_ACTIONS = new Set([
+  "sync_settings", "clear_cache", "restart_display",
+  "restart_device", "update_device", "show_broadcast", "factory_reset_request"
+]);
+
+/**
+ * Compute action availability for a device given an actor's role.
+ * Applies five-layer gating: subscription → role → paired → disabled/remote → online.
+ *
+ * @param {object} device - Mapped device record from _mapDevice()
+ * @param {string} actorRole - Role of the actor (admin, owner, maintainer, support, curator)
+ * @param {object} [ownerSubscription] - Owner's subscription { plan, status }
+ * @param {number} [pendingCommandCount=0] - Pending commands for this device
+ * @returns {object} Action availability with device state
+ */
+function buildActionAvailability(device, actorRole, ownerSubscription = null, pendingCommandCount = 0) {
+  const generatedAt = now();
+  const actions = {};
+  const roleRow = ROLE_ACTION_MATRIX.find(r => r.role === actorRole);
+  if (!roleRow) return { generatedAt, actions: {}, deviceState: {} };
+
+  // Compute device-level state
+  const isPaired = !!device.paired;
+  const isOnline = device.lastHeartbeatAt
+    ? (Date.now() - new Date(device.lastHeartbeatAt).getTime()) < 300000
+    : false;
+  const isDisabled = !!device.disabled;
+  const isRemoteEnabled = device.remoteEnabled !== false;
+
+  for (const [actionKey, roleAction] of Object.entries(roleRow.actions)) {
+    let allowed = roleAction.allowed;
+    let reason = roleAction.reason || null;
+    let reasonCode = roleAction.reasonCode || null;
+    const roleAllowed = allowed;
+
+    // Layer 1: Subscription degradation
+    if (allowed && ownerSubscription && DEGRADED_STATUSES.has(ownerSubscription.status)) {
+      const degradedBlocked = ["restart_device", "update_device", "factory_reset_request", "show_broadcast"];
+      if (degradedBlocked.includes(actionKey)) {
+        allowed = false;
+        reason = "Subscription degraded: " + ownerSubscription.status;
+        reasonCode = "subscription_degraded";
+      }
+    }
+
+    // Layer 3a: Not paired
+    if (allowed && !isPaired) {
+      allowed = false;
+      reason = "Device not paired";
+      reasonCode = "not_paired";
+    }
+
+    // Layer 3b: Device disabled
+    if (allowed && isDisabled && DISABLED_BLOCKED_ACTIONS.has(actionKey)) {
+      allowed = false;
+      reason = "Device is disabled";
+      reasonCode = "device_disabled";
+    }
+
+    // Layer 3c: Remote disabled
+    if (allowed && !isRemoteEnabled) {
+      allowed = false;
+      reason = "Remote actions disabled on this device";
+      reasonCode = "remote_disabled";
+    }
+
+    // Layer 3d: Device offline (only for online-required actions)
+    if (allowed && !isOnline && ONLINE_REQUIRED_ACTIONS.has(actionKey)) {
+      allowed = false;
+      reason = "Device is offline";
+      reasonCode = "offline";
+    }
+
+    actions[actionKey] = {
+      allowed,
+      roleAllowed,
+      ...(reason ? { reason } : {}),
+      ...(reasonCode ? { reasonCode } : {}),
+      ...(roleAction.requiresAuthorization ? { requiresAuthorization: true } : {})
+    };
+  }
+
+  return {
+    generatedAt,
+    actions,
+    deviceState: {
+      isPaired,
+      isOnline,
+      isDisabled,
+      isRemoteEnabled,
+      pendingCommandCount
+    }
+  };
 }
 
 // ── Route handlers ───────────────────────────────────────────────────────────
@@ -561,6 +795,265 @@ function handleAdminBroadcastStats(db) {
   }
 }
 
+// ── Online admin bundle ─────────────────────────────────────────────────────
+
+/**
+ * GET /frames/admin/bundle
+ *
+ * Returns the complete admin dashboard bundle from the real database:
+ * - profileFrames: devices owned by the requesting user, preferences, liked artworks
+ * - adminFrames: all users, subscriptions, fleet devices, plan limits, role matrix
+ *
+ * @param {AosDb} db
+ * @param {string} [profileUserId] - User ID for profile section (defaults to admin)
+ * @returns {{ status: number, body: object }}
+ */
+function handleAdminBundle(db, profileUserId) {
+  const generatedAt = now();
+
+  // ── Fleet devices ──────────────────────────────────────────────────────
+  const fleet = db.listDevices({ pairedOnly: true, limit: 500 });
+
+  // ── Subscriptions ─────────────────────────────────────────────────────
+  const subs = db.listSubscriptions({ limit: 500 });
+  const subMap = new Map(subs.items.map(s => [s.userId, s]));
+
+  // ── Users (derived from device owners + subscriptions) ─────────────────
+  const ownerIds = db.listOwnerUserIds();
+  const allUserIds = new Set([...ownerIds, ...subs.items.map(s => s.userId)]);
+  const usersItems = [];
+  for (const userId of allUserIds) {
+    const sub = subMap.get(userId);
+    const ownerDeviceCount = db.countDevicesByOwner(userId);
+    usersItems.push({
+      userId,
+      frameCount: ownerDeviceCount,
+      subscription: sub ? {
+        subscriptionId: sub.subscriptionId,
+        status: sub.status,
+        plan: sub.plan,
+        tier: sub.tier,
+        currentPeriodEnd: sub.currentPeriodEnd,
+        cancelAtPeriodEnd: sub.cancelAtPeriodEnd
+      } : null,
+      entitlements: computeEntitlements(sub, ownerDeviceCount)
+    });
+  }
+
+  // ── Fleet devices with action availability ─────────────────────────────
+  const fleetDevices = fleet.items.map(device => {
+    const ownerSub = device.ownerUserId ? subMap.get(device.ownerUserId) : null;
+    const ownerSubscription = ownerSub ? { plan: ownerSub.plan, status: ownerSub.status } : null;
+    return {
+      deviceId: device.deviceId,
+      deviceName: device.deviceName,
+      ownerUserId: device.ownerUserId,
+      softwareVersion: device.softwareVersion,
+      currentMode: device.currentMode || "display",
+      updateChannel: device.updateChannel,
+      paired: device.paired,
+      online: device.lastHeartbeatAt
+        ? (Date.now() - new Date(device.lastHeartbeatAt).getTime()) < 300000
+        : false,
+      remoteEnabled: device.remoteEnabled,
+      disabled: !!device.disabled,
+      lastHeartbeatAt: device.lastHeartbeatAt,
+      cache: {
+        enabled: true,
+        likedArtworks: true,
+        recentArtworks: true,
+        selectedArtists: false,
+        sizeLimitMb: 512
+      },
+      subscription: ownerSub ? {
+        subscriptionId: ownerSub.subscriptionId,
+        status: ownerSub.status,
+        plan: ownerSub.plan,
+        tier: ownerSub.tier
+      } : null,
+      health: {
+        status: "healthy",
+        lastHeartbeat: device.lastHeartbeatAt
+      },
+      actionAvailability: buildActionAvailability(device, "admin", ownerSubscription)
+    };
+  });
+
+  // ── Profile frames (filtered to requested owner) ──────────────────────
+  const effectiveUserId = profileUserId || (ownerIds.length > 0 ? ownerIds[0] : null);
+  let profileDevices = [];
+  let profilePreferences = null;
+  let profileLikedArtworks = [];
+  let profileEntitlements = null;
+
+  if (effectiveUserId) {
+    const profileFleet = db.listDevices({ ownerUserId: effectiveUserId, pairedOnly: true, limit: 100 });
+    const profileSub = subMap.get(effectiveUserId);
+    const profileOwnerSub = profileSub ? { plan: profileSub.plan, status: profileSub.status } : null;
+
+    profileDevices = profileFleet.items.map(device => ({
+      deviceId: device.deviceId,
+      deviceName: device.deviceName,
+      ownerUserId: device.ownerUserId,
+      softwareVersion: device.softwareVersion,
+      currentMode: device.currentMode || "display",
+      updateChannel: device.updateChannel,
+      paired: device.paired,
+      online: device.lastHeartbeatAt
+        ? (Date.now() - new Date(device.lastHeartbeatAt).getTime()) < 300000
+        : false,
+      remoteEnabled: device.remoteEnabled,
+      disabled: !!device.disabled,
+      lastHeartbeatAt: device.lastHeartbeatAt,
+      actionAvailability: buildActionAvailability(device, "owner", profileOwnerSub)
+    }));
+
+    // Owner preferences
+    const rawPrefs = db.getUserPreferences(effectiveUserId);
+    profilePreferences = (rawPrefs && rawPrefs.preferences) ? rawPrefs.preferences : {
+      activeArtists: [],
+      streamCategories: ["artwork", "curatorial", "blog"],
+      allowImages: true,
+      allowVideos: true,
+      allowSoundWorks: false,
+      allowGenerativeWorks: true,
+      autoplay: true,
+      videoAutoplay: false,
+      soundAutoplay: false,
+      soundEnabled: false,
+      cacheLikedArtworks: true,
+      cacheRecentArtworks: true,
+      offlineFallbackMode: "cached",
+      updatedAt: generatedAt
+    };
+
+    // Liked artworks
+    const likedIds = db.getLikedArtworks(effectiveUserId);
+    profileLikedArtworks = likedIds.map(artworkId => ({
+      artworkId,
+      likedAt: generatedAt
+    }));
+
+    profileEntitlements = computeEntitlements(profileSub, profileFleet.total);
+  }
+
+  // ── Plan limits (for admin reference) ──────────────────────────────────
+  const planLimits = {};
+  for (const [plan, limits] of Object.entries(PLAN_LIMITS)) {
+    planLimits[plan] = {
+      maxDevices: limits.maxDevices === Infinity ? null : limits.maxDevices,
+      maxDevicesLabel: limits.maxDevices === Infinity ? "unlimited" : String(limits.maxDevices),
+      remoteActions: limits.remoteActions,
+      cacheLimitMb: limits.cacheLimitMb,
+      activeArtistsLimit: limits.activeArtistsLimit === Infinity ? null : limits.activeArtistsLimit,
+      offlineCache: limits.offlineCache
+    };
+  }
+
+  return {
+    status: 200,
+    body: {
+      ok: true,
+      kind: "autopoiesis_frames_online_admin_bundle",
+      schemaVersion: 1,
+      generatedAt,
+      profileFrames: {
+        userId: effectiveUserId,
+        preferences: profilePreferences,
+        likedArtworks: profileLikedArtworks,
+        devices: profileDevices,
+        entitlements: profileEntitlements
+      },
+      adminFrames: {
+        actor: {
+          actorId: "admin",
+          userId: effectiveUserId,
+          role: "admin"
+        },
+        users: { items: usersItems, total: usersItems.length, page: 1, pageSize: 50 },
+        subscriptions: { items: subs.items, total: subs.total, page: 1, pageSize: 50 },
+        devices: { items: fleetDevices, total: fleetDevices.length, page: 1, pageSize: 50 },
+        remoteActions: {
+          acceptedActorRoles: ["admin", "owner", "maintainer", "support", "curator"],
+          authorizationWindowSeconds: 300,
+          highRiskRequiresAuditId: true,
+          criticalRiskRequiresAuditId: true,
+          roleActionMatrix: ROLE_ACTION_MATRIX
+        },
+        planLimits
+      }
+    }
+  };
+}
+
+/**
+ * GET /frames/device/:id/admin-snapshot
+ *
+ * Returns a detailed admin snapshot for a specific device including
+ * device state, recent events, pending commands, subscription, and action availability.
+ *
+ * @param {AosDb} db
+ * @param {string} deviceId
+ * @returns {{ status: number, body: object }}
+ */
+function handleAdminDeviceSnapshot(db, deviceId) {
+  const device = db.getDevice(deviceId);
+  if (!device) return { status: 404, body: { ok: false, error: "Device not found" } };
+
+  // Owner subscription
+  let ownerSubscription = null;
+  let ownerEntitlements = null;
+  if (device.ownerUserId) {
+    const sub = db.getSubscription(device.ownerUserId);
+    ownerSubscription = sub ? { plan: sub.plan, status: sub.status } : null;
+    const deviceCount = db.countDevicesByOwner(device.ownerUserId);
+    ownerEntitlements = computeEntitlements(sub, deviceCount);
+  }
+
+  // Recent events
+  const events = db.getDeviceEvents(deviceId, 20);
+
+  // Pending commands
+  const pendingCommands = db.getPendingCommands(deviceId);
+
+  // Action availability (from admin perspective)
+  const actionAvailability = buildActionAvailability(device, "admin", ownerSubscription, pendingCommands.length);
+
+  return {
+    status: 200,
+    body: {
+      ok: true,
+      kind: "autopoiesis_frames_admin_device_snapshot",
+      generatedAt: now(),
+      device: {
+        deviceId: device.deviceId,
+        deviceName: device.deviceName,
+        ownerUserId: device.ownerUserId,
+        deviceType: device.deviceType,
+        softwareVersion: device.softwareVersion,
+        updateChannel: device.updateChannel,
+        paired: device.paired,
+        remoteEnabled: device.remoteEnabled,
+        online: device.lastHeartbeatAt
+          ? (Date.now() - new Date(device.lastHeartbeatAt).getTime()) < 300000
+          : false,
+        lastHeartbeatAt: device.lastHeartbeatAt,
+        currentMode: device.currentMode,
+        currentArtworkId: device.currentArtworkId,
+        networkOnline: device.networkOnline,
+        networkType: device.networkType,
+        createdAt: device.createdAt,
+        updatedAt: device.updatedAt
+      },
+      events: events.slice(0, 20),
+      pendingCommands,
+      ownerSubscription,
+      ownerEntitlements,
+      actionAvailability
+    }
+  };
+}
+
 // ── Request router ───────────────────────────────────────────────────────────
 
 async function handle(db, req, res) {
@@ -577,6 +1070,23 @@ async function handle(db, req, res) {
   const adminBdDetailMatch = pathname.match(/^\/frames\/admin\/broadcast-deliveries\/([^/]+)$/);
   if (method === "GET" && adminBdDetailMatch) {
     return sendResult(res, handleAdminBroadcastDeliveryDetail(db, adminBdDetailMatch[1]));
+  }
+
+  // ── Admin bundle ────────────────────────────────────────────────────────
+
+  // GET /frames/admin/bundle?userId=... — Online admin dashboard bundle
+  if (method === "GET" && pathname === "/frames/admin/bundle") {
+    const url = new URL(req.url, "http://localhost");
+    const profileUserId = url.searchParams.get("userId") || null;
+    return sendResult(res, handleAdminBundle(db, profileUserId));
+  }
+
+  // ── Device admin snapshot ───────────────────────────────────────────────
+
+  // GET /frames/device/:id/admin-snapshot — Detailed device snapshot for admin
+  const adminSnapshotMatch = pathname.match(/^\/frames\/device\/([^/]+)\/admin-snapshot$/);
+  if (method === "GET" && adminSnapshotMatch) {
+    return sendResult(res, handleAdminDeviceSnapshot(db, adminSnapshotMatch[1]));
   }
 
   // ── Admin content management endpoints ─────────────────────────────────

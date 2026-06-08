@@ -1,5 +1,73 @@
 # Progress
 
+## 2026-06-08 - Hosted API online admin bundle + device fleet snapshot
+
+Date: 2026-06-08
+
+Milestone: ONLINE ADMIN — hosted API admin dashboard bundle and device fleet snapshot
+
+Changed files:
+
+- `hosted-api/db.js` (listDevices, countDevicesByOwner, listSubscriptions, listOwnerUserIds)
+- `hosted-api/server.js` (PLAN_LIMITS, computeEntitlements, ROLE_ACTION_MATRIX, buildActionAvailability, handleAdminBundle, handleAdminDeviceSnapshot, 2 new routes)
+- `scripts/hosted-api-admin-bundle-check.sh` (new)
+- `docs/progress.md`
+- `docs/agent-notes/pulse.md`
+- `/data/.openclaw/workspace/autopoiesis-os-program/ROLLING-LOG.md`
+
+Implemented:
+
+- Added 4 fleet admin methods to `hosted-api/db.js`:
+  - `listDevices(opts)` — list all devices with optional owner filter, paired-only filter, and pagination. Returns `{ items, total }` with fully mapped device records.
+  - `countDevicesByOwner(userId)` — count paired devices owned by a user, used for entitlement computation.
+  - `listSubscriptions(opts)` — list all subscription records with pagination, mapped to the admin bundle contract shape (subscriptionId, userId, status, plan, tier, currentPeriodEnd, cancelAtPeriodEnd).
+  - `listOwnerUserIds()` — list distinct owner_user_ids across all paired devices, used to derive the admin users list from device ownership data.
+
+- Ported admin platform constants from mock API to `hosted-api/server.js`:
+  - `PLAN_LIMITS` — 4 subscription tiers (trial: 1 device/256MB, basic: 3/512MB, premium: 10/2GB, enterprise: unlimited/8GB) with maxDevices, cacheLimitMb, activeArtistsLimit, offlineCache, remoteActions.
+  - `DEGRADED_STATUSES` / `ENTITLED_STATUSES` — subscription status classification for entitlement gating.
+  - `ROLE_ACTION_MATRIX` — 5 roles (admin, owner, maintainer, support, curator) × 9 remote actions with allowed/reason/reasonCode per cell.
+  - `ONLINE_REQUIRED_ACTIONS` — 6 actions requiring device to be online.
+  - `DISABLED_BLOCKED_ACTIONS` — 7 actions blocked when device is disabled.
+  - `computeEntitlements(subscription, deviceCount)` — computes full entitlement set from subscription plan/status and device count: deviceLimit, deviceUsage, deviceSlotsRemaining, canAddDevice, canUseRemoteActions, cacheLimitMb, activeArtistsLimit, offlineCache, degradedAccess, degradedReason, degradedActionsBlocked.
+  - `buildActionAvailability(device, actorRole, ownerSubscription, pendingCommandCount)` — five-layer action gating (subscription → role → paired → disabled/remote → online) producing per-action availability with deviceState object.
+
+- Added `GET /frames/admin/bundle?userId=...` — the core admin dashboard endpoint that returns the complete admin data bundle from the real database:
+  - `profileFrames` — devices owned by the requested user, their preferences, liked artworks, and entitlements.
+  - `adminFrames.users` — all known users derived from device ownership + subscriptions, with per-user entitlements and subscription details.
+  - `adminFrames.subscriptions` — all subscription records with plan/status/tier.
+  - `adminFrames.devices` — all paired fleet devices with online status, subscription info, health, and per-device action availability from the admin role perspective.
+  - `adminFrames.remoteActions` — role action matrix and actor role configuration.
+  - `adminFrames.planLimits` — reference table of all plan tiers with limits for UI rendering.
+
+- Added `GET /frames/device/:id/admin-snapshot` — detailed admin device snapshot with device state, recent events, pending commands, owner subscription, owner entitlements, and action availability from the admin role perspective.
+
+- Added `scripts/hosted-api-admin-bundle-check.sh` — a 14-step 121-check isolated validation gate proving: syntax validation, static contract (all constants, functions, routes, and plan tiers), server bootstrap, multi-device registration and pairing with two owners, subscription creation, user preferences, artwork likes, heartbeat delivery, admin bundle structure (kind/schemaVersion/generatedAt), profile frames (preferences with activeArtists, likedArtworks with IDs, devices with actionAvailability, entitlements with plan/usage/limit/slots), admin frames (actor role, users ≥2, subscriptions, fleet devices=3, planLimits, remoteActions with 5 roles), plan limits (trial=1, basic=3, premium=10, enterprise=unlimited), fleet device detail (deviceId, deviceName, ownerUserId, softwareVersion, online, paired, actionAvailability with deviceState), users with entitlements (alice: basic/2 devices, bob: trial/1 device), default bundle without userId param, device admin snapshot (device fields, ownerSubscription, ownerEntitlements, actionAvailability, events, pendingCommands, 404 for nonexistent), role-based action availability (admin and owner perspective), and regression (settings/heartbeat/stream/health endpoints unchanged).
+
+Why this matters:
+
+The online admin platform was entirely in the mock API. The hosted API — the real database-backed server that devices and the admin dashboard connect to — had no admin bundle, no fleet device listing, no user/subscription admin, no entitlements computation, no role-action matrix, and no device snapshot. Every admin dashboard feature in the mock API was unreachable from the real backend. This change ports the core admin platform from the mock API to the hosted API: the admin bundle endpoint queries real database tables (aos_frame_devices, aos_subscriptions, aos_frame_user_preferences, aos_artwork_likes, aos_device_events, aos_device_commands) and produces the same contract shape that the frontend expects. The fleet admin methods in the DB layer enable listing, counting, and filtering devices by owner. The entitlements computation derives user capabilities from their subscription plan and device count. The role-action matrix gates remote actions by actor role with five-layer device-state gating. The device admin snapshot provides a focused admin view of a single device. This unblocks: admin dashboard data population, fleet device management UI, user subscription management, entitlement-gated feature rendering, profile frames page, and the entire admin platform that MVP 0.2–0.5 requires.
+
+Verification:
+
+- `scripts/hosted-api-admin-bundle-check.sh` passed all 121 checks (14 steps).
+- `scripts/hosted-api-server-check.sh` passed all 74 checks (12 steps, no regression).
+- `scripts/security-smoke.sh` passed (no regression).
+- `node --check hosted-api/server.js` passed.
+- `node --check hosted-api/db.js` passed.
+- `node --check local-ui/server.js` passed.
+- `bash -n install.sh update.sh uninstall-dev-tools.sh factory-reset.sh scripts/*.sh` passed.
+
+Next step:
+
+- Wire the admin bundle into the frontend admin dashboard UI.
+- Add admin token authentication to the admin bundle and device snapshot endpoints.
+- Add subscription CRUD admin endpoints (create, update, cancel, expire subscriptions).
+- Add device admin actions (enable, disable, queue commands) that use the role-action matrix for authorization.
+- Test the admin bundle against the PostgreSQL backend.
+
+---
+
 ## 2026-06-08 - Heartbeat event + broadcast delivery persistence fix
 
 Date: 2026-06-08
