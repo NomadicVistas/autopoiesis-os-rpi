@@ -50,16 +50,28 @@ function ensureDatabase(dbPath) {
   }
   const db = new AosDb(dbPath);
 
-  // If the database has no tables, run migrations
+  // Fresh database: bootstrap from full schema
   const tables = db.listTables();
   if (tables.length === 0) {
     const sqliteSchema = path.resolve(__dirname, "..", "scripts", "aos-schema-sqlite-validation.sql");
     if (fs.existsSync(sqliteSchema)) {
       const sql = fs.readFileSync(sqliteSchema, "utf-8");
-      // Execute the schema SQL directly against the database
       for (const stmt of sql.split(";").map(s => s.trim()).filter(s => s.length > 0)) {
         db.db.prepare(stmt).run();
       }
+    }
+  }
+
+  // Run incremental migrations (records seed for existing databases)
+  const sqliteMigrationsDir = path.resolve(__dirname, "..", "migrations", "sqlite");
+  const migrationResult = db.runMigrations(sqliteMigrationsDir);
+  if (migrationResult.applied.length > 0 || migrationResult.errors.length > 0) {
+    console.log("[aos-db] Migrations applied:", migrationResult.applied.join(", ") || "none");
+    if (migrationResult.skipped.length > 0) {
+      console.log("[aos-db] Migrations skipped:", migrationResult.skipped.join(", "));
+    }
+    if (migrationResult.errors.length > 0) {
+      console.error("[aos-db] Migration errors:", migrationResult.errors);
     }
   }
 

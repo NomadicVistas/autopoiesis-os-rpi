@@ -237,4 +237,12 @@ CREATE TABLE IF NOT EXISTS aos_subscriptions (
 
 CREATE UNIQUE INDEX IF NOT EXISTS uniq_aos_subscriptions_user ON aos_subscriptions (user_id);
 
+-- Migration tracking: records which migrations have been applied
+CREATE TABLE IF NOT EXISTS aos_migrations (
+  name        TEXT    NOT NULL PRIMARY KEY,
+  applied_at  TEXT    NOT NULL DEFAULT (datetime('now')),
+  checksum    TEXT,
+  duration_ms INTEGER
+);
+
 COMMIT;

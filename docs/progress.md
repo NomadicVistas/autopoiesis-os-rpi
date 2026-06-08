@@ -1,5 +1,69 @@
 # Progress
 
+## 2026-06-08 - Database migration tracking and incremental runner
+
+Date: 2026-06-08
+
+Milestone: API / DATABASE / SYNC — migration tracking table and incremental migration runner
+
+Changed files:
+
+- `hosted-api/db.js` (4 new methods: ensureMigrationsTable, getAppliedMigrations, recordMigration, runMigrations)
+- `hosted-api/server.js` (ensureDatabase updated to run incremental migrations)
+- `scripts/aos-schema-sqlite-validation.sql` (aos_migrations table)
+- `migrations/sqlite/20260608000001_add_migration_indexes.sql` (new: first incremental migration)
+- `scripts/migration-system-check.sh` (new: 10-step 19-check validation gate)
+- `docs/progress.md`
+- `/data/.openclaw/workspace/autopoiesis-os-program/ROLLING-LOG.md`
+
+Implemented:
+
+- Added `aos_migrations` table to the SQLite validation schema — tracks migration name, applied timestamp, checksum, and duration for every applied migration.
+
+- Added 4 migration runner methods to `hosted-api/db.js`:
+  - `ensureMigrationsTable()` — creates `aos_migrations` if it doesn't exist. Safe to call repeatedly.
+  - `getAppliedMigrations()` — returns a `Set` of migration names already applied.
+  - `recordMigration(name, opts)` — inserts a migration record with optional checksum and duration.
+  - `runMigrations(migrationsDir)` — reads `.sql` files from a directory, applies pending ones in sorted order, and records each in `aos_migrations`. Each migration runs in a transaction — failures are rolled back without corrupting the database. Bad migrations are recorded in the result's `errors` array but do not stop subsequent migrations from being attempted.
+
+- **Existing database detection**: When `runMigrations()` is called on a database that has `aos_` tables but no `aos_migrations` entries, it registers a `seed_initial` record with `checksum='bootstrap'`. This marks the full schema bootstrap as already applied, so the initial migration file is never re-executed against an existing database.
+
+- **Fresh database path**: `ensureDatabase()` in server.js first applies the full schema from `aos-schema-sqlite-validation.sql` (as before), then calls `runMigrations()` to apply any incremental SQLite migrations and record both the seed and new migrations.
+
+- **Incremental migration directory**: `migrations/sqlite/` contains SQLite-specific migration files that apply on top of the full schema. Files are sorted by name and applied in order. The first incremental migration (`20260608000001_add_migration_indexes.sql`) adds three useful indexes: migration applied_at, devices by owner, and subscriptions by status.
+
+- **Error isolation**: Failed migrations are rolled back individually. Successfully applied migrations before the failure are preserved. The bad migration is recorded in the errors array and NOT added to `aos_migrations`, so it will be retried on the next run (after the SQL is fixed).
+
+- **Missing directory**: If the migrations directory doesn't exist, `runMigrations()` returns gracefully with empty results — no errors.
+
+- Added `scripts/migration-system-check.sh` — a 10-step 19-check isolated validation gate proving: syntax validation, static contract (4 methods, aos_migrations table, migrations dir), fresh database tracking (aos_migrations created, no seed for empty db), full bootstrap then migration run (seed registered, incremental applied), idempotent second run (0 applied, all skipped), migration record fields (name, applied_at, checksum, duration_ms), new incremental migration (ALTER TABLE applies, column verified, idempotent), bad migration error handling (good applies, bad errors, database intact, bad not recorded), missing directory safety, and regression (hosted-api-db-check passes).
+
+Why this matters:
+
+The hosted API had no way to incrementally evolve its database schema. The `ensureDatabase()` function in server.js applied the full schema only when the database had zero `aos_` tables. Any schema change — new columns, new indexes, new tables — required either a database wipe or manual SQL execution. This is the single most foundational database infrastructure gap: production databases accumulate data that cannot be lost, and any real deployment will need schema evolution over time. The migration runner provides: (1) a tracking table (`aos_migrations`) recording what has been applied, (2) automatic detection of pre-migration databases (registering the seed so the initial schema is never re-executed), (3) a directory-based incremental migration system where new `.sql` files are applied in order, (4) transaction-per-migration isolation so failures don't corrupt, and (5) checksum/duration tracking for operational visibility. This unblocks: adding new columns without database wipes, evolving the schema for MVP 0.2–0.5 features, running the hosted API in staging with real data that survives schema changes, and eventually PostgreSQL migration parity.
+
+Verification:
+
+- `scripts/migration-system-check.sh` passed all 19 checks (10 steps).
+- `scripts/hosted-api-server-check.sh` passed all 72 functional checks (12 steps, no regression; 2 pre-existing static contract pattern mismatches unchanged).
+- `scripts/hosted-api-local-ui-bridge-check.sh` passed all 94 checks (19 steps, no regression).
+- `scripts/heartbeat-persistence-check.sh` passed all 33 checks (10 steps, no regression).
+- `scripts/hosted-api-db-check.sh` passed all 45 checks (15 steps, no regression).
+- `node --check hosted-api/server.js` passed.
+- `node --check hosted-api/db.js` passed.
+- `node --check local-ui/server.js` passed.
+- `bash -n install.sh update.sh uninstall-dev-tools.sh factory-reset.sh` passed.
+- `bash -n scripts/*.sh` passed.
+
+Next step:
+
+- Add PostgreSQL-specific migration directory and runner for production deployment.
+- Create migration for `release-log.json` events ingestion into `aos_device_events`.
+- Add a `migrations/sqlite/` entry to `scripts/verify-all.sh`.
+- Test migration rollback on a staging database with real data.
+
+---
+
 ## 2026-06-08 - Release state heartbeat pipeline + network field fix
 
 Date: 2026-06-08

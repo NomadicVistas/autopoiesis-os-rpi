@@ -147,6 +147,120 @@ class AosDb {
     ).all().map(r => r.name);
   }
 
+  // ── Migration Runner ────────────────────────────────────────────────────────
+
+  /**
+   * Creates the aos_migrations tracking table if it does not exist.
+   */
+  ensureMigrationsTable() {
+    this.db.exec(`
+      CREATE TABLE IF NOT EXISTS aos_migrations (
+        name        TEXT    NOT NULL PRIMARY KEY,
+        applied_at  TEXT    NOT NULL DEFAULT (datetime('now')),
+        checksum    TEXT,
+        duration_ms INTEGER
+      );
+    `);
+  }
+
+  /**
+   * Returns a Set of migration names that have been applied.
+   */
+  getAppliedMigrations() {
+    this.ensureMigrationsTable();
+    const rows = this.db.prepare(
+      "SELECT name FROM aos_migrations ORDER BY name"
+    ).all();
+    return new Set(rows.map(r => r.name));
+  }
+
+  /**
+   * Records a migration as applied.
+   * @param {string} name - Migration filename (e.g. '20260607000001_initial')
+   * @param {object} [opts]
+   * @param {string} [opts.checksum] - SHA-256 of the migration SQL
+   * @param {number} [opts.durationMs] - Time taken to apply
+   */
+  recordMigration(name, opts = {}) {
+    this.db.prepare(
+      "INSERT OR IGNORE INTO aos_migrations (name, applied_at, checksum, duration_ms) VALUES (?, datetime('now'), ?, ?)"
+    ).run(name, opts.checksum || null, opts.durationMs != null ? opts.durationMs : null);
+  }
+
+  /**
+   * Runs pending SQLite migrations from the given directory.
+   *
+   * Handles three states:
+   * 1. Fresh database (no aos_ tables): caller should bootstrap from full schema first.
+   * 2. Existing database without aos_migrations: registers the initial seed as applied.
+   * 3. Incremental: applies any new migration files not yet recorded.
+   *
+   * @param {string} migrationsDir - Path to directory containing .sql migration files
+   * @returns {{ applied: string[], skipped: string[], errors: Array<{name, error}> }}
+   */
+  runMigrations(migrationsDir) {
+    const result = { applied: [], skipped: [], errors: [] };
+
+    this.ensureMigrationsTable();
+
+    // If aos_migrations is empty but aos_ tables exist, the database was
+    // bootstrapped from the full schema before the migration system existed.
+    // Register the initial seed as already applied.
+    const applied = this.getAppliedMigrations();
+    if (applied.size === 0 && this.isInitialized()) {
+      this.recordMigration('seed_initial', { checksum: 'bootstrap' });
+      result.skipped.push('seed_initial (existing database)');
+      applied.add('seed_initial');
+    }
+
+    // Read migration files from directory
+    let files;
+    try {
+      files = fs.readdirSync(migrationsDir)
+        .filter(f => f.endsWith('.sql'))
+        .sort();
+    } catch (err) {
+      // No migrations directory is fine — nothing to apply
+      return result;
+    }
+
+    for (const file of files) {
+      const name = file.replace(/\.sql$/, '');
+      if (applied.has(name)) {
+        result.skipped.push(name);
+        continue;
+      }
+
+      const filePath = path.join(migrationsDir, file);
+      const sql = fs.readFileSync(filePath, 'utf-8');
+      const checksum = crypto.createHash('sha256').update(sql).digest('hex').slice(0, 16);
+      const startMs = Date.now();
+
+      try {
+        // Apply each statement in a transaction
+        this.db.exec('BEGIN');
+        try {
+          // Split on semicolons, skip empty/trivially-whitespace statements
+          for (const stmt of sql.split(';').map(s => s.trim()).filter(s => s.length > 0 && !s.startsWith('--'))) {
+            this.db.exec(stmt);
+          }
+          this.db.exec('COMMIT');
+        } catch (txErr) {
+          this.db.exec('ROLLBACK');
+          throw txErr;
+        }
+
+        const durationMs = Date.now() - startMs;
+        this.recordMigration(name, { checksum, durationMs });
+        result.applied.push(name);
+      } catch (err) {
+        result.errors.push({ name, error: err.message });
+      }
+    }
+
+    return result;
+  }
+
   // ── Device Registration ──────────────────────────────────────────────────
 
   /**
