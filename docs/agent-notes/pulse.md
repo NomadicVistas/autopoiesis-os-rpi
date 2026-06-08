@@ -1,5 +1,15 @@
 # Pulse Agent Notes
 
+## 2026-06-08 - Broadcast delivery receipt and delivery status summary
+
+Date/time: 2026-06-08 04:35 UTC / 2026-06-08 06:35 Europe/Berlin
+Agent: Pulse
+Context: BROADCAST / FEED cron pass. The delivery log recorded broadcast shown/expired/skipped/dismissed events but had no receipt event. The admin couldn't distinguish "never delivered" from "delivered but not shown." The delivery log was also a flat event stream with no per-item status aggregation.
+What changed: Added `broadcast_received` delivery event when a broadcast command is accepted. Added `deliveryStatusSummary()` that aggregates delivery log into per-item lifecycle view (receivedAt → shownAt → dismissedAt/expiredAt with event counts and status). Added `GET /local/delivery-status` endpoint. Wired into diagnostics and support bundle. Fixed mock API command format issues: added `commandType` field and auto-wrapped broadcast fields into `command.payload`. Created 12-step integration gate.
+What needs review: The `deliveryStatusSummary()` scans the full delivery log on each call. For devices with many events, this could be slow. Consider caching or incremental updates. The status is derived from the event log — if the log is truncated (DELIVERY_LOG_LIMIT), old items may lose their history.
+Contract issue discovered: The mock API heartbeat returns `commands: { items: [...] }` but `mergeCommandQueues` expects a flat array `[...]`. This means commands from heartbeat are silently dropped. This is a pre-existing issue that also affects the device-lifecycle-check.sh (which passes because it only checks `processed` is non-empty, accepting 0 as valid). This should be fixed in a future iteration — either the mock API returns a flat array, or `mergeCommandQueues`/`sendHeartbeat` unwraps the `items` wrapper.
+Next recommended action: Wire delivery status into heartbeat event export for `aos_broadcast_deliveries` tracking. Add delivery status to admin dashboard. Fix the `commands.items` vs flat array contract mismatch.
+
 ## 2026-06-08 - Feed sync offline fallback with cache integration
 
 Date/time: 2026-06-08 01:50 UTC / 2026-06-08 03:50 Europe/Berlin

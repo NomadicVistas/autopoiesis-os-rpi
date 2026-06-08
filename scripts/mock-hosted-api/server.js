@@ -444,6 +444,7 @@ function handleMockQueueCommand(deviceId, body) {
   if (!record) return { status: 404, body: { ok: false, error: "Device not found" } };
   const command = {
     commandId: generateCommandId(),
+    commandType: body.type || "sync_settings",
     type: body.type || "sync_settings",
     status: "queued",
     createdAt: now(),
@@ -453,6 +454,16 @@ function handleMockQueueCommand(deviceId, body) {
     requiresLocalConfirmation: body.requiresLocalConfirmation || false
   };
   if (body.payload) command.payload = body.payload;
+  else {
+    // Auto-wrap non-meta fields into payload so command handlers can access them
+    const metaFields = new Set(["type", "risk", "requiresAuthorization", "requiresLocalConfirmation", "authorization", "payload"]);
+    const payloadFields = {};
+    for (const [key, value] of Object.entries(body)) {
+      if (!metaFields.has(key)) payloadFields[key] = value;
+    }
+    if (Object.keys(payloadFields).length > 0) command.payload = payloadFields;
+  }
+  if (body.authorization) command.authorization = body.authorization;
   record.commands.push(command);
   return { status: 200, body: { ok: true, command } };
 }

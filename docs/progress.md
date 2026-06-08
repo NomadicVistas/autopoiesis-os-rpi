@@ -1,5 +1,52 @@
 # Progress
 
+## 2026-06-08 - Broadcast delivery receipt and delivery status summary
+
+Date: 2026-06-08
+
+Milestone: BROADCAST / FEED - broadcast delivery receipt tracking and delivery status summary
+
+Changed files:
+
+- `local-ui/server.js`
+- `scripts/mock-hosted-api/server.js`
+- `scripts/broadcast-delivery-status-check.sh`
+- `docs/progress.md`
+- `docs/agent-notes/pulse.md`
+- `/data/.openclaw/workspace/autopoiesis-os-program/ROLLING-LOG.md`
+
+Implemented:
+
+- Added `broadcast_received` delivery event in the `show_broadcast` command handler. When a broadcast command is accepted (after targeting and expiry checks pass), a `broadcast_received` event is logged to the delivery log with the broadcast ID, source, priority, command ID, scheduling status, and startsAt timestamp. This fills the gap between "admin queued broadcast" and "device showed broadcast" — previously the first event was `broadcast_shown`, making it impossible to distinguish "never sent" from "received but not yet displayed".
+- Added `deliveryStatusSummary()` — aggregates the delivery log into a per-item lifecycle view. For each unique item ID, the function tracks `receivedAt`, `shownAt`, `dismissedAt`, `expiredAt`, `skippedAt`, `likedAt`, current `status` (received/scheduled/shown/dismissed/expired/skipped/unknown), and `eventCount`. The summary includes total items, broadcast items, feed items, and status counts. Returns the last 50 items in reverse chronological order.
+- Added `GET /local/delivery-status` endpoint that returns the delivery status summary.
+- Wired `deliveryStatus` into `collectDiagnostics()` — includes `totalItems`, `broadcastItems`, `feedItems`, and `statusCounts` in the diagnostics object.
+- Wired `deliveryStatus` into the support bundle summary alongside `displayDelivery`.
+- Fixed the mock hosted API's `handleMockQueueCommand` to include `commandType` (in addition to `type`) so commands from the mock API heartbeat are properly recognized by the local UI's `commandTypeOf()`. Previously the mock API only set `type`, which the local UI's `commandTypeOf()` doesn't check, causing all heartbeat-delivered commands to be silently skipped during processing.
+- Fixed the mock hosted API's `handleMockQueueCommand` to auto-wrap non-meta body fields into `command.payload`, so broadcast-level fields (broadcastId, title, body, priority, etc.) are accessible to command handlers via `command.payload`. Previously the mock API only stored an explicit `body.payload`, but the `show_broadcast` handler reads from `payload.broadcastId` etc.
+- Added `scripts/broadcast-delivery-status-check.sh`, a 12-step isolated gate proving: syntax validation, device registration and pairing, broadcast receipt delivery event with correct metadata (source, priority, status, commandId), delivery status endpoint with per-item lifecycle (receivedAt, status, eventCount), feed sync persistence, dismiss status transition (status=dismissed, dismissedAt, eventCount ≥2), delivery status in diagnostics, delivery status in support bundle, expired broadcast rejection (no delivery status entry), and scheduled broadcast status (status=scheduled, receivedAt).
+
+Why this matters:
+
+The delivery log previously recorded `broadcast_shown`, `broadcast_expired`, `broadcast_skipped`, and `broadcast_dismissed` events, but had no receipt event. The admin couldn't tell whether a broadcast was never delivered to a device, or was delivered but not yet shown. The delivery log was also a flat event stream — there was no way to query the current delivery status of a specific broadcast or feed item without scanning and correlating all events. The `broadcast_received` event and `deliveryStatusSummary()` function complete the broadcast delivery lifecycle tracking for MVP 0.4. The delivery status endpoint provides a per-item view that can be exported to the hosted API's `aos_broadcast_deliveries` table, enabling the admin dashboard to show delivery effectiveness per broadcast.
+
+Verification:
+
+- `scripts/broadcast-delivery-status-check.sh` passed all 12 steps.
+- `scripts/broadcast-command-check.sh` passed (no regression).
+- `scripts/hosted-mock-bridge-check.sh` passed all 6 contract gates (no regression from mock API changes).
+- `scripts/feed-display-dwell-check.sh` passed all 12 steps (no regression).
+- `scripts/security-smoke.sh` passed.
+- `node --check local-ui/server.js` passed.
+- `node --check scripts/mock-hosted-api/server.js` passed.
+- `bash -n install.sh update.sh uninstall-dev-tools.sh factory-reset.sh scripts/*.sh` passed.
+
+Next step:
+
+- Wire the delivery status summary into the heartbeat event export so the hosted API can track broadcast delivery per device in `aos_broadcast_deliveries`.
+- Add delivery status to the admin Frames dashboard showing broadcast delivery effectiveness (sent/received/shown/dismissed/expired).
+- Investigate the `commands.items` vs flat array contract mismatch in the mock API heartbeat response (`{ items: [...] }` vs `[...]`) — this causes commands from heartbeat to be silently dropped by `mergeCommandQueues`.
+
 ## 2026-06-08 - Feed sync offline fallback with cache integration
 
 Date: 2026-06-08

@@ -564,6 +564,87 @@ function deliverySummary() {
   };
 }
 
+function deliveryStatusSummary() {
+  const entries = deliveryEntries();
+  const itemStatus = new Map();
+  const broadcastIds = new Set();
+
+  for (const entry of entries) {
+    const itemId = entry.itemId;
+    if (!itemId) continue;
+    const type = entry.eventType || "";
+
+    if (!itemStatus.has(itemId)) {
+      itemStatus.set(itemId, {
+        itemId,
+        source: entry.source || null,
+        type: entry.type || null,
+        title: entry.title || null,
+        priority: entry.priority || null,
+        receivedAt: null,
+        shownAt: null,
+        dismissedAt: null,
+        expiredAt: null,
+        skippedAt: null,
+        likedAt: null,
+        status: "unknown",
+        eventCount: 0
+      });
+    }
+
+    const status = itemStatus.get(itemId);
+    status.eventCount++;
+
+    if (type === "broadcast_received") {
+      status.receivedAt = entry.observedAt;
+      status.status = entry.scheduled ? "scheduled" : "received";
+      if (entry.commandId) status.commandId = entry.commandId;
+    } else if (type === "broadcast_shown" || type === "feed_item_shown") {
+      status.shownAt = entry.observedAt;
+      status.status = "shown";
+      if (entry.displayCategory) status.displayCategory = entry.displayCategory;
+    } else if (type === "broadcast_dismissed") {
+      status.dismissedAt = entry.observedAt;
+      status.status = "dismissed";
+      if (entry.reason) status.dismissReason = entry.reason;
+    } else if (type === "broadcast_expired") {
+      status.expiredAt = entry.observedAt;
+      status.status = "expired";
+    } else if (type === "broadcast_skipped") {
+      status.skippedAt = entry.observedAt;
+      status.status = "skipped";
+      if (entry.reason) status.skipReason = entry.reason;
+    } else if (type === "feed_item_liked") {
+      status.likedAt = entry.observedAt;
+    } else if (type === "feed_synced") {
+      continue;
+    }
+
+    if (type.startsWith("broadcast_")) broadcastIds.add(itemId);
+  }
+
+  const items = Array.from(itemStatus.values());
+  const broadcasts = items.filter(item => broadcastIds.has(item.itemId));
+  const feedItems = items.filter(item => !broadcastIds.has(item.itemId));
+
+  return {
+    ok: true,
+    totalItems: items.length,
+    broadcastItems: broadcasts.length,
+    feedItems: feedItems.length,
+    statusCounts: {
+      received: items.filter(i => i.status === "received").length,
+      scheduled: items.filter(i => i.status === "scheduled").length,
+      shown: items.filter(i => i.status === "shown").length,
+      dismissed: items.filter(i => i.status === "dismissed").length,
+      expired: items.filter(i => i.status === "expired").length,
+      skipped: items.filter(i => i.status === "skipped").length,
+      unknown: items.filter(i => i.status === "unknown").length
+    },
+    items: items.slice(-50).reverse()
+  };
+}
+
 const FEED_CURSOR_MAX_SHOWN = Number(process.env.AUTOPOIESIS_FEED_CURSOR_MAX_SHOWN || 500);
 
 function feedCursor() {
@@ -2001,6 +2082,166 @@ function writeOfflineState(patch) {
   writeJson(paths.state, state);
 }
 
+// ─── Cache Eviction ─────────────────────────────────────────────────────────
+
+const CACHE_QUOTA_MB = Math.max(50, Number(process.env.AUTOPOIESIS_CACHE_QUOTA_MB || 500));
+const CACHE_QUOTA_HIGH_WATER = 0.9; // Evict when cache exceeds 90% of quota
+const CACHE_QUOTA_LOW_WATER = 0.7;  // Evict down to 70% of quota
+
+/**
+ * Returns cache quota information: total bytes used, quota in bytes, usage ratio,
+ * and whether eviction is needed.
+ */
+function cacheQuotaStatus() {
+  const stats = directoryStats(CACHE_DIR);
+  const quotaBytes = CACHE_QUOTA_MB * 1024 * 1024;
+  const usageRatio = stats.bytes / quotaBytes;
+  return {
+    usedBytes: stats.bytes,
+    usedMb: stats.mb,
+    quotaMb: CACHE_QUOTA_MB,
+    quotaBytes,
+    usageRatio: Math.round(usageRatio * 1000) / 1000,
+    fileCount: stats.files,
+    evictionNeeded: usageRatio > CACHE_QUOTA_HIGH_WATER,
+    highWaterMark: CACHE_QUOTA_HIGH_WATER,
+    lowWaterMark: CACHE_QUOTA_LOW_WATER
+  };
+}
+
+/**
+ * Ranks cache index items by eviction priority (first = evict first).
+ * Items are evicted in this order:
+ *   1. Expired items (oldest expiry first)
+ *   2. Non-liked, non-recent items by cache age (oldest first)
+ *   3. Recent but non-liked items by cache age
+ *   4. Liked items (evicted last resort, oldest first)
+ */
+function cacheEvictionCandidates() {
+  const cacheIndex = readJson(paths.cacheIndex, { items: [] });
+  const items = (cacheIndex.items || []).filter(item => item && item.id);
+  const state = readJson(paths.state, {});
+  const likedIds = new Set((state.likedArtworkIds || []).map(id => String(id)));
+  const now = Date.now();
+
+  return items
+    .map(item => {
+      const isLiked = likedIds.has(String(item.id));
+      const isExpired = item.expiresAt && new Date(item.expiresAt).getTime() < now;
+      const mediaBytes = (item.media && item.media.bytes) || 0;
+      const thumbBytes = (item.thumbnail && item.thumbnail.bytes) || 0;
+      const totalBytes = mediaBytes + thumbBytes;
+      const cachedAt = (item.media && item.media.cachedAt) || (item.thumbnail && item.thumbnail.cachedAt) || cacheIndex.generatedAt || "";
+      // Priority: 0 = expired (evict first), 1 = non-liked non-recent, 2 = recent, 3 = liked
+      let priority = 1;
+      if (isExpired) priority = 0;
+      else if (isLiked) priority = 3;
+      return {
+        id: String(item.id),
+        isLiked,
+        isExpired,
+        totalBytes,
+        cachedAt,
+        evictionPriority: priority,
+        media: item.media || null,
+        thumbnail: item.thumbnail || null
+      };
+    })
+    .sort((a, b) => {
+      // Lower priority number = evict first
+      if (a.evictionPriority !== b.evictionPriority) return a.evictionPriority - b.evictionPriority;
+      // Within same priority, older items first
+      return String(a.cachedAt).localeCompare(String(b.cachedAt));
+    });
+}
+
+/**
+ * Removes a single cached item's files from disk.
+ * Returns the number of bytes freed.
+ */
+function removeCachedItemFiles(item) {
+  let freedBytes = 0;
+  for (const asset of [item.media, item.thumbnail]) {
+    if (asset && asset.path && typeof asset.path === "string") {
+      try {
+        const resolved = path.resolve(asset.path);
+        const cacheRoot = path.resolve(CACHE_DIR);
+        if (resolved !== cacheRoot && resolved.startsWith(cacheRoot + path.sep)) {
+          const stat = fs.statSync(resolved);
+          fs.unlinkSync(resolved);
+          freedBytes += stat.size;
+        }
+      } catch {
+        // File already gone or inaccessible
+      }
+    }
+  }
+  return freedBytes;
+}
+
+/**
+ * Enforces the cache quota by evicting items until usage drops below the
+ * low-water mark. Returns a summary of what was evicted.
+ */
+function enforceCacheQuota() {
+  const quota = cacheQuotaStatus();
+  if (!quota.evictionNeeded) {
+    return { ok: true, evictionNeeded: false, quota };
+  }
+
+  const targetBytes = quota.quotaBytes * CACHE_QUOTA_LOW_WATER;
+  const candidates = cacheEvictionCandidates();
+  const evictedItems = [];
+  let freedBytes = 0;
+
+  for (const candidate of candidates) {
+    if (quota.usedBytes - freedBytes <= targetBytes) break;
+    const bytesFreed = removeCachedItemFiles(candidate);
+    if (bytesFreed > 0) {
+      freedBytes += bytesFreed;
+      evictedItems.push({
+        id: candidate.id,
+        isLiked: candidate.isLiked,
+        isExpired: candidate.isExpired,
+        bytesFreed
+      });
+    }
+  }
+
+  // Rebuild cache index without evicted items
+  if (evictedItems.length > 0) {
+    const cacheIndex = readJson(paths.cacheIndex, { items: [] });
+    const evictedIds = new Set(evictedItems.map(e => e.id));
+    const remainingItems = (cacheIndex.items || []).filter(item => !evictedIds.has(String(item.id)));
+    const cachedCount = remainingItems.filter(item =>
+      cacheAssetUsable(item.media) || cacheAssetUsable(item.thumbnail)
+    ).length;
+    const failedCount = remainingItems.filter(item =>
+      (item.media && item.media.status === "failed") || (item.thumbnail && item.thumbnail.status === "failed")
+    ).length;
+    writeJson(paths.cacheIndex, {
+      ...cacheIndex,
+      generatedAt: new Date().toISOString(),
+      cachedCount,
+      failedCount,
+      items: remainingItems
+    });
+  }
+
+  const postQuota = cacheQuotaStatus();
+  return {
+    ok: true,
+    evictionNeeded: true,
+    evictedCount: evictedItems.length,
+    freedBytes,
+    freedMb: Math.round((freedBytes / 1024 / 1024) * 10) / 10,
+    evictedLiked: evictedItems.filter(e => e.isLiked).length,
+    evictedExpired: evictedItems.filter(e => e.isExpired).length,
+    before: quota,
+    after: postQuota
+  };
+}
+
 async function syncFeedFromRemote() {
   const device = readJson(paths.device, {});
   if (!device.deviceId || !device.paired) return { ok: false, skipped: true, reason: "Device is not paired" };
@@ -2070,6 +2311,8 @@ async function syncFeedFromRemote() {
     });
   }
   writeJson(paths.device, { ...device, lastFeedSyncAt: feed.syncedAt });
+  // Enforce cache quota after successful sync
+  const evictionResult = enforceCacheQuota();
   return {
     ok: true,
     endpoint,
@@ -2078,7 +2321,8 @@ async function syncFeedFromRemote() {
     pollingStatus: feedPollingSummary(feed),
     polling: feed.polling || null,
     totalItems: feed.items.length,
-    eligibleItems: eligibleFeedItems(feed, preferences).length
+    eligibleItems: eligibleFeedItems(feed, preferences).length,
+    cacheEviction: evictionResult.evictionNeeded ? evictionResult : undefined
   };
 }
 
@@ -3009,6 +3253,17 @@ function diagnosticsHealth(diagnostics, data) {
     }
   }
 
+  // Cache quota warnings
+  if (diagnostics.storage && diagnostics.storage.cacheQuota) {
+    const q = diagnostics.storage.cacheQuota;
+    if (q.evictionNeeded) {
+      add("warning", "cache_near_quota", "Cache is near quota (" + q.usedMb + "/" + q.quotaMb + " MB, " + Math.round(q.usageRatio * 100) + "%). Eviction will run on next feed sync.");
+    }
+    if (q.usageRatio >= 0.75 && !q.evictionNeeded) {
+      add("info", "cache_usage_moderate", "Cache usage is moderate (" + q.usedMb + "/" + q.quotaMb + " MB, " + Math.round(q.usageRatio * 100) + "%).");
+    }
+  }
+
   if (diagnostics.offline && diagnostics.offline.active) {
     add("warning", "offline_mode", "Device is operating in offline mode using cached artwork. The hosted API is unreachable.");
   }
@@ -3059,6 +3314,7 @@ async function collectDiagnostics(options = {}) {
   const cacheIndex = readJson(paths.cacheIndex, { generatedAt: null, cachedCount: 0, failedCount: 0, items: [] });
   const commandAudit = commandAuditSummary();
   const displayDelivery = deliverySummary();
+  const deliveryStatus = deliveryStatusSummary();
   const releaseHistory = releaseHistorySummary();
   const frameState = publicFrameState();
   const disk = await diskStatus(DATA_DIR);
@@ -3101,7 +3357,8 @@ async function collectDiagnostics(options = {}) {
       logDir: LOG_DIR,
       dataDisk: disk,
       runtime: runtimeStorage,
-      cache: directoryStats(CACHE_DIR)
+      cache: directoryStats(CACHE_DIR),
+      cacheQuota: cacheQuotaStatus()
     },
     release: release
       ? {
@@ -3128,6 +3385,12 @@ async function collectDiagnostics(options = {}) {
     pendingCommands: Array.isArray(commands) ? commands.length : 0,
     commandAudit,
     displayDelivery,
+    deliveryStatus: {
+      totalItems: deliveryStatus.totalItems || 0,
+      broadcastItems: deliveryStatus.broadcastItems || 0,
+      feedItems: deliveryStatus.feedItems || 0,
+      statusCounts: deliveryStatus.statusCounts || {}
+    },
     releaseHistory,
     eventIngestion: eventIngestionSummary(),
     framePlayback: frameState.playback,
@@ -3800,6 +4063,7 @@ async function supportBundle(options = {}) {
         lastEventType: diagnostics.displayDelivery ? diagnostics.displayDelivery.lastEventType || null : null,
         recentBroadcastEvents: diagnostics.displayDelivery ? diagnostics.displayDelivery.recentBroadcastEvents || 0 : 0
       },
+      deliveryStatus: diagnostics.deliveryStatus || { totalItems: 0, broadcastItems: 0, feedItems: 0, statusCounts: {} },
       releaseHistory: {
         totalEntries: releaseHistory.count || 0,
         lastStatus: diagnostics.releaseHistory ? diagnostics.releaseHistory.lastStatus || null : null,
@@ -5430,17 +5694,27 @@ async function executeCommand(command) {
     }
     const startsAt = parseTimestamp(broadcast.startsAt);
     const scheduled = startsAt !== null && startsAt > Date.now();
+    const acceptedAt = new Date().toISOString();
     writeJson(paths.broadcast, {
       ...broadcast,
       broadcastId,
       commandId: command.id || null,
-      acceptedAt: new Date().toISOString()
+      acceptedAt
     });
     writeJson(paths.state, {
       ...stateValue,
       currentMode: scheduled ? stateValue.currentMode || "frame" : "broadcast",
       currentBroadcastId: scheduled ? null : broadcastId,
       scheduledBroadcastId: scheduled ? broadcastId : null
+    });
+    appendDeliveryEvent({
+      eventType: "broadcast_received",
+      ...deliverySubject(broadcast),
+      itemId: broadcastId,
+      commandId: command.id || null,
+      scheduled,
+      startsAt: broadcast.startsAt || null,
+      status: scheduled ? "scheduled" : "active"
     });
     return { ok: true, broadcastId, scheduled };
   }
@@ -5630,6 +5904,12 @@ async function handle(req, res) {
     if (req.method === "GET" && url.pathname === "/local/offline-cache") {
       return sendJson(res, publicOfflineCache());
     }
+    if (req.method === "GET" && url.pathname === "/local/cache/quota") {
+      return sendJson(res, { ok: true, ...cacheQuotaStatus() });
+    }
+    if (req.method === "POST" && url.pathname === "/local/cache/evict") {
+      return sendJson(res, enforceCacheQuota());
+    }
     if (req.method === "GET" && url.pathname === "/local/commands/audit") {
       return sendJson(res, publicCommandAudit(url.searchParams.get("limit")));
     }
@@ -5638,6 +5918,9 @@ async function handle(req, res) {
     }
     if (req.method === "GET" && url.pathname === "/local/delivery-log") {
       return sendJson(res, publicDeliveryLog(url.searchParams.get("limit")));
+    }
+    if (req.method === "GET" && url.pathname === "/local/delivery-status") {
+      return sendJson(res, deliveryStatusSummary());
     }
     if (req.method === "GET" && url.pathname === "/local/release/history") {
       return sendJson(res, publicReleaseHistory(url.searchParams.get("limit")));
