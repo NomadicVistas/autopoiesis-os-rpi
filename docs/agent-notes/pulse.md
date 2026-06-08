@@ -1226,3 +1226,18 @@ Context: BROADCAST / FEED cron pass. The feed model had extensive code but no fo
 What changed: Added `scripts/feed-model-contract-check.sh`, a 12-step isolated gate with 100+ individual checks validating the complete content feed model at the source-code level and through live integration testing. Covers normalized item shape (20 required fields), content type classification (6 categories), eligibility pipeline (6-stage filter chain), mixed queue composition (priority + category interleaving), priority ranking (5 levels), cache eligibility (opt-out model), per-category display timing (5 defaults + overrides), expiry/scheduling enforcement, public feed API shape (14 fields), and frame state display item shape (18 fields + media object).
 What needs review: `scripts/broadcast-command-check.sh` has a pre-existing failure (wrong-target command processing returns 500). This should be investigated separately.
 Next recommended action: Fix the broadcast-command-check pre-existing failure, then extend the feed model contract with a hosted API feed response contract validating that hosted stream/feed endpoints produce normalizeFeedItem-compatible items.
+
+## 2026-06-08 12:10 UTC — Hosted API Server Scaffold
+
+Built `hosted-api/server.js`, the database-backed API server that bridges `AosDb` to the device contract. 12 routes, device-key auth, settings conflict resolution, heartbeat with event ingestion, subscription-tier-aware stream polling. All 68 checks pass, no regressions.
+
+Key architectural decisions:
+- Used raw `http` module (consistent with mock API and local UI) — no Express dependency.
+- Server auto-bootstraps its database from the SQLite validation schema on startup.
+- Stream endpoint returns empty items with correct contract shape — content population is the next phase.
+- All response shapes match the mock API exactly, ensuring device-side transparent compatibility.
+
+Next for this workstream:
+- Populate stream with real content from `aos_broadcasts` and artwork metadata.
+- Wire into `AUTOPOIESIS_API_BASE_URL` for end-to-end device testing.
+- Run the full hosted mock bridge against the database-backed server.

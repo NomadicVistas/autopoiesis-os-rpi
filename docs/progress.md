@@ -1,5 +1,73 @@
 # Progress
 
+## 2026-06-08 - Hosted API server scaffold (hosted-api/server.js)
+
+Date: 2026-06-08
+
+Milestone: API / DATABASE / SYNC — database-backed hosted API server
+
+Changed files:
+
+- `hosted-api/server.js` (new)
+- `scripts/hosted-api-server-check.sh` (new)
+- `docs/progress.md`
+- `/data/.openclaw/workspace/autopoiesis-os-program/ROLLING-LOG.md`
+
+Implemented:
+
+- Added `hosted-api/server.js`, a database-backed API server that bridges `AosDb` to the device-side Frames API contract. This is the hosted backend scaffold that replaces the in-memory mock API with real SQLite-backed operations.
+- **Server bootstrap**: Automatically creates and migrates the database on startup using the SQLite validation schema. Configurable via `AOS_DB`, `AOS_PORT`, `AOS_HOST` environment variables. Graceful shutdown closes the database.
+- **Device registration** (`POST /frames/device/register`): Calls `AosDb.registerDevice()`, returns `deviceId`, `deviceApiKey`, `pairingCode`, and `expiresAt`.
+- **Pairing status** (`GET /frames/device/:id/pairing-status`): Delegates to `AosDb.getPairingStatus()` which returns the complete pending/completed/none state.
+- **Settings read** (`GET /frames/device/:id/settings`): Calls `AosDb.getSettings()` with owner preference cascade from `AosDb.getUserPreferences()`.
+- **Settings push** (`POST /frames/device/:id/settings`): Auth-gated. Calls `AosDb.pushSettings()` with conflict resolution — newer writes accepted, stale writes rejected with `conflict: true`.
+- **Heartbeat** (`POST /frames/device/:id/heartbeat`): Auth-gated. Calls `AosDb.ingestHeartbeat()` for device status update, returns `eventAck` and `deliveryAck` with correct cursor shape, returns pending commands via `AosDb.getPendingCommands()`, includes owner preferences cascade.
+- **Stream** (`GET /frames/device/:id/stream`): Auth-gated. Returns subscription-tier-aware polling defaults (trial/basic/premium), empty items array scaffold for future content population, settings shape, and owner preferences cascade.
+- **Feed** (`GET /frames/device/:id/feed`): Alias for stream.
+- **Command acknowledgement** (`POST /frames/device/:id/commands/:cmdId/ack`): Auth-gated. Calls `AosDb.acknowledgeCommand()`.
+- **Release check** (`GET /frames/device/:id/release`): Auth-gated. Calls `AosDb.getLatestRelease()` for the device's channel.
+- **Artwork like** (`POST /frames/artworks/:id/like`): Returns contract-correct response shape.
+- **Admin broadcast deliveries** (`GET /frames/admin/broadcast-deliveries`): Calls `AosDb.getBroadcastDeliveries()` with optional filters.
+- **Health** (`GET /health`): Returns service status, database path, table count, uptime.
+- **Device authentication**: Shared `authenticateDevice()` function validates `x-frame-device-key` header against `AosDb.authenticateDevice()`. Returns 401 for missing key, 403 for invalid key or unpaired device, 404 for unknown device.
+- All route handlers produce the same JSON response shapes as the mock API, ensuring device-side compatibility.
+- Added `scripts/hosted-api-server-check.sh`, a 12-step 68-check isolated validation gate proving:
+  1. Syntax validation (server, db, self).
+  2. Static contract: 12 routes and 13 handler functions present.
+  3. Database bootstrap: 14 tables created from SQLite validation schema.
+  4. Server startup with health endpoint.
+  5. Device registration with deviceId, deviceApiKey, pairingCode, expiresAt.
+  6. Pairing status (pre-pair: pending with code, post-pair: completed).
+  7. Auth enforcement: three auth-gated endpoints return 401 without device key.
+  8. Pairing via direct AosDb call, verified via API pairing status.
+  9. Settings sync with conflict resolution (newer accepted, stale rejected with conflict=true).
+  10. Heartbeat with event ingestion (eventAck with cursor shape).
+  11. Stream endpoint contract (ok, generatedAt, items, polling, displayMode).
+  12. Full lifecycle integration: second device, command queue/ack, release check, admin broadcast deliveries.
+
+Why this matters:
+
+The project had a complete database query layer (`hosted-api/db.js` with 27 methods against 14 `aos_` tables) and a comprehensive mock API (`scripts/mock-hosted-api/server.js` with in-memory Maps), but no code connecting the two. When the hosted backend was to be built, every mock API handler needed translation into SQL-backed operations. The hosted API server is that translation: each route handler calls one or two `AosDb` methods instead of reading from Maps, producing identical response shapes. The server auto-bootstraps its database on startup, authenticates devices via the same header contract, resolves settings conflicts through the same timestamp-based logic, and returns heartbeats with the same eventAck/deliveryAck cursor structure. This is the foundational hosted backend — the bridge between "database schema exists" and "devices can sync against a real database". It unblocks: real pairing flow, real settings sync, real heartbeat ingestion, real command delivery, and real release management. The stream endpoint scaffold (empty items, tier-aware polling) is the placeholder for the content population layer that will query `aos_broadcasts` and artwork metadata.
+
+Verification:
+
+- `scripts/hosted-api-server-check.sh` passed all 68 checks (12 steps).
+- `scripts/hosted-api-db-check.sh` passed all 45 checks (no regression).
+- `scripts/device-lifecycle-check.sh` passed all 18 steps (no regression).
+- `scripts/security-smoke.sh` passed (no regression).
+- `node --check hosted-api/server.js` passed.
+- `node --check local-ui/server.js` passed.
+- `bash -n install.sh update.sh uninstall-dev-tools.sh factory-reset.sh scripts/*.sh` passed.
+
+Next step:
+
+- Populate the stream endpoint with real content from `aos_broadcasts` and artwork metadata tables.
+- Wire the hosted API into the device's `AUTOPOIESIS_API_BASE_URL` for end-to-end testing with the local UI.
+- Add content management endpoints for admin broadcast creation and artwork metadata population.
+- Run the full hosted mock bridge contract suite against the database-backed server to prove contract parity.
+
+---
+
 ## 2026-06-08 - Personalized stream composition engine
 
 Date: 2026-06-08
