@@ -130,6 +130,11 @@ check_app_tree() {
     scripts/update-from-github.sh
     scripts/watchdog.sh
     scripts/configure-kiosk-os.sh
+    scripts/remote-install-check.sh
+  )
+
+  local required_root_files=(
+    remote-install.sh
   )
 
   local path
@@ -142,6 +147,10 @@ check_app_tree() {
   done
 
   for path in "${required_executables[@]}"; do
+    require_path executable "$path"
+  done
+
+  for path in "${required_root_files[@]}"; do
     require_path executable "$path"
   done
 

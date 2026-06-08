@@ -1,5 +1,56 @@
 # Progress
 
+## 2026-06-08 - One-command remote installer for Raspberry Pi
+
+Date: 2026-06-08
+
+Milestone: RPI APPLIANCE - one-command curl-able remote installer
+
+Changed files:
+
+- `remote-install.sh`
+- `scripts/remote-install-check.sh`
+- `scripts/preflight.sh`
+- `scripts/milestone2-verify.sh`
+- `docs/progress.md`
+- `docs/agent-notes/pulse.md`
+- `/data/.openclaw/workspace/autopoiesis-os-program/ROLLING-LOG.md`
+
+Implemented:
+
+- Added `remote-install.sh`, a self-contained one-command installer for Raspberry Pi that can be curled from a fresh Pi OS image.
+- The installer walks 8 stages: guard → deps → download → extract → install → kiosk-config → cleanup-check → done.
+- **Guard stage**: Checks root, Linux OS, curl, tar availability. Detects Pi model and RAM.
+- **Deps stage**: Installs system dependencies (Node.js 20+ via NodeSource, Chromium, NetworkManager, unclutter, rsync) when not present. Uses non-interactive apt. Respects `AUTOPOIESIS_SKIP_DEPS=1`.
+- **Download stage**: Resolves latest GitHub release tag via API, tries multiple common artifact names, falls back to release API asset discovery, then source archive. Supports `AUTOPOIESIS_RELEASE_TAG` for specific versions.
+- **Extract stage**: Extracts to temp directory, detects GitHub-style wrapped subdirectory, validates `install.sh` and `VERSION` presence.
+- **Install stage**: Runs the standard `install.sh` with configurable install directory and user.
+- **Kiosk-config stage**: Runs `configure-kiosk-os.sh` for auto-login, screen blanking, cursor hiding. Graceful failure with manual-run instructions.
+- **Cleanup-check stage**: Runs `cleanup-production.sh` audit to catch secret leaks or development artifacts.
+- **Done stage**: Prints clear next steps including reboot command, pairing URL, and useful management commands.
+- Added `scripts/remote-install-check.sh`, a 14-step isolated gate proving: script syntax, strict mode, cleanup trap, root guard, environment variable handling, release URL construction, dependency installation paths, install flow stages, artifact fallback paths, extract validation, kiosk config integration, production cleanup integration, post-install guidance, and security considerations (no unsafe curl-to-bash piping, temp cleanup on exit).
+- Added `remote-install.sh` and `scripts/remote-install-check.sh` to preflight required executables.
+- Wired the remote installer gate into Milestone 2 verification as step 15.
+
+Why this matters:
+
+The MVP 1.0 acceptance criteria specify "one-command install" as a production requirement. Until now, installation required cloning the repo and running `install.sh` manually. The remote installer enables deploying to any Pi with `curl -fsSL <url>/remote-install.sh | sudo bash`, downloading the latest release, installing dependencies, configuring kiosk OS mode, and running the production cleanup audit — all in one step. This is the gateway between "code that works" and "a product anyone can install".
+
+Verification:
+
+- `scripts/remote-install-check.sh` passed all 14 steps (44 individual checks).
+- `scripts/preflight.sh` passed, detecting `remote-install.sh` and `scripts/remote-install-check.sh`.
+- `node --check local-ui/server.js` passed.
+- `bash -n install.sh update.sh uninstall-dev-tools.sh factory-reset.sh scripts/*.sh` passed.
+- `scripts/security-smoke.sh` passed.
+- `git diff --check` passed.
+
+Next step:
+
+- Publish a GitHub release with a `autopoiesis-os.tar.gz` artifact and test the remote installer on a fresh Raspberry Pi OS image.
+- Add `remote-install.sh` to the README installation documentation.
+- Consider hosting the script at a stable short URL (e.g., `install.autopoiesis.art`).
+
 ## 2026-06-08 - Settings sync contract fixture in hosted mock bridge
 
 Date: 2026-06-08

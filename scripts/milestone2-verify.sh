@@ -123,4 +123,8 @@ echo "14. Factory reset contract"
 "$(dirname "$0")/factory-reset-check.sh"
 
 echo
+echo "15. Remote installer gate"
+"$(dirname "$0")/remote-install-check.sh"
+
+echo
 echo "Milestone 2 verification passed."

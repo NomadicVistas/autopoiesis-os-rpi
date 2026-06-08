@@ -1,5 +1,20 @@
 # Pulse Agent Notes
 
+## 2026-06-08 - One-command remote installer for Raspberry Pi
+
+Date/time: 2026-06-08 00:57 UTC / 2026-06-08 02:57 Europe/Berlin
+Workstream: RPI APPLIANCE
+
+- Added `remote-install.sh` — one-command curl-able Pi installer.
+- 8-stage pipeline with strict error handling and temp cleanup.
+- Handles dependency installation (Node.js, Chromium, NetworkManager, unclutter, rsync).
+- Resolves latest GitHub release, falls back through multiple artifact names and source archive.
+- Runs install.sh → configure-kiosk-os.sh → cleanup-production.sh.
+- 14-step isolated gate with 44 individual checks.
+- This unblocks the MVP 1.0 "one-command install" acceptance criterion.
+- No hardware testing needed — purely software that runs on the Pi.
+- Next: publish a GitHub release with artifact tarball, test on fresh Pi OS, add to README docs.
+
 ## 2026-06-08 - Settings sync contract fixture in hosted mock bridge
 
 Date/time: 2026-06-08 00:53 UTC / 2026-06-08 02:53 Europe/Berlin
