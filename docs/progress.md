@@ -1,5 +1,59 @@
 # Progress
 
+## 2026-06-08 - Gallery content seeding: real artwork into stream composition pipeline
+
+Date: 2026-06-08
+
+Milestone: LEAD / INTEGRATION — gallery artwork seeding into aos_broadcasts for stream composition
+
+Changed files:
+
+- `scripts/seed-gallery-content.mjs` (new)
+- `scripts/seed-gallery-content-check.sh` (new)
+- `hosted-api/server.js` (forward `id` field in admin broadcast creation)
+- `docs/progress.md`
+- `docs/agent-notes/content-seeding-note.md` (new)
+- `/data/.openclaw/workspace/autopoiesis-os-program/ROLLING-LOG.md`
+
+Implemented:
+
+- **Gallery content seeding module**: Created `scripts/seed-gallery-content.mjs` — reads real artwork JSON files from the autopoiesis gallery directory (`autopoiesis/gallery/artworks`, 456 displayed artworks across 8 artists) and seeds them into the hosted API's `aos_broadcasts` table via the admin CRUD endpoints. This is the bridge between the gallery's artwork catalog and the Frames platform's stream composition engine.
+
+- **Artwork-to-broadcast transformation**: The `artworkToBroadcast()` function maps gallery artwork fields to `aos_broadcasts` records: `title`, `artist`/`artistId` (resolved from artist IDs to display names via ARTIST_NAMES map), `mediaUrl` (resolved to absolute URLs against configurable base URL), `thumbnailUrl` (image URLs only), `type` (medium-to-category mapping via MEDIUM_TYPE_MAP), `priority` (tier-to-priority mapping via TIER_PRIORITY_MAP: featured→high, standard→normal), `cacheAllowed` (image files only), `soundAllowed` (audio/mixed-media), `body` (concept + process + experience), and `metadata` (gallery tier, scores, themes, tags).
+
+- **Smart sorting and selection**: `sortArtworks()` orders by tier (featured first), then by composite score, then by creation date. Supports `--limit` for capping, `--artists` for filtering to specific artists, and `--status` for draft vs published seeding.
+
+- **Dual seeding modes**: API mode (`--api-url` + `--admin-token`) seeds via the hosted API's admin CRUD endpoints (create + publish). SQLite mode (`--db-path`) seeds directly into a SQLite database using `better-sqlite3` for development/testing. Both modes support `--dry-run` for previewing.
+
+- **Admin broadcast handler improvement**: Updated `handleAdminCreateBroadcast()` in `hosted-api/server.js` to forward the optional `id` field from the request body to `db.createBroadcast()`. Previously, the handler always generated a `bcast_*` ID, making it impossible to maintain gallery artwork IDs through the seeding pipeline. With the `id` field forwarded, seeded broadcasts retain their original artwork IDs (e.g., `art-1772270250320-1f5e2b30`), enabling idempotent re-seeding and traceability from the stream back to the gallery catalog.
+
+- **End-to-end validation gate**: Added `scripts/seed-gallery-content-check.sh` — an 11-step 46-check validation proving: syntax validation (seed script + hosted API + DB), static contract (constants, functions, flags, field mappings), gallery data presence (456 artwork files), dry-run validation (reads artworks, respects --limit, reports plan, doesn't write, artist filter), hosted API bootstrap, seed 20 featured artworks via API (20 created, 20 published, zero errors), device registration + pairing, stream returns 20 items from seeded content with correct gallery artwork fields, absolute media URLs, 4+ artists, admin stats reflect seeded content, priority ordering (featured→high), full gallery seed (50 items with mixed tiers, 6+ artists), and regression (settings + admin bundle endpoints).
+
+Why this matters:
+
+The hosted API's stream composition engine (`getStreamContent()`) queries `aos_broadcasts` for published content to deliver to Frames devices. But `aos_broadcasts` starts empty — there is no mechanism to populate it with real gallery artwork. Without content, the stream endpoint returns zero items, the cache pipeline has nothing to download, the kiosk has nothing to display, and the entire MVP 0.2 personal stream feature is blocked. The seeding module closes this gap: 456 real artworks from 8 artists (Vessel, Sandman, Jessy, Kinema, Spool, Link, Typo, Agitprop, Emergent) can now flow from the gallery catalog through the admin API into `aos_broadcasts`, through stream composition, to the device feed pipeline. This unblocks: (1) end-to-end stream testing with real content, (2) cache pipeline verification with real media URLs, (3) kiosk display of actual gallery artwork, (4) admin dashboard content preview, (5) MVP 0.2 personal stream testing with real artist data, (6) liked-artwork → stream weighting pipeline, and (7) physical Pi testing with real content.
+
+Verification:
+
+- `scripts/seed-gallery-content-check.sh` passed all 46 checks (11 steps).
+- `scripts/security-smoke.sh` passed (no regression).
+- `node --check hosted-api/server.js` passed.
+- `node --check hosted-api/db.js` passed.
+- `node --check local-ui/server.js` passed.
+- `bash -n install.sh update.sh uninstall-dev-tools.sh factory-reset.sh` passed.
+- `bash -n scripts/*.sh` passed.
+
+Next step:
+
+- Run the seeding script against the staging/production hosted API to populate real content.
+- Add scheduled content sync: periodically re-seed from gallery to pick up new artworks.
+- Add content freshness: mark older artworks as lower priority or rotate content in the stream.
+- Test the cache pipeline with real media URLs from autopoiesis.art on a physical Pi.
+- Wire the seeding into the admin dashboard: "Sync Gallery" button that triggers re-seeding.
+- Add PostgreSQL seeding support for the production hosted API.
+
+---
+
 ## 2026-06-08 - Standalone feed sync decoupled from kiosk browser
 
 Date: 2026-06-08

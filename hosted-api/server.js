@@ -762,6 +762,7 @@ function handleAdminCreateBroadcast(db, body) {
   }
   try {
     const broadcast = db.createBroadcast({
+      id: body.id || null,
       title: body.title || '',
       body: body.body,
       type: body.type,
