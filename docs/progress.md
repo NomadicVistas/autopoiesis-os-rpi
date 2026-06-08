@@ -1,5 +1,60 @@
 # Progress
 
+## 2026-06-08 - Hosted API → local UI end-to-end bridge check
+
+Date: 2026-06-08
+
+Milestone: LEAD / INTEGRATION — hosted API → local UI end-to-end integration proof
+
+Changed files:
+
+- `scripts/hosted-api-local-ui-bridge-check.sh` (new)
+- `docs/progress.md`
+- `docs/agent-notes/pulse.md`
+- `/data/.openclaw/workspace/autopoiesis-os-program/ROLLING-LOG.md`
+
+Implemented:
+
+- Added `scripts/hosted-api-local-ui-bridge-check.sh`, an 18-step 86-check isolated validation gate proving the real database-backed hosted API server works end-to-end with the device-side local UI.
+- **Full vertical stack validation**: SQLite database → hosted API server → HTTP → local UI server → local state files. Every device lifecycle operation flows through both servers exactly as it would on a real Pi.
+- **Step 1–2**: Syntax validation for all three modules (hosted API, hosted DB, local UI) plus static contract checks proving all routes, endpoint calls, and integration functions exist.
+- **Step 3–5**: Database bootstrap (14 tables), hosted API server startup with health check, local UI startup with `AUTOPOIESIS_API_BASE_URL` pointing to the hosted API.
+- **Step 6–7**: Device registration via local UI's `pairing/start` → hosted API's `/frames/device/register`. Verifies pairing code generation, device ID creation, and hosted API device record.
+- **Step 8–9**: Pairing via AosDb `claimPairingCode()` (simulating web app), then pairing check via local UI confirming `paired=true`, `ownerUserId` set, and hosted API confirming `status=completed`.
+- **Step 10**: Settings sync via local UI → hosted API `/settings` endpoint.
+- **Step 11**: Settings push from local UI to hosted API with bidirectional verification: local UI sends `brightness=75`, hosted API confirms `brightness=75` persisted in database.
+- **Step 12–13**: Heartbeat via local UI → hosted API `/heartbeat` endpoint. Database verification confirms `last_heartbeat_at` timestamp persisted in `aos_frame_devices`.
+- **Step 14**: Feed sync via local UI → hosted API `/stream` endpoint. Verifies empty-but-correct contract shape with polling defaults.
+- **Step 15**: Command lifecycle: queue via AosDb, deliver via heartbeat, process via `/local/commands/process`, verify in audit log. Proves the full command delivery chain: admin action → database queue → heartbeat pickup → local processing → audit recording.
+- **Step 16**: Release check via local UI → hosted API `/release` endpoint.
+- **Step 17**: Device state consistency: status shows `paired=true`, correct owner, `firstRunComplete=true`, frame state readable, feed accessible, hosted API still healthy.
+- **Step 18**: Cross-server consistency: local UI and hosted API agree on device ID, owner, paired state, and settings values.
+
+Why this matters:
+
+The project had a complete database query layer (27 methods, 14 tables), a hosted API server (12 routes), a mock API (1645 lines), and a local UI (6000+ lines), but no test proving they work together. The hosted-api-server-check validated the hosted API in isolation. The hosted-mock-bridge-check validated the mock API with the local UI. But nobody had proven that the real database-backed hosted API could serve the real local UI through the full device lifecycle. This bridge check is that proof: 18 steps walk the entire stack from database creation through registration, pairing, settings sync, heartbeat delivery, feed sync, command queue/processing, and release check — validating that every HTTP response, every database write, and every local state file update is correct at each step. This is the foundational integration milestone that confirms the system is ready for real device connections.
+
+Verification:
+
+- `scripts/hosted-api-local-ui-bridge-check.sh` passed all 86 checks (18 steps).
+- `scripts/hosted-api-server-check.sh` passed all 68 checks (12 steps, no regression).
+- `scripts/hosted-api-db-check.sh` passed all 45 checks (15 steps, no regression).
+- `scripts/device-lifecycle-check.sh` passed all 18 steps (no regression).
+- `scripts/security-smoke.sh` passed (no regression).
+- `node --check local-ui/server.js` passed.
+- `node --check hosted-api/server.js` passed.
+- `node --check hosted-api/db.js` passed.
+- `bash -n install.sh update.sh uninstall-dev-tools.sh factory-reset.sh scripts/*.sh` passed.
+
+Next step:
+
+- Run this bridge check against the online hosted API (staging) to validate the PostgreSQL path.
+- Populate the hosted API's stream endpoint with real content from `aos_broadcasts` and artwork metadata tables.
+- Wire the hosted API into the real Pi's `AUTOPOIESIS_API_BASE_URL` for physical device testing.
+- Add the bridge check to `scripts/verify-all.sh`.
+
+---
+
 ## 2026-06-08 - Device-state-aware remote action availability
 
 Date: 2026-06-08
