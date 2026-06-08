@@ -485,7 +485,7 @@ class AosDb {
    * @param {string} deviceId
    * @param {object} payload
    * @param {string} [payload.softwareVersion]
-   * @param {object} [payload.systemMetrics]
+   * @param {object} [payload.releaseState] - Device release state (from release-state.json)
    * @param {Array}  [payload.events]
    * @param {object} [payload.broadcastDeliveries]
    * @returns {{ ok, heartbeatAt, eventAck?, deliveryAck? }}
@@ -499,7 +499,18 @@ class AosDb {
     ).run(uid("hb"), deviceId, jsonStringify(payload));
 
     // Update device status
-    const metrics = payload.systemMetrics || {};
+    // network_online/network_type come from top-level payload fields
+    const networkOnline = payload.networkOnline != null ? (payload.networkOnline ? 1 : 0) : 0;
+    const networkType = payload.networkType || null;
+
+    // Release state from device (release-state.json)
+    const rs = payload.releaseState || null;
+    const releaseStatus = rs ? (rs.status || 'idle') : 'idle';
+    const releaseTargetVersion = rs ? (rs.targetVersion || rs.previousVersion || null) : null;
+    const releaseChannel = rs ? (rs.channel || null) : null;
+    const releaseUpdatedAt = rs ? (rs.updatedAt || ts) : null;
+    const releaseError = rs ? (rs.error || null) : null;
+
     this.db.prepare(
       `UPDATE aos_frame_devices
        SET last_heartbeat_at = ?,
@@ -509,6 +520,11 @@ class AosDb {
            network_online = ?,
            network_type = COALESCE(?, network_type),
            storage_status_json = ?,
+           release_status = ?,
+           release_target_version = ?,
+           release_channel = COALESCE(?, release_channel),
+           release_updated_at = ?,
+           release_error = ?,
            updated_at = ?
        WHERE device_id = ?`
     ).run(
@@ -516,9 +532,14 @@ class AosDb {
       payload.softwareVersion || null,
       payload.currentMode || null,
       payload.currentArtworkId || null,
-      metrics.networkOnline != null ? (metrics.networkOnline ? 1 : 0) : 0,
-      metrics.networkType || null,
-      jsonStringify(metrics.storageStatus),
+      networkOnline,
+      networkType,
+      payload.storageStatus ? jsonStringify(payload.storageStatus) : '{}',
+      releaseStatus,
+      releaseTargetVersion,
+      releaseChannel,
+      releaseUpdatedAt,
+      releaseError,
       ts,
       deviceId
     );
@@ -1582,6 +1603,11 @@ class AosDb {
       networkType: row.network_type,
       storageStatus: jsonParse(row.storage_status_json, {}),
       metadata: jsonParse(row.metadata_json, {}),
+      releaseStatus: row.release_status || 'idle',
+      releaseTargetVersion: row.release_target_version || null,
+      releaseChannel: row.release_channel || null,
+      releaseUpdatedAt: row.release_updated_at || null,
+      releaseError: row.release_error || null,
       createdAt: row.created_at,
       updatedAt: row.updated_at,
     };

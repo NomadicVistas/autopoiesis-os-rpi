@@ -5849,6 +5849,7 @@ async function sendHeartbeat() {
   const eventCursor = eventIngestionCursor();
   const eventReplaySince = eventCursorReplaySince(eventCursor);
   const events = publicDeviceEvents({ limit: HEARTBEAT_EVENT_LIMIT, since: eventReplaySince });
+  const releaseState = readJson(paths.releaseState, null);
   const result = await apiRequest(`/frames/device/${encodeURIComponent(data.device.deviceId)}/heartbeat`, {
     method: "POST",
     body: JSON.stringify({
@@ -5859,6 +5860,7 @@ async function sendHeartbeat() {
       networkType: data.state.networkType || null,
       storageStatus: data.state.storageStatus || diagnostics.storage,
       diagnostics,
+      releaseState,
       eventIngestionCursor: eventCursor
         ? {
             status: eventCursor.status || null,

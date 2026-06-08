@@ -503,6 +503,7 @@ function handleHeartbeat(db, deviceId, body, auth) {
     networkType: body.networkType || null,
     storageStatus: body.storageStatus || null,
     diagnostics: body.diagnostics || null,
+    releaseState: body.releaseState || null,
     events: body.events || null,
     broadcastDeliveries: body.broadcastDeliveries || null
   };
@@ -906,6 +907,9 @@ function handleAdminBundle(db, profileUserId) {
         status: "healthy",
         lastHeartbeat: device.lastHeartbeatAt
       },
+      releaseStatus: device.releaseStatus || 'idle',
+      releaseTargetVersion: device.releaseTargetVersion || null,
+      releaseError: device.releaseError || null,
       actionAvailability: buildActionAvailability(device, "admin", ownerSubscription)
     };
   });
@@ -1073,6 +1077,11 @@ function handleAdminDeviceSnapshot(db, deviceId) {
         currentArtworkId: device.currentArtworkId,
         networkOnline: device.networkOnline,
         networkType: device.networkType,
+        releaseStatus: device.releaseStatus || 'idle',
+        releaseTargetVersion: device.releaseTargetVersion || null,
+        releaseChannel: device.releaseChannel || null,
+        releaseUpdatedAt: device.releaseUpdatedAt || null,
+        releaseError: device.releaseError || null,
         createdAt: device.createdAt,
         updatedAt: device.updatedAt
       },

@@ -24,6 +24,11 @@ CREATE TABLE IF NOT EXISTS aos_frame_devices (
   network_type        TEXT,
   storage_status_json TEXT    NOT NULL DEFAULT '{}',
   metadata_json       TEXT    NOT NULL DEFAULT '{}',
+  release_status      TEXT    NOT NULL DEFAULT 'idle',
+  release_target_version TEXT,
+  release_channel     TEXT,
+  release_updated_at  TIMESTAMPTZ,
+  release_error       TEXT,
   created_at          TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   updated_at          TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   PRIMARY KEY (device_id)
