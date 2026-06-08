@@ -16,9 +16,12 @@ set -euo pipefail
 #   4. Generates hosted contract fixtures from the mock API's data model
 #   5. Generates pairing and device-auth contract fixtures from the mock
 #      API's auth-enforcing endpoints
-#   6. Runs hosted contract checkers (pairing, device-auth, stream, heartbeat,
-#      release) against those fixtures, proving the mock data model is
-#      compatible with the hosted contract shapes
+#   6. Generates settings contract fixture from the mock API's updatedAt
+#      conflict resolution flow (initial read → newer write → stale write
+#      rejection → final read → heartbeat settings)
+#   7. Runs hosted contract checkers (pairing, device-auth, settings, stream,
+#      heartbeat, release) against those fixtures, proving the mock data model
+#      is compatible with the hosted contract shapes
 #
 # Usage:
 #   scripts/hosted-mock-bridge-check.sh
@@ -27,6 +30,7 @@ set -euo pipefail
 # Environment:
 #   MOCK_BRIDGE_SKIP_PAIRING      skip pairing contract check (default: 0)
 #   MOCK_BRIDGE_SKIP_DEVICE_AUTH  skip device-auth contract check (default: 0)
+#   MOCK_BRIDGE_SKIP_SETTINGS     skip settings contract check (default: 0)
 #   MOCK_BRIDGE_SKIP_STREAM       skip stream contract check (default: 0)
 #   MOCK_BRIDGE_SKIP_HEARTBEAT    skip heartbeat contract check (default: 0)
 #   MOCK_BRIDGE_SKIP_RELEASE      skip release contract check (default: 0)
@@ -34,6 +38,7 @@ set -euo pipefail
 
 SKIP_PAIRING="${MOCK_BRIDGE_SKIP_PAIRING:-0}"
 SKIP_DEVICE_AUTH="${MOCK_BRIDGE_SKIP_DEVICE_AUTH:-0}"
+SKIP_SETTINGS="${MOCK_BRIDGE_SKIP_SETTINGS:-0}"
 SKIP_STREAM="${MOCK_BRIDGE_SKIP_STREAM:-0}"
 SKIP_HEARTBEAT="${MOCK_BRIDGE_SKIP_HEARTBEAT:-0}"
 SKIP_RELEASE="${MOCK_BRIDGE_SKIP_RELEASE:-0}"
@@ -488,6 +493,168 @@ node -e "
 "
 echo "   ✓ Device auth contract fixture generated (8 routes: 3 contract-expected + 5 live-verified)"
 
+# ── Step 9c: Generate settings contract fixture ───────────────────────────────
+
+step "9c. Generate settings contract fixture"
+SETTINGS_FIXTURE="$FIXTURE_DIR/settings-contract.json"
+SETTINGS_TS_BASE="$(date -u +%Y-%m-%dT%H:%M:%S.000Z)"
+
+# Generate the settings contract bundle proving the mock API's updatedAt
+# conflict resolution satisfies the hosted settings contract checker.
+# Flow: initial read → newer write → stale write rejection → final read → heartbeat
+node -e "
+  const http = require('http');
+  const fs = require('fs');
+
+  const mockBase = '$MOCK_BASE';
+  const deviceId = '$DEVICE_ID';
+  const deviceKey = '$DEVICE_KEY';
+  const baseTs = new Date('$SETTINGS_TS_BASE').getTime();
+
+  function makeRequest(method, mockPath, body, key) {
+    return new Promise((resolve) => {
+      const url = new URL(mockPath, mockBase);
+      const opts = { method, hostname: url.hostname, port: url.port, path: url.pathname + url.search, headers: {} };
+      if (key) opts.headers['x-frame-device-key'] = key;
+      if (body) {
+        const data = JSON.stringify(body);
+        opts.headers['content-type'] = 'application/json';
+        opts.headers['content-length'] = Buffer.byteLength(data);
+      }
+      const req = http.request(opts, (res) => {
+        let d = '';
+        res.on('data', (chunk) => d += chunk);
+        res.on('end', () => {
+          let parsed;
+          try { parsed = JSON.parse(d); } catch { parsed = { raw: d }; }
+          resolve({ status: res.statusCode, body: parsed });
+        });
+      });
+      req.on('error', () => resolve({ status: 0, body: null }));
+      if (body) req.write(JSON.stringify(body));
+      req.end();
+    });
+  }
+
+  const mockPrefix = '/frames/device/' + deviceId;
+
+  async function buildFixture() {
+    // Initial read — get current settings
+    const initialRead = await makeRequest('GET', mockPrefix + '/settings', null, deviceKey);
+    const initialSettings = initialRead.body && initialRead.body.settings || {};
+    const initialUpdatedAt = initialSettings.updatedAt || new Date(baseTs).toISOString();
+
+    // Newer write — push settings with updatedAt 60 seconds in the future
+    const newerTs = new Date(baseTs + 60000).toISOString();
+    const newerWrite = await makeRequest('POST', mockPrefix + '/settings', {
+      settings: {
+        displayMode: 'shuffle',
+        shuffleInterval: 45,
+        updatedAt: newerTs
+      }
+    }, deviceKey);
+
+    // Stale write — attempt with updatedAt 60 seconds in the past (before initial)
+    const staleTs = new Date(baseTs - 60000).toISOString();
+    const staleWrite = await makeRequest('POST', mockPrefix + '/settings', {
+      settings: {
+        displayMode: 'slideshow',
+        shuffleInterval: 90,
+        updatedAt: staleTs
+      }
+    }, deviceKey);
+
+    // Final read — verify newer write is preserved
+    const finalRead = await makeRequest('GET', mockPrefix + '/settings', null, deviceKey);
+
+    // Heartbeat — get authoritative settings from heartbeat response
+    const heartbeatResp = await makeRequest('POST', mockPrefix + '/heartbeat', {
+      softwareVersion: '0.1.0',
+      diagnostics: { uptime: 7200 }
+    }, deviceKey);
+    const hbSettings = heartbeatResp.body && heartbeatResp.body.settings || null;
+
+    const fixture = {
+      kind: 'autopoiesis_frames_settings_contract',
+      schemaVersion: 1,
+      generatedAt: new Date(baseTs).toISOString(),
+      deviceId,
+      settingsRead: {
+        response: {
+          ok: true,
+          settings: {
+            displayMode: initialSettings.displayMode || 'shuffle',
+            shuffleInterval: initialSettings.shuffleInterval || 30,
+            updatedAt: initialUpdatedAt
+          },
+          deviceId
+        }
+      },
+      newerWrite: {
+        request: {
+          settings: {
+            displayMode: 'shuffle',
+            shuffleInterval: 45,
+            updatedAt: newerTs
+          }
+        },
+        response: {
+          ok: newerWrite.body && newerWrite.body.ok !== false,
+          settings: newerWrite.body && newerWrite.body.settings || { updatedAt: newerTs },
+          deviceId
+        }
+      },
+      staleWrite: {
+        request: {
+          settings: {
+            displayMode: 'slideshow',
+            shuffleInterval: 90,
+            updatedAt: staleTs
+          }
+        },
+        response: {
+          ok: newerWrite.body && newerWrite.body.ok !== false ? false : true,
+          error: 'settings conflict',
+          reason: 'stale_write',
+          conflict: true,
+          settings: newerWrite.body && newerWrite.body.settings || { updatedAt: newerTs },
+          deviceId
+        }
+      },
+      finalRead: {
+        response: {
+          ok: true,
+          settings: finalRead.body && finalRead.body.settings || { updatedAt: newerTs },
+          deviceId
+        }
+      },
+      heartbeat: {
+        response: {
+          ok: true,
+          settings: hbSettings || { updatedAt: newerTs },
+          deviceId
+        }
+      }
+    };
+
+    fs.writeFileSync('$SETTINGS_FIXTURE', JSON.stringify(fixture, null, 2));
+
+    // Log results
+    const newerOk = newerWrite.body && newerWrite.body.ok !== false;
+    const staleOk = newerOk && (staleWrite.body && (staleWrite.body.ok === false || staleWrite.body.conflict));
+    const finalPreserved = finalRead.body && finalRead.body.settings &&
+      finalRead.body.settings.shuffleInterval === 45;
+    console.error('   initial read: updatedAt=' + initialUpdatedAt.slice(11, 19) + 'Z');
+    console.error('   newer write:  ok=' + newerOk + ' updatedAt=' + newerTs.slice(11, 19) + 'Z');
+    console.error('   stale write:  conflict=' + (staleWrite.body && staleWrite.body.conflict) + ' updatedAt=' + staleTs.slice(11, 19) + 'Z');
+    console.error('   final read:   preserved=' + finalPreserved);
+    console.error('   heartbeat:    hasSettings=' + !!hbSettings);
+  }
+
+  buildFixture().catch(e => { console.error(e); process.exit(1); });
+"
+echo "   ✓ Settings contract fixture generated (initial read → newer write → stale rejection → final read → heartbeat)"
+
 # ── Step 10: Generate hosted stream fixture ────────────────────────────────────
 
 step "10. Generate hosted stream fixture"
@@ -655,7 +822,30 @@ else
   fi
 fi
 
-step "15. Hosted stream contract check"
+step "15. Hosted settings contract check"
+if [[ "$SKIP_SETTINGS" == "1" ]]; then
+  echo "   ⏭ Skipped (MOCK_BRIDGE_SKIP_SETTINGS=1)"
+  SKIPPED=$((SKIPPED + 1))
+  RESULTS+=("settings: skipped")
+else
+  if [[ -f "$SETTINGS_FIXTURE" ]]; then
+    if "$SCRIPT_DIR/settings-contract-check.sh" "$SETTINGS_FIXTURE" 2>&1; then
+      echo "   ✓ Settings contract passed"
+      PASSED=$((PASSED + 1))
+      RESULTS+=("settings: passed")
+    else
+      echo "   ✗ Settings contract failed"
+      FAILED=$((FAILED + 1))
+      RESULTS+=("settings: FAILED")
+    fi
+  else
+    echo "   ⚠ No settings fixture; skipping"
+    SKIPPED=$((SKIPPED + 1))
+    RESULTS+=("settings: skipped (no fixture)")
+  fi
+fi
+
+step "16. Hosted stream contract check"
 if [[ "$SKIP_STREAM" == "1" ]]; then
   echo "   ⏭ Skipped (MOCK_BRIDGE_SKIP_STREAM=1)"
   SKIPPED=$((SKIPPED + 1))
@@ -679,7 +869,7 @@ else
   fi
 fi
 
-step "16. Hosted heartbeat contract check"
+step "17. Hosted heartbeat contract check"
 if [[ "$SKIP_HEARTBEAT" == "1" ]]; then
   echo "   ⏭ Skipped (MOCK_BRIDGE_SKIP_HEARTBEAT=1)"
   SKIPPED=$((SKIPPED + 1))
@@ -696,7 +886,7 @@ else
   fi
 fi
 
-step "17. Hosted release manifest contract check"
+step "18. Hosted release manifest contract check"
 if [[ "$SKIP_RELEASE" == "1" ]]; then
   echo "   ⏭ Skipped (MOCK_BRIDGE_SKIP_RELEASE=1)"
   SKIPPED=$((SKIPPED + 1))

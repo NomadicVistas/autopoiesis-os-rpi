@@ -1,5 +1,52 @@
 # Progress
 
+## 2026-06-08 - Settings sync contract fixture in hosted mock bridge
+
+Date: 2026-06-08
+
+Milestone: API / DATABASE / SYNC - settings sync contract bridge
+
+Changed files:
+
+- `scripts/hosted-mock-bridge-check.sh`
+- `docs/progress.md`
+- `docs/agent-notes/pulse.md`
+- `/data/.openclaw/workspace/autopoiesis-os-program/ROLLING-LOG.md`
+
+Implemented:
+
+- Extended the hosted mock bridge from 5 to 6 hosted contract gates, adding settings sync contract fixture generation and validation.
+- Added `MOCK_BRIDGE_SKIP_SETTINGS` environment variable for selective gate control.
+- Step 9c generates a settings contract fixture proving the mock API's `updatedAt` conflict resolution satisfies the hosted settings contract checker. The fixture exercises the full conflict flow:
+  1. Initial read — GET current settings with `updatedAt`
+  2. Newer write — POST settings with `updatedAt` 60s in the future (accepted)
+  3. Stale write — POST settings with `updatedAt` 60s in the past (conflict rejected, authoritative settings preserved)
+  4. Final read — GET confirms the newer write is preserved
+  5. Heartbeat — POST heartbeat returns authoritative settings
+- The fixture is validated by `scripts/settings-contract-check.sh`, which requires monotonic `updatedAt` ordering, stale-write rejection with conflict markers, final-read freshness at least as current as the accepted newer row, and heartbeat settings coherence.
+- Renumbered contract check steps 15→16, 16→17, 17→18 and added new Step 15 for settings contract validation.
+
+Why this matters:
+
+The hosted mock bridge previously proved pairing, device-auth, stream, heartbeat, and release contract shapes, but had no coverage for settings sync — the most complex conflict resolution path in the system. Settings sync uses `latest-updatedAt` conflict resolution: the server must accept newer writes, reject stale writes with explicit conflict markers, and preserve the authoritative row through subsequent reads and heartbeat responses. Without this gate, the mock API's conflict resolution logic had never been validated against the hosted contract shape. The bridge now proves the mock API produces data compatible with 6 hosted contract checkers, covering the complete critical path from device registration through pairing, authentication, settings conflict resolution, content streaming, heartbeat event ingestion, and release management.
+
+Verification:
+
+- `scripts/hosted-mock-bridge-check.sh` passed all 6 contract gates (pairing, device-auth, settings, stream, heartbeat, release).
+- `scripts/device-lifecycle-check.sh` passed 17/18 steps (diagnostics/health step is environmental, not related to this change).
+- `scripts/online-admin-mock-bridge-check.sh` passed all 12 steps (no regression).
+- `scripts/feed-targeting-check.sh` passed (no regression).
+- `scripts/security-smoke.sh` passed.
+- `node --check local-ui/server.js` passed.
+- `bash -n install.sh update.sh uninstall-dev-tools.sh factory-reset.sh scripts/*.sh` passed.
+- `git diff --check` passed.
+
+Next step:
+
+- Extend the bridge with broadcast contract fixture as the mock API evolves.
+- Wire the bridge into the hosted contract suite catalog alongside the device lifecycle gate for comprehensive local validation.
+- After the hosted backend is built, generate real settings contract bundles from staging and validate against the same checker.
+
 ## 2026-06-08 - Hosted mock bridge pairing and device-auth contract gates
 
 Date: 2026-06-08

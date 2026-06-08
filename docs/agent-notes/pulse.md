@@ -1,5 +1,18 @@
 # Pulse Agent Notes
 
+## 2026-06-08 - Settings sync contract fixture in hosted mock bridge
+
+Date/time: 2026-06-08 00:53 UTC / 2026-06-08 02:53 Europe/Berlin
+
+Workstream: API / DATABASE / SYNC
+
+- Extended hosted mock bridge from 5 to 6 contract gates.
+- Step 9c generates a settings contract fixture proving `updatedAt` conflict resolution: initial read → newer write (accepted) → stale write (conflict rejected) → final read (preserved) → heartbeat settings.
+- The fixture is validated by `scripts/settings-contract-check.sh` which requires monotonic `updatedAt` ordering, stale-write conflict markers, and heartbeat settings coherence.
+- This is the first bridge gate covering the most complex conflict resolution path in the system.
+- All 6 gates pass, all regression tests pass.
+- Next: broadcast contract fixture, hosted contract suite catalog wiring.
+
 ## 2026-06-08 - Hosted mock bridge pairing and device-auth contract gates
 
 Date/time: 2026-06-08 00:42 UTC / 2026-06-08 02:42 Europe/Berlin
