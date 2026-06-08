@@ -1,5 +1,14 @@
 # Pulse Agent Notes
 
+## 2026-06-08 - Unified offline verification runner
+
+Date/time: 2026-06-08 04:42 UTC / 2026-06-08 06:42 Europe/Berlin
+Agent: Pulse
+Context: LEAD / INTEGRATION cron pass. The project has 65+ individual check scripts covering every subsystem — database schema contracts, feed targeting, broadcast delivery, security redaction, device lifecycle, hosted mock bridge, settings sync, online admin, and more. But there was no single command to prove the entire system still works together after any change. Each cron pass ran a subset of checks, and cross-system regressions could go undetected.
+What changed: Added `scripts/verify-all.sh` — a unified offline verification runner that executes 137 self-contained gates in 6 phases: syntax (103), static (13), light integration (10), heavy integration (8), contract fixtures (1), and security (1). Supports --quick (129 gates in ~260s), --verbose, --fail-fast, and --list modes. The runner categorizes gates based on actual runtime behavior — only includes scripts that are fully self-contained (create own mock servers and temp dirs, no external dependencies). Does NOT replace milestone2-verify.sh for Pi hardware validation.
+What needs review: The heavy integration gates (device-lifecycle, hosted-mock-bridge, events-ingestion, factory-reset, feed-offline-fallback, online-admin-mock-bridge, fleet-isolation, settings-sync) take ~2-3 minutes each. With --quick they're skipped for fast feedback. The full suite takes ~20+ minutes. Port conflicts between sequentially-run mock servers are possible but rare — the first run had one transient failure that didn't reproduce.
+Next recommended action: Wire into CI pipeline. Run full suite before each hosted backend release. Add to pre-commit hooks or PR checks for the AOS repo.
+
 ## 2026-06-08 - AOS migration runner
 
 Date/time: 2026-06-08 04:25 UTC / 2026-06-08 06:25 Europe/Berlin

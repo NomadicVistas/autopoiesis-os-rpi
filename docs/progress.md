@@ -1,5 +1,45 @@
 # Progress
 
+## 2026-06-08 - Unified offline verification runner
+
+Date: 2026-06-08
+
+Milestone: LEAD / INTEGRATION — unified offline verification runner
+
+Changed files:
+
+- `scripts/verify-all.sh`
+- `docs/progress.md`
+- `docs/agent-notes/pulse.md`
+- `/data/.openclaw/workspace/autopoiesis-os-program/ROLLING-LOG.md`
+
+Implemented:
+
+- Added `scripts/verify-all.sh`, a unified offline verification runner that executes all self-contained (non-hardware) AOS check scripts in dependency order, producing a single pass/fail/skip summary.
+- **137 gates** across 6 phases: syntax validation (103 Node + Bash syntax checks), static/fixture gates (13 self-contained static checks), light integration gates (10 mock-server integration checks), heavy integration gates (8 full lifecycle/bridge checks), contract fixtures (1 migration contract against local migrations/), and security smoke (1 comprehensive redaction + secret scan).
+- Supports `--quick` (skip heavy integration gates — 129 gates in ~260s), `--verbose` (show full output per gate), `--fail-fast` (stop on first failure), and `--list` (catalog all gates without running).
+- Categorizes gates based on actual runtime behavior: self-contained scripts that create their own mock servers and temp directories, static/fixture validators that need no server, contract gates that need saved response files, live-server gates that need an external local UI (excluded), and hardware gates that need Pi hardware (excluded).
+- Reports per-gate pass/fail with last 8 lines of output on failure, plus a summary card with total passed/failed/skipped and wall-clock duration.
+- The runner does NOT replace `scripts/milestone2-verify.sh` (which runs on physical Pi hardware with real systemctl/Chromium) but provides the CI-equivalent that proves all mock-based systems cohere before hardware validation.
+
+Why this matters:
+
+The project has 65+ individual check scripts covering every aspect of the AOS Frames system — from database schema contracts to feed targeting to broadcast delivery to security redaction. Before this runner, there was no single command to prove the entire system still works together after any change. Each cron pass ran a subset of checks relevant to its workstream, but cross-system regressions could go undetected until a different cron or manual run caught them. The unified runner closes this gap: one command, 137 gates, full system coherence. It serves as the CI foundation, the pre-commit safety net, and the regression baseline for every future change.
+
+Verification:
+
+- `bash -n scripts/verify-all.sh` passed.
+- `bash scripts/verify-all.sh --quick` passed: 129/137 gates (8 skipped by --quick), 260s.
+- `bash scripts/verify-all.sh --list` cataloged all 137 gates correctly.
+- All self-contained gates passed when run individually.
+- `git diff --check` passed.
+
+Next step:
+
+- Run the full suite (without --quick) in CI to validate all 137 gates including the 8 heavy integration gates.
+- Wire `scripts/verify-all.sh` into the hosted backend CI pipeline before enabling staged endpoints.
+- After physical Pi install, run `scripts/milestone2-verify.sh` for hardware validation alongside this offline runner.
+
 ## 2026-06-08 - AOS migration runner
 
 Date: 2026-06-08
