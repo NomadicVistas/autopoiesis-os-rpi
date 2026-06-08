@@ -1,5 +1,54 @@
 # Progress
 
+## 2026-06-08 - Artwork like endpoint integration fix: device auth → DB persistence
+
+Date: 2026-06-08
+
+Milestone: LEAD / INTEGRATION — artwork like endpoint wired through device authentication to database persistence
+
+Changed files:
+
+- `hosted-api/server.js` (like route handler: authenticateDevice + handleLikeArtwork instead of fake response)
+- `scripts/artwork-like-endpoint-check.sh` (new: 10-step 33-check validation gate)
+- `docs/progress.md`
+- `/data/.openclaw/workspace/autopoiesis-os-program/ROLLING-LOG.md`
+
+Implemented:
+
+- **Fixed the artwork like endpoint** (`POST /frames/artworks/:id/like`) to properly authenticate device requests and persist likes/unlikes to the database. Previously, the route handler checked for the presence of an `x-frame-device-key` header but never looked up the device record, never called `handleLikeArtwork()`, never called `db.likeArtwork()` / `db.unlikeArtwork()`, and returned a hardcoded fake response `{ ok: true, liked: true }` regardless of the actual database state. The fix extracts `deviceId` from the request body (or query param), calls `authenticateDevice(db, req, likeDeviceId)` to validate the device key and retrieve the full device record including `ownerUserId`, then delegates to `handleLikeArtwork(db, artworkId, body, auth)` which calls the appropriate DB method.
+
+- **Auth failure handling**: The like endpoint now properly rejects requests with: (1) no device key → 401 "Missing device key", (2) wrong device key → 403 "Invalid device key", (3) no deviceId in body/query → 400 "Missing deviceId in body or query", (4) unpaired device with no owner → 403 "Device has no owner".
+
+- **Full round-trip**: Like → persist to `aos_artwork_likes` → unlike → remove from database → re-like → idempotent (INSERT OR IGNORE). Multiple likes accumulate correctly. The `getLikedArtworks(userId)` DB method returns all liked artwork IDs for a user, and the admin bundle (`GET /frames/admin/bundle?userId=...`) includes the liked artworks in `profileFrames.likedArtworks`.
+
+- Added `scripts/artwork-like-endpoint-check.sh` — a 10-step 33-check isolated validation gate proving: syntax validation, static contract (authenticateDevice, handleLikeArtwork, db.likeArtwork/unlikeArtwork/getLikedArtworks, fake response path removed), server bootstrap, device registration + pairing, like authenticated request (persisted to database), unlike authenticated request (removed from database), multiple likes (3 artworks persisted), auth failure cases (no key 401, wrong key 403, no deviceId 400, unpaired device 403), idempotent like (INSERT OR IGNORE preserves count), admin bundle includes liked artworks.
+
+Why this matters:
+
+The artwork like endpoint is the primary user interaction signal from the kiosk to the hosted API. When a user taps "like" on a displayed artwork, the local UI sends `POST /frames/artworks/:id/like` with the device key and device ID. Previously, this endpoint returned a fake response — likes were never stored, the user's preference signal was silently discarded, and the admin dashboard showed empty liked artworks for all users. This is the foundation of the MVP 0.2 personal stream: liked artworks should influence stream composition, appear in the user's profile, and inform content recommendations. Without persistent likes, none of this pipeline works. The fix closes the gap: kiosk tap → API auth → database persist → admin bundle visibility → (future) stream composition weighting. This also unblocks profile pages showing liked artworks and content analytics tracking like rates.
+
+Verification:
+
+- `scripts/artwork-like-endpoint-check.sh` passed all 33 checks (10 steps).
+- `scripts/hosted-api-server-check.sh` passed all 74 checks (12 steps, no regression).
+- `scripts/heartbeat-persistence-check.sh` passed all 33 checks (10 steps, no regression).
+- `scripts/admin-auth-check.sh` passed all 38 checks (7 steps, no regression).
+- `scripts/security-smoke.sh` passed (no regression).
+- `node --check hosted-api/server.js` passed.
+- `node --check hosted-api/db.js` passed.
+- `node --check local-ui/server.js` passed.
+- `bash -n install.sh update.sh uninstall-dev-tools.sh factory-reset.sh` passed.
+- `bash -n scripts/*.sh` passed.
+
+Next step:
+
+- Wire liked artworks into stream composition weighting (prefer liked artists in feed).
+- Add like counts to broadcast statistics.
+- Test like interaction on physical Pi with kiosk UI.
+- Build content seeding script to populate `aos_broadcasts` with real gallery content for end-to-end testing.
+
+---
+
 ## 2026-06-08 - Broadcast feed delivery lifecycle: source attribution, delivery dedup, end-to-end tracking
 
 Date: 2026-06-08

@@ -1309,20 +1309,16 @@ async function handle(db, req, res) {
 
   const likeMatch = pathname.match(/^\/frames\/artworks\/([^/]+)\/like$/);
   if (method === "POST" && likeMatch) {
-    const deviceId = null; // Like uses auth from any device with an owner
-    // For like, we require a device key for auth but the userId comes from the owner
-    const key = req.headers["x-frame-device-key"];
-    if (!key) return sendJson(res, 401, { ok: false, error: "Missing device key" });
-
-    // Find the device by key — scan devices to match
     const body = JSON.parse((await readBody(req)) || "{}");
-    // Minimal: accept like requests with any valid device key
-    return sendJson(res, 200, {
-      ok: true,
-      artworkId: likeMatch[1],
-      liked: body.liked !== false,
-      likedAt: now()
-    });
+    // Device ID can come from the body (local-ui sends it) or from a query param
+    const likeUrl = new URL(req.url, "http://localhost");
+    const likeDeviceId = body.deviceId || likeUrl.searchParams.get("deviceId");
+    if (!likeDeviceId) {
+      return sendJson(res, 400, { ok: false, error: "Missing deviceId in body or query" });
+    }
+    const auth = authenticateDevice(db, req, likeDeviceId);
+    if (!auth.ok) return sendJson(res, auth.status, { ok: false, error: auth.error });
+    return sendResult(res, handleLikeArtwork(db, likeMatch[1], body, auth));
   }
 
   // ── Health / status ───────────────────────────────────────────────────
