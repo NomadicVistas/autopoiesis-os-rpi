@@ -1,5 +1,50 @@
 # Progress
 
+## 2026-06-08 - Heartbeat event + broadcast delivery persistence fix
+
+Date: 2026-06-08
+
+Milestone: API / DATABASE / SYNC — heartbeat event and broadcast delivery persistence fix
+
+Changed files:
+
+- `hosted-api/server.js` (fix: pass events + broadcastDeliveries through to db.ingestHeartbeat)
+- `scripts/heartbeat-persistence-check.sh` (new)
+- `docs/progress.md`
+- `docs/agent-notes/pulse.md`
+- `/data/.openclaw/workspace/autopoiesis-os-program/ROLLING-LOG.md`
+
+Implemented:
+
+- Fixed `handleHeartbeat()` in `hosted-api/server.js` to pass `body.events` and `body.broadcastDeliveries` through to `db.ingestHeartbeat()`. Previously, the handler constructed a `heartbeatPayload` object that only included device status fields (softwareVersion, currentMode, etc.) but explicitly omitted events and broadcast deliveries. The `db.ingestHeartbeat()` method already had complete upsert logic for both — inserting events into `aos_device_events` (with ON CONFLICT upsert by `device_id + event_key`) and broadcast deliveries into `aos_broadcast_deliveries` (with ON CONFLICT upsert by `broadcast_id + device_id`). But since the handler never passed these fields, the upserts never fired.
+- The handler then built fake `eventAck` and `deliveryAck` responses that acknowledged data that was never persisted. Events and broadcast delivery records sent via heartbeat were acknowledged to the device as accepted, then silently discarded.
+- The fix adds `events: body.events || null` and `broadcastDeliveries: body.broadcastDeliveries || null` to the `heartbeatPayload`, and uses `hbResult.eventAck` / `hbResult.deliveryAck` from the DB layer instead of constructing fake acks.
+- Added `scripts/heartbeat-persistence-check.sh` — a 10-step 33-check isolated validation gate proving: syntax validation, static contract (heartbeatPayload includes events + broadcastDeliveries, uses hbResult acks, fake ack loop removed), database bootstrap, server startup, device registration + pairing, heartbeat with events (2 events persisted to `aos_device_events` with correct content), heartbeat with broadcast deliveries (1 delivery persisted to `aos_broadcast_deliveries` with correct status), upsert semantics (second heartbeat updates existing events from "observed" to "confirmed" and deliveries from "received" to "displayed" without creating duplicates), admin delivery endpoint returns persisted data (list and per-broadcast detail), and full lifecycle (combined events + deliveries in single heartbeat with correct acks and final DB state).
+
+Why this matters:
+
+The heartbeat endpoint is the primary channel for device-to-server data flow. The device sends display events (artwork shown, liked, cached) and broadcast delivery status (received, displayed, dismissed) in every heartbeat. These are the core operational signals for the admin dashboard, content analytics, and device fleet monitoring. Without this fix, the entire heartbeat data pipeline was cosmetic — events were acknowledged but never stored, delivery tracking was fictional, and admin queries returned empty results. The fix restores the full round-trip: device sends → hosted API persists → admin queries retrieve. This unblocks admin delivery effectiveness reporting, device event analytics, and the broadcast delivery lifecycle tracking that MVP 0.4 requires.
+
+Verification:
+
+- `scripts/heartbeat-persistence-check.sh` passed all 33 checks (10 steps).
+- `scripts/hosted-api-server-check.sh` passed all 74 checks (12 steps, no regression).
+- `scripts/hosted-api-local-ui-bridge-check.sh` passed all 94 checks (19 steps, no regression).
+- `scripts/admin-content-management-check.sh` passed all 131 checks (15 steps, no regression).
+- `scripts/security-smoke.sh` passed (no regression).
+- `node --check hosted-api/server.js` passed.
+- `node --check hosted-api/db.js` passed.
+- `node --check local-ui/server.js` passed.
+- `bash -n install.sh update.sh uninstall-dev-tools.sh factory-reset.sh scripts/*.sh` passed.
+
+Next step:
+
+- Wire heartbeat event data into admin dashboard device detail views (event timeline).
+- Add broadcast delivery effectiveness metrics to admin analytics (delivery rate, display rate, dismissal rate).
+- Test heartbeat persistence on physical Pi with real event and delivery data.
+
+---
+
 ## 2026-06-08 - Admin content management CRUD validation + server handler fix
 
 Date: 2026-06-08

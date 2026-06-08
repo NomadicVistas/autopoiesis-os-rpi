@@ -237,28 +237,18 @@ function handleHeartbeat(db, deviceId, body, auth) {
     networkOnline: body.networkOnline !== undefined ? body.networkOnline : true,
     networkType: body.networkType || null,
     storageStatus: body.storageStatus || null,
-    diagnostics: body.diagnostics || null
+    diagnostics: body.diagnostics || null,
+    events: body.events || null,
+    broadcastDeliveries: body.broadcastDeliveries || null
   };
 
   const hbResult = db.ingestHeartbeat(deviceId, heartbeatPayload);
 
-  // Event ingestion
-  let eventAck = null;
-  if (body.events && body.events.length > 0) {
-    const lastEvent = body.events[body.events.length - 1];
-    eventAck = {
-      accepted: true,
-      acceptedCount: body.events.length,
-      acceptedThroughObservedAt: lastEvent.observedAt || now(),
-      acceptedThroughEventKey: lastEvent.eventKey || ("evt_" + body.events.length),
-      cursor: {
-        status: "accepted",
-        acceptedAt: now(),
-        acceptedThroughObservedAt: lastEvent.observedAt || now(),
-        acceptedThroughEventKey: lastEvent.eventKey || ("evt_" + body.events.length)
-      }
-    };
-  } else if (body.eventIngestionCursor) {
+  // Use the eventAck/deliveryAck returned by ingestHeartbeat (which actually
+  // persists events to aos_device_events and deliveries to aos_broadcast_deliveries).
+  // Fall back to cursor-only ack when the DB layer has nothing to report.
+  let eventAck = hbResult.eventAck || null;
+  if (!eventAck && body.eventIngestionCursor) {
     eventAck = {
       accepted: true,
       acceptedCount: 0,
@@ -266,22 +256,7 @@ function handleHeartbeat(db, deviceId, body, auth) {
     };
   }
 
-  // Broadcast delivery ingestion
-  let deliveryAck = null;
-  if (body.broadcastDeliveries && body.broadcastDeliveries.deliveries) {
-    const incoming = body.broadcastDeliveries.deliveries;
-    let acceptedCount = 0;
-    for (const d of incoming) {
-      // Upsert handled inside ingestHeartbeat for events/deliveries
-      // but broadcast deliveries go through their own path in AosDb
-      acceptedCount++;
-    }
-    deliveryAck = {
-      accepted: true,
-      acceptedCount: incoming.length,
-      totalDeliveries: acceptedCount
-    };
-  }
+  const deliveryAck = hbResult.deliveryAck || null;
 
   // Return pending commands
   const pendingCommands = db.getPendingCommands(deviceId);

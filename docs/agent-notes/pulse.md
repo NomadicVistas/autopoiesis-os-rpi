@@ -1,5 +1,18 @@
 # Pulse Agent Notes
 
+## 2026-06-08 - Heartbeat event + broadcast delivery persistence fix
+
+Fixed a data loss bug in the hosted API's heartbeat handler. `handleHeartbeat()` was constructing a `heartbeatPayload` object that only included device status fields (softwareVersion, currentMode, etc.) and explicitly excluded `events` and `broadcastDeliveries` from the request body. The `db.ingestHeartbeat()` method already had complete upsert logic for both — events go to `aos_device_events` (ON CONFLICT by device_id + event_key) and broadcast deliveries go to `aos_broadcast_deliveries` (ON CONFLICT by broadcast_id + device_id). But the handler never passed these fields, so the upserts never fired.
+
+The handler then built fake `eventAck` and `deliveryAck` responses acknowledging data that was never persisted. Every event and broadcast delivery record sent via heartbeat was acknowledged as accepted, then silently discarded.
+
+Fix: pass `body.events` and `body.broadcastDeliveries` through to `db.ingestHeartbeat()`, use `hbResult.eventAck` and `hbResult.deliveryAck` instead of constructing fake acks.
+
+Validated with `scripts/heartbeat-persistence-check.sh` — 10 steps, 33 checks: events persist, deliveries persist, upsert works, admin endpoints return data, full lifecycle combined.
+
+No regressions: hosted-api-server-check 74/74, bridge check 94/94, admin content management 131/131, security smoke passed.
+
+
 ## 2026-06-08 - Admin content management CRUD validation + handler fix
 
 Ewoud added admin content management CRUD methods to hosted-api/db.js (createBroadcast, getBroadcast, listBroadcasts, updateBroadcast, publishBroadcast, unpublishBroadcast, archiveBroadcast, getBroadcastStats, _mapBroadcast) and corresponding route handlers in hosted-api/server.js.
