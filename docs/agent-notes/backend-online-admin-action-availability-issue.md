@@ -1,5 +1,9 @@
 # Backend Issue: Online Admin Device Action Availability
 
+## Status: ✅ RESOLVED (2026-06-08)
+
+Resolved by device-state-aware action availability implementation in `scripts/mock-hosted-api/server.js`.
+
 ## Summary
 
 `scripts/online-admin-contract-check.sh` now requires every Profile/Admin device row to expose target-specific remote-action availability. The existing global `remoteActions.roleActionMatrix` remains the actor policy source, but UI controls also need a per-device decision for whether each action can be used on this exact frame right now.

@@ -1,5 +1,60 @@
 # Progress
 
+## 2026-06-08 - Device-state-aware remote action availability
+
+Date: 2026-06-08
+
+Milestone: ONLINE ADMIN — device-state-gated remote action availability
+
+Changed files:
+
+- `scripts/mock-hosted-api/server.js`
+- `scripts/online-admin-device-state-actions-check.sh` (new)
+- `docs/progress.md`
+- `/data/.openclaw/workspace/autopoiesis-os-program/ROLLING-LOG.md`
+
+Implemented:
+
+- Enhanced `buildActionAvailability()` with five-layer device-state gating beyond the existing role + subscription checks. Previously, action availability only considered the actor's role policy and the device owner's subscription status — meaning the admin UI would show "restart device" as available even for offline or disabled devices.
+- **Layer 1 — Subscription degradation**: Unchanged. High-risk remote actions are blocked when the device owner's subscription is expired/past_due/cancelled.
+- **Layer 2 — Role policy**: Unchanged. Each role (admin, owner, maintainer, support) defines which actions are allowed.
+- **Layer 3a — Not paired**: All actions blocked with `reasonCode: "not_paired"` when the device is not yet paired.
+- **Layer 3b — Device disabled**: Most actions blocked with `reasonCode: "device_disabled"` when the device is in disabled state. `enable_device` is the explicit escape hatch and remains allowed.
+- **Layer 3c — Remote disabled**: All remote actions blocked with `reasonCode: "remote_disabled"` when `remoteEnabled` is false on the device record.
+- **Layer 3d — Device offline**: Actions requiring a live connection (`sync_settings`, `clear_cache`, `restart_display`, `restart_device`, `update_device`, `show_broadcast`) are blocked with `reasonCode: "offline"` when the last heartbeat was > 5 minutes ago. Administrative actions like `enable_device`, `disable_device`, and `factory_reset_request` remain available for offline devices.
+- **Layer 3e — Pending conflicting command**: When a command of the same type is already queued or sent, the action is blocked with `reasonCode: "pending_command"`. Non-conflicting actions remain available.
+- Added three device-state constant sets: `ONLINE_REQUIRED_ACTIONS` (6 actions), `CONFLICTING_COMMAND_TYPES` (6 actions), `DISABLED_BLOCKED_ACTIONS` (7 actions, excluding `enable_device`).
+- Added `deviceState` object to action availability output: `{ isPaired, isOnline, isDisabled, isRemoteEnabled, pendingCommandCount }` — giving the UI full visibility into why actions are blocked.
+- Added `disabled` and `remoteEnabled` fields to the device record (defaults: `false` / `true`). Bundle output now reads from the record instead of hardcoding.
+- Added curator role to `ROLE_ACTION_MATRIX`: read-only for all device actions except `show_broadcast`, which is allowed. Curator is for institutional partners who curate content but don't manage hardware.
+- Added curator to `acceptedActorRoles` in `REMOTE_ACTION_COMMANDS` for `show_broadcast` and to the admin bundle's `acceptedActorRoles` list.
+- Added `POST /mock/set-device-state/:id` test helper for toggling `disabled` and `remoteEnabled` on device records.
+- Added `roleAllowed: true` flag on device-state-blocked actions — the UI can distinguish between "your role doesn't allow this" and "your role allows this but the device state prevents it".
+- Added `scripts/online-admin-device-state-actions-check.sh` — a 12-step 80-check isolated validation gate proving: syntax validation, static contract (curator role, device-state constants, record fields), default device state (online, paired, not disabled — all admin actions allowed), offline device blocking (online-required actions blocked, administrative actions still allowed), disabled device blocking (7 actions blocked, `enable_device` escape hatch), remote-disabled blocking (all 9 actions blocked with `remote_disabled`), pending command conflict (same-type blocked, other actions allowed), subscription degradation override (takes precedence over device state), not-paired fleet exclusion, curator role verification, and regression (online-admin-mock-bridge-check passes).
+
+Why this matters:
+
+The admin dashboard's action availability was role-and-subscription-only — it showed every allowed action as available regardless of whether the device could actually receive it. An admin could click "restart device" on an offline frame, or "sync settings" on a disabled device. The command would queue but never execute, creating confusion and stale command queues. Device-state gating ensures that every action button in the admin UI reflects the actual executability of that action on that specific device right now. The five-layer evaluation (subscription → role → paired → disabled/remote → online → pending) produces a clear, machine-readable reason for every blocked action. The `deviceState` object in the availability response gives the UI everything it needs to render contextual indicators ("device offline", "3 commands pending", "remote actions disabled") alongside the action buttons. The curator role extends the RBAC model for institutional use cases where gallery partners need broadcast control without fleet management access.
+
+Verification:
+
+- `scripts/online-admin-device-state-actions-check.sh` passed all 80 checks (12 steps).
+- `scripts/online-admin-entitlements-check.sh` passed all 23 checks (no regression).
+- `scripts/online-admin-subscription-lifecycle-check.sh` passed all 54 checks (no regression).
+- `scripts/security-smoke.sh` passed (no regression).
+- `node --check local-ui/server.js` passed.
+- `node --check scripts/mock-hosted-api/server.js` passed.
+- `bash -n install.sh update.sh uninstall-dev-tools.sh factory-reset.sh scripts/*.sh` passed.
+
+Next step:
+
+- Wire device-state-aware action availability into the hosted API's admin endpoints.
+- Build the admin UI action button component that reads `actionAvailability` and renders enabled/disabled states with reason tooltips.
+- Add device-state change tracking: log when a device is disabled/enabled or remote is toggled for audit trail.
+- Add fleet-level action availability summary to the admin dashboard (e.g., "3 of 5 devices online, 1 device disabled").
+
+---
+
 ## 2026-06-08 - Wi-Fi connection detail enrichment for remote monitoring
 
 Date: 2026-06-08

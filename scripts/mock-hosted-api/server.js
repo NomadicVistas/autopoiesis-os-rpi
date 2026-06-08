@@ -32,6 +32,7 @@
  *   POST /mock/set-owner-preferences/:userId        – Test helper: set owner cascade preferences
  *   POST /mock/add-content                          – Test helper: inject content items into stream
  *   DELETE /mock/content                            – Test helper: clear injected content
+ *   POST /mock/set-device-state/:id                 – Test helper: set device disabled/remoteEnabled state
  *   GET  /mock/state                                – Test helper: dump server state
  */
 
@@ -376,7 +377,9 @@ function createDeviceRecord(deviceId, body) {
     eventIngestionCursor: null,
     likedArtworks: [],
     release: null,
-    broadcastDeliveries: [] // Ingested from device heartbeat
+    broadcastDeliveries: [], // Ingested from device heartbeat
+    disabled: false,
+    remoteEnabled: true
   };
   devices.set(deviceId, record);
   return record;
@@ -895,11 +898,25 @@ const REMOTE_ACTION_COMMANDS = [
   { commandType: "disable_device", risk: "medium", requiresAuthorization: true, requiresAuditId: false, requiresLocalConfirmation: false, status: "available", acceptedActorRoles: ["admin", "owner"] },
   { commandType: "restart_device", risk: "high", requiresAuthorization: true, requiresAuditId: true, requiresLocalConfirmation: false, status: "available", acceptedActorRoles: ["admin", "owner"] },
   { commandType: "update_device", risk: "high", requiresAuthorization: true, requiresAuditId: true, requiresLocalConfirmation: false, status: "available", acceptedActorRoles: ["admin", "owner"] },
-  { commandType: "show_broadcast", risk: "low", requiresAuthorization: true, requiresAuditId: false, requiresLocalConfirmation: false, status: "available", acceptedActorRoles: ["admin", "owner", "maintainer"] },
+  { commandType: "show_broadcast", risk: "low", requiresAuthorization: true, requiresAuditId: false, requiresLocalConfirmation: false, status: "available", acceptedActorRoles: ["admin", "owner", "maintainer", "curator"] },
   { commandType: "factory_reset_request", risk: "critical", requiresAuthorization: true, requiresAuditId: true, requiresLocalConfirmation: true, status: "available", acceptedActorRoles: ["admin"] }
 ];
 
 const ROLE_ACTION_MATRIX = [
+  {
+    role: "curator",
+    actions: {
+      sync_settings: { allowed: false, reason: "Curator has view-only device access", reasonCode: "role_readonly" },
+      clear_cache: { allowed: false, reason: "Curator has view-only device access", reasonCode: "role_readonly" },
+      restart_display: { allowed: false, reason: "Curator has view-only device access", reasonCode: "role_readonly" },
+      enable_device: { allowed: false, reason: "Curator has view-only device access", reasonCode: "role_readonly" },
+      disable_device: { allowed: false, reason: "Curator has view-only device access", reasonCode: "role_readonly" },
+      restart_device: { allowed: false, reason: "Curator has view-only device access", reasonCode: "role_readonly" },
+      update_device: { allowed: false, reason: "Curator has view-only device access", reasonCode: "role_readonly" },
+      show_broadcast: { allowed: true, requiresAuthorization: true },
+      factory_reset_request: { allowed: false, reason: "Only admin can request factory reset", reasonCode: "role_insufficient" }
+    }
+  },
   {
     role: "admin",
     actions: {
@@ -1032,8 +1049,8 @@ function buildOnlineAdminBundle(profileUserId = null) {
       updateChannel: "stable",
       paired: record.paired,
       online: record.lastHeartbeatAt && (Date.now() - new Date(record.lastHeartbeatAt).getTime()) < 300000,
-      remoteEnabled: true,
-      disabled: false,
+      remoteEnabled: record.remoteEnabled !== false,
+      disabled: !!record.disabled,
       lastHeartbeatAt: record.lastHeartbeatAt,
       cache: {
         enabled: true,
@@ -1071,8 +1088,8 @@ function buildOnlineAdminBundle(profileUserId = null) {
       updateChannel: "stable",
       paired: record.paired,
       online: record.lastHeartbeatAt && (Date.now() - new Date(record.lastHeartbeatAt).getTime()) < 300000,
-      remoteEnabled: true,
-      disabled: false,
+      remoteEnabled: record.remoteEnabled !== false,
+      disabled: !!record.disabled,
       lastHeartbeatAt: record.lastHeartbeatAt,
       cache: {
         enabled: true,
@@ -1151,7 +1168,7 @@ function buildOnlineAdminBundle(profileUserId = null) {
       subscriptions: { items: subscriptionsItems, total: subscriptionsItems.length, page: 1, pageSize: 50 },
       devices: { items: fleetDevices, total: fleetDevices.length, page: 1, pageSize: 50 },
       remoteActions: {
-        acceptedActorRoles: ["admin", "owner", "maintainer", "support"],
+        acceptedActorRoles: ["admin", "owner", "maintainer", "support", "curator"],
         authorizationWindowSeconds: 300,
         highRiskRequiresAuditId: true,
         criticalRiskRequiresAuditId: true,
@@ -1175,11 +1192,39 @@ function buildOnlineAdminBundle(profileUserId = null) {
   };
 }
 
+// Actions that require the device to be online to execute
+const ONLINE_REQUIRED_ACTIONS = new Set([
+  "sync_settings", "clear_cache", "restart_display",
+  "restart_device", "update_device", "show_broadcast"
+]);
+
+// Actions that conflict with a pending command of the same type
+const CONFLICTING_COMMAND_TYPES = [
+  "sync_settings", "clear_cache", "restart_display",
+  "restart_device", "update_device", "show_broadcast"
+];
+
+// Actions blocked when device is disabled (enable_device is the exception)
+const DISABLED_BLOCKED_ACTIONS = new Set([
+  "sync_settings", "clear_cache", "restart_display",
+  "restart_device", "update_device", "show_broadcast", "factory_reset_request"
+]);
+
 function buildActionAvailability(record, actorRole) {
   const generatedAt = now();
   const actions = {};
   const roleRow = ROLE_ACTION_MATRIX.find((r) => r.role === actorRole);
   if (!roleRow) return { generatedAt, actions: {} };
+
+  // Compute device-level state
+  const isPaired = !!record.paired;
+  const isOnline = !!(record.lastHeartbeatAt && (Date.now() - new Date(record.lastHeartbeatAt).getTime()) < 300000);
+  const isDisabled = !!record.disabled;
+  const isRemoteEnabled = record.remoteEnabled !== false; // default true
+  const pendingCommands = (record.commands || []).filter(
+    (c) => c.status === "queued" || c.status === "sent"
+  );
+  const pendingCommandTypes = new Set(pendingCommands.map((c) => c.commandType));
 
   // Check subscription entitlements for the device owner
   const ownerId = record.ownerUserId;
@@ -1188,7 +1233,8 @@ function buildActionAvailability(record, actorRole) {
 
   for (const cmd of REMOTE_ACTION_COMMANDS) {
     const roleAction = roleRow.actions[cmd.commandType];
-    // Subscription degradation overrides role policy for owner-scoped devices
+
+    // Layer 1: Subscription degradation overrides role policy for owner-scoped devices
     if (ownerDegraded && ownerEntitlements.degradedActionsBlocked.includes(cmd.commandType)) {
       actions[cmd.commandType] = {
         allowed: false,
@@ -1196,25 +1242,96 @@ function buildActionAvailability(record, actorRole) {
         reasonCode: "subscription_degraded",
         degradedBySubscription: true
       };
-    } else if (!roleAction) {
+      continue;
+    }
+
+    // Layer 2: Role policy
+    if (!roleAction) {
       actions[cmd.commandType] = { allowed: false, reason: "No policy for action", reasonCode: "no_policy" };
-    } else if (roleAction.allowed) {
-      actions[cmd.commandType] = {
-        allowed: true,
-        requiresAuthorization: cmd.requiresAuthorization,
-        requiresAuditId: cmd.requiresAuditId,
-        requiresLocalConfirmation: cmd.requiresLocalConfirmation
-      };
-    } else {
+      continue;
+    }
+    if (!roleAction.allowed) {
       actions[cmd.commandType] = {
         allowed: false,
         reason: roleAction.reason,
         reasonCode: roleAction.reasonCode
       };
+      continue;
     }
+
+    // Layer 3: Device-state gating (role allows it, but can the device accept it?)
+
+    // 3a: Not paired — all actions blocked
+    if (!isPaired) {
+      actions[cmd.commandType] = {
+        allowed: false,
+        reason: "Device is not paired",
+        reasonCode: "not_paired",
+        roleAllowed: true
+      };
+      continue;
+    }
+
+    // 3b: Device is disabled — most actions blocked (enable_device is the escape hatch)
+    if (isDisabled && DISABLED_BLOCKED_ACTIONS.has(cmd.commandType)) {
+      actions[cmd.commandType] = {
+        allowed: false,
+        reason: "Device is disabled",
+        reasonCode: "device_disabled",
+        roleAllowed: true
+      };
+      continue;
+    }
+
+    // 3c: Remote not enabled — all remote actions blocked
+    if (!isRemoteEnabled) {
+      actions[cmd.commandType] = {
+        allowed: false,
+        reason: "Remote actions are disabled for this device",
+        reasonCode: "remote_disabled",
+        roleAllowed: true
+      };
+      continue;
+    }
+
+    // 3d: Device offline — actions requiring live connection are blocked
+    if (!isOnline && ONLINE_REQUIRED_ACTIONS.has(cmd.commandType)) {
+      actions[cmd.commandType] = {
+        allowed: false,
+        reason: "Device is offline",
+        reasonCode: "offline",
+        roleAllowed: true
+      };
+      continue;
+    }
+
+    // 3e: Pending conflicting command of the same type
+    if (pendingCommandTypes.has(cmd.commandType)) {
+      actions[cmd.commandType] = {
+        allowed: false,
+        reason: "A " + cmd.commandType + " command is already pending",
+        reasonCode: "pending_command",
+        roleAllowed: true
+      };
+      continue;
+    }
+
+    // All layers passed
+    actions[cmd.commandType] = {
+      allowed: true,
+      requiresAuthorization: cmd.requiresAuthorization,
+      requiresAuditId: cmd.requiresAuditId,
+      requiresLocalConfirmation: cmd.requiresLocalConfirmation
+    };
   }
 
-  return { generatedAt, evaluatedAt: generatedAt, actorRole, actions };
+  return {
+    generatedAt,
+    evaluatedAt: generatedAt,
+    actorRole,
+    deviceState: { isPaired, isOnline, isDisabled, isRemoteEnabled, pendingCommandCount: pendingCommands.length },
+    actions
+  };
 }
 
 function handleMockOnlineAdminBundle(userId = null) {
@@ -1345,6 +1462,17 @@ async function handle(req, res) {
     const deviceId = pathname.split("/").pop();
     const body = JSON.parse((await readBody(req)) || "{}");
     return sendJson(res, ...Object.values(handleMockQueueCommand(deviceId, body)));
+  }
+
+  // POST /mock/set-device-state/:id
+  if (method === "POST" && /^\/mock\/set-device-state\/([^/]+)$/.test(pathname)) {
+    const deviceId = pathname.split("/").pop();
+    const body = JSON.parse((await readBody(req)) || "{}");
+    const record = devices.get(deviceId);
+    if (!record) return sendJson(res, 404, { ok: false, error: "Device not found" });
+    if (body.disabled !== undefined) record.disabled = !!body.disabled;
+    if (body.remoteEnabled !== undefined) record.remoteEnabled = !!body.remoteEnabled;
+    return sendJson(res, 200, { ok: true, deviceId, disabled: record.disabled, remoteEnabled: record.remoteEnabled });
   }
 
   if (method === "POST" && /^\/mock\/set-release\/([^/]+)$/.test(pathname)) {
