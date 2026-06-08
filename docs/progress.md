@@ -1,5 +1,64 @@
 # Progress
 
+## 2026-06-08 - Production-safe update lifecycle: graceful service stop, pre-flight checks, state tracking
+
+Date: 2026-06-08
+
+Milestone: RELEASE / ROLLOUT — production-safe update lifecycle for artifact-based and git-based updates
+
+Changed files:
+
+- `scripts/update-from-release.sh` (rewrite with service lifecycle, pre-flight, state tracking)
+- `docs/progress.md`
+- `docs/agent-notes/release-safe-updater-note.md` (new)
+- `/data/.openclaw/workspace/autopoiesis-os-program/ROLLING-LOG.md`
+
+Implemented:
+
+- **Graceful service stop/start**: Added `stop_appliance_services()` and `start_appliance_services()` that track which services (kiosk, setup, heartbeat, display, feed-sync, poll-release timer) were active before the update, stop them before app tree replacement, and restart them after. Services are stopped in order and restarted in reverse order for dependency correctness. A 1-second pause after stopping gives processes time to release file handles.
+
+- **Pre-flight checks**: Three checks run before any file changes:
+  1. `preflight_same_version` — skips update if target version matches current, avoiding unnecessary restarts.
+  2. `preflight_disk_space` — verifies ≥200MB free (configurable via `AUTOPOIESIS_UPDATE_MIN_DISK_MB`) using `df -m`. Gracefully skips if `df` is unavailable (e.g. restricted PATH in test environments).
+  3. `preflight_version_check` — guards against accidental downgrade unless `AUTOPOIESIS_ALLOW_DOWNGRADE=1` is set. Uses semantic version comparison.
+
+- **Release state tracking**: Added `write_release_state()` that writes `$DATA_DIR/release-state.json` with status (`in_progress`, `completed`, `failed`, `skipped`), version info, channel, tag, timestamp, and error details. This gives the admin dashboard and diagnostics visibility into update status.
+
+- **Release event log**: Added `append_release_event()` that writes to `$DATA_DIR/release-log.json` with structured events: `release_update_started`, `release_update_completed`, `release_update_failed`, `release_update_skipped`. Each event has a unique ID, type, status, version info, method, reason, and timestamp. Retains the last 200 entries.
+
+- **Improved logging**: Replaced raw `echo` log lines with a `log()` helper that prefixes all entries with `release-update:` for easy grep/filtering.
+
+- **Bootstrap failure recovery**: If `bootstrap.sh` fails after app tree replacement, the script attempts to restore from the rollback backup before failing. This prevents leaving the device in a broken state where the app tree was replaced but never bootstrapped.
+
+- **Structured error handling**: The `fail()` function now writes to the release event log and release state file before exiting, ensuring every failure is tracked durably. The git fast-forward path also uses the full lifecycle (stop → update → bootstrap → start → state tracking).
+
+Why this matters:
+
+The update-from-release script is the primary mechanism for over-the-air updates on production Pi devices. Previously, it replaced the app tree while services were actively running from those files, had no disk space checks, no downgrade guard, no state tracking on success, and no event log. If an update failed, there was no machine-readable record of what happened or when. If the device ran low on disk space mid-update, the extraction could fail leaving a broken app tree. If a stale manifest was accidentally applied, it would downgrade without warning. The production-safe lifecycle addresses all of these: services are stopped before any file changes, disk space is verified before download, version direction is checked, and every update attempt (success or failure) is recorded in both `release-state.json` (current state) and `release-log.json` (event history). The bootstrap failure recovery ensures that even a worst-case failure during app tree replacement can be rolled back automatically.
+
+Verification:
+
+- `bash -n scripts/update-from-release.sh` passed.
+- `scripts/release-app-tree-copy-check.sh` passed (artifact update + rollback).
+- `scripts/remote-install-check.sh` passed (44/44 checks, no regression).
+- `scripts/rollout-acceptance-check.sh` passed (no regression).
+- `scripts/prepare-release-check.sh` passed (29/29 checks, no regression).
+- `scripts/device-lifecycle-check.sh` passed (18/18 steps, no regression).
+- `scripts/security-smoke.sh` passed (no regression).
+- `node --check local-ui/server.js` passed.
+- `bash -n install.sh update.sh uninstall-dev-tools.sh factory-reset.sh` passed.
+- `bash -n scripts/*.sh` passed (all scripts).
+
+Next step:
+
+- Test the full update lifecycle on a physical Pi: install v0.1.1, trigger update to a newer release, verify service stop/start, state tracking, and rollback.
+- Wire `release-state.json` into the hosted API heartbeat payload so the admin dashboard sees update status in real time.
+- Wire `release-log.json` into diagnostics and admin device snapshot views.
+- Add `release-log.json` events to the hosted API `aos_device_events` table via heartbeat ingestion.
+- Test the downgrade guard with an explicit `AUTOPOIESIS_ALLOW_DOWNGRADE=1` scenario.
+
+---
+
 ## 2026-06-08 - Admin token authentication for all hosted API admin endpoints
 
 Date: 2026-06-08
