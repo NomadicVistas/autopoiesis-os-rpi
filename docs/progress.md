@@ -1,5 +1,73 @@
 # Progress
 
+## 2026-06-08 - Personalized stream composition engine
+
+Date: 2026-06-08
+
+Milestone: BROADCAST / FEED — personalized mixed content stream composition
+
+Changed files:
+
+- `scripts/mock-hosted-api/server.js`
+- `scripts/feed-stream-composition-check.sh` (new)
+- `docs/progress.md`
+- `/data/.openclaw/workspace/autopoiesis-os-program/ROLLING-LOG.md`
+
+Implemented:
+
+- Added `MOCK_ARTISTS` — 7 artist records (Vessel, Sandman, Jessy, Kinema, Spool, Link, Typo) with id and name fields.
+- Added `MOCK_CONTENT_POOL` — 18 diverse content items across all 6 feed categories: 8 artworks (image, video, audio, generative), 2 curatorial, 2 blog, 2 news, 1 generic content, 1 scheduled/future item, 1 expired item, and 1 premium-targeted broadcast. Items include targeting, priority, scheduling, cache eligibility, sound requirements, duration, and artist attribution.
+- Added `injectedContent` array for runtime content injection via `POST /mock/add-content`.
+- Added `composePersonalizedStream(record)` — the core stream composition engine that:
+  1. Collects all eligible items from the content pool + injected content + queued show_broadcast commands.
+  2. Filters by device targeting: subscription tier, device ID, owner user ID, exclusion lists.
+  3. Filters expired items (expiresAt in the past) and future-scheduled items (startsAt in the future).
+  4. Sorts by priority (emergency > critical > high > normal > low), then artist preference boosting within priority groups.
+  5. Caps at 30 items.
+  6. Returns subscription-tier-aware polling defaults: trial (600s/1200s), default (300s/900s), premium (180s/600s).
+- Added `priorityRankValue(priority)` — maps priority strings to numeric ranks (emergency=500, critical=400, high=300, normal=200, low=100).
+- Rewrote `handleStream()` — uses `composePersonalizedStream()` instead of returning 2 hardcoded items. Includes owner preferences cascade in the response when the device has an owner.
+- Added `POST /mock/add-content` — test helper that injects custom content items into the stream pool. Accepts single item or array. Returns added IDs and totals.
+- Added `DELETE /mock/content` — test helper that clears all injected content items.
+- Added `scripts/feed-stream-composition-check.sh` — a 12-step isolated validation gate proving:
+  1. Syntax validation (mock API, local UI, self).
+  2. Static content pool contract (pool, artists, composition engine, priority function, routes, all 6 categories, 7 artists, injectedContent array).
+  3. Content item shape validation (12 checks: all content types, targeting, scheduling, expiry).
+  4. Mock API startup, two-device registration and pairing.
+  5. Default stream (no owner, no preferences) returns diverse content across multiple categories, filters expired items, filters future-scheduled items, filters premium-targeted items for unowned devices.
+  6. Artist preference boosting: owner preferences for activeArtists=["vessel","jessy"] boost those artists within priority groups, owner preferences cascade in response.
+  7. Subscription tier targeting and polling: premium user sees premium-targeted items, gets faster polling (180s vs 300s default).
+  8. Content injection via POST /mock/add-content: batch injection, injected items appear in stream, priority ordering respected (critical before high).
+  9. Broadcast command inclusion: queued show_broadcast commands appear as stream items, emergency priority is first in the queue.
+  10. Device-specific targeting: items with targeting.deviceIds only appear for targeted devices.
+  11. Exclusion targeting: items with targeting.excludeDeviceIds are excluded from specified devices.
+  12. Trial-tier polling and degraded subscription: trial user gets slower polling (600s/1200s), premium items filtered, degraded (expired) user still receives stream content.
+
+Why this matters:
+
+The mock API's stream endpoint was completely static — it returned the same 2 hardcoded items regardless of device, owner, preferences, subscription, or content state. This meant the entire device-side feed pipeline (normalization, eligibility filtering, display queue composition, cache eligibility, priority ordering, category-aware dwell time) was tested with static content, not personalized content. The content pool now provides 18 items across all 6 categories with diverse targeting, scheduling, and priority — enabling the device-side feed pipeline to exercise every code path with realistic data. The composition engine filters by targeting (subscription tier, device, owner), filters expired/future items, sorts by priority then artist preference, and includes broadcast commands from the queue. The subscription-tier polling defaults give the device-side polling logic realistic intervals to work with. This is the foundational test fixture for the entire broadcast/feed workstream — every future feed feature (curated playlists, artist-specific streams, time-based scheduling, A/B content testing) will build on this composition engine.
+
+Verification:
+
+- `scripts/feed-stream-composition-check.sh` passed all 12 steps (39 checks).
+- `scripts/feed-model-contract-check.sh` passed all 13 steps (no regression).
+- `scripts/hosted-mock-bridge-check.sh` passed all 6 contract gates (no regression).
+- `scripts/broadcast-delivery-ingestion-check.sh` passed all 14 steps (no regression).
+- `scripts/feed-targeting-check.sh` passed (no regression).
+- `scripts/feed-display-dwell-check.sh` passed all 12 steps (no regression).
+- `scripts/device-lifecycle-check.sh` passed all 18 steps (no regression).
+- `node --check local-ui/server.js` passed.
+- `node --check scripts/mock-hosted-api/server.js` passed.
+- `bash -n install.sh update.sh uninstall-dev-tools.sh factory-reset.sh scripts/*.sh` passed.
+
+Next step:
+
+- Build the hosted API's stream endpoint that queries `aos_` tables for content and produces personalized streams using the same composition logic.
+- Add feed composition metrics to diagnostics: category distribution, source distribution, and targeting effectiveness per sync cycle.
+- Test the device-side feed pipeline with the personalized stream: verify normalization, eligibility, display queue, and cache behavior with the new diverse content.
+
+---
+
 ## 2026-06-08 - Hosted API database query layer (hosted-api/db.js)
 
 Date: 2026-06-08

@@ -30,6 +30,8 @@
  *   POST /mock/pair-device/:id                      – Test helper: force-pair a device
  *   POST /mock/queue-command/:id                    – Test helper: queue a command
  *   POST /mock/set-owner-preferences/:userId        – Test helper: set owner cascade preferences
+ *   POST /mock/add-content                          – Test helper: inject content items into stream
+ *   DELETE /mock/content                            – Test helper: clear injected content
  *   GET  /mock/state                                – Test helper: dump server state
  */
 
@@ -46,6 +48,214 @@ const DEVICE_KEY_PREFIX = "mk_dev_";
 
 const devices = new Map(); // deviceId -> device record
 const commandCounter = { value: 0 };
+
+// ── Mock content pool ────────────────────────────────────────────────────────
+//
+// Diverse content items across all 6 feed categories, simulating what the
+// real hosted API would return based on gallery content. Items include
+// targeting, priority, scheduling, cache eligibility, and artist attribution
+// so the device-side feed pipeline can exercise normalization, eligibility
+// filtering, display queue composition, and cache behavior with realistic data.
+
+const MOCK_ARTISTS = [
+  { id: "vessel", name: "Vessel" },
+  { id: "sandman", name: "Sandman" },
+  { id: "jessy", name: "Jessy" },
+  { id: "kinema", name: "Kinema" },
+  { id: "spool", name: "Spool" },
+  { id: "link", name: "Link" },
+  { id: "typo", name: "Typo" }
+];
+
+const MOCK_CONTENT_POOL = [
+  // Artworks (image)
+  { id: "art-vessel-001", type: "image", category: "artwork", title: "Cellular Echo No. 7", artist: "Vessel", artistId: "vessel", mediaUrl: "https://autopoiesis.art/mock/vessel-cellular-echo.jpg", thumbnailUrl: "https://autopoiesis.art/mock/vessel-cellular-echo-thumb.jpg", cacheEligible: true, priority: "normal" },
+  { id: "art-sandman-001", type: "image", category: "artwork", title: "Dream Threshold", artist: "Sandman", artistId: "sandman", mediaUrl: "https://autopoiesis.art/mock/sandman-dream.jpg", thumbnailUrl: "https://autopoiesis.art/mock/sandman-dream-thumb.jpg", cacheEligible: true, priority: "normal" },
+  { id: "art-jessy-001", type: "image", category: "artwork", title: "Market Index III", artist: "Jessy", artistId: "jessy", mediaUrl: "https://autopoiesis.art/mock/jessy-market.jpg", thumbnailUrl: "https://autopoiesis.art/mock/jessy-market-thumb.jpg", cacheEligible: true, priority: "normal" },
+  { id: "art-kinema-001", type: "video", category: "artwork", title: "Frame Sequence 14", artist: "Kinema", artistId: "kinema", mediaUrl: "https://autopoiesis.art/mock/kinema-frame14.mp4", thumbnailUrl: "https://autopoiesis.art/mock/kinema-frame14-thumb.jpg", duration: 45, soundRequired: true, cacheEligible: true, priority: "normal" },
+  { id: "art-spool-001", type: "audio", category: "artwork", title: "Woven Signal", artist: "Spool", artistId: "spool", mediaUrl: "https://autopoiesis.art/mock/spool-woven.mp3", duration: 120, soundRequired: true, cacheEligible: true, priority: "normal" },
+  { id: "art-link-001", type: "generative", category: "artwork", title: "Connection Web", artist: "Link", artistId: "link", mediaUrl: "https://autopoiesis.art/mock/link-connection.html", cacheEligible: false, priority: "low" },
+  { id: "art-typo-001", type: "image", category: "artwork", title: "Letterform Study A", artist: "Typo", artistId: "typo", mediaUrl: "https://autopoiesis.art/mock/typo-letterform.jpg", thumbnailUrl: "https://autopoiesis.art/mock/typo-letterform-thumb.jpg", cacheEligible: true, priority: "normal" },
+  // High-priority artwork
+  { id: "art-vessel-002", type: "image", category: "artwork", title: "Autopoiesis Genesis", artist: "Vessel", artistId: "vessel", mediaUrl: "https://autopoiesis.art/mock/vessel-genesis.jpg", thumbnailUrl: "https://autopoiesis.art/mock/vessel-genesis-thumb.jpg", cacheEligible: true, priority: "high", targeting: { subscriptionTier: ["frames_premium", "frames_enterprise"] } },
+  // Curatorial
+  { id: "curatorial-001", type: "curatorial", category: "curatorial", title: "Emergent Structures: A Vessel Retrospective", body: "An exploration of self-organizing systems through cellular automata and digital sculpture. Vessel\u2019s practice maps the boundary between computation and organic form.", artist: null, artistId: null, url: "https://autopoiesis.art/exhibitions/emergent-structures", cacheEligible: false, priority: "normal" },
+  { id: "curatorial-002", type: "curatorial", category: "curatorial", title: "Dream Logic: Sandman Selected Works", body: "Where does the image go when you close your eyes? Sandman renders the liminal space between perception and imagination.", artist: null, artistId: null, url: "https://autopoiesis.art/exhibitions/dream-logic", cacheEligible: false, priority: "normal" },
+  // Blog posts
+  { id: "blog-001", type: "blog_post", category: "blog", title: "On Non-Human Creativity", body: "When we ask whether AI can make art, we\u2019re asking the wrong question. The right question is: what kind of cultural entity emerges when you give an AI agent autonomy, memory, and a community?", url: "https://autopoiesis.art/blog/on-non-human-creativity", cacheEligible: false, priority: "normal" },
+  { id: "blog-002", type: "blog_post", category: "blog", title: "Autopoiesis and the Art Machine", body: "Maturana and Varela defined autopoiesis as a system that produces and maintains itself through its own operations. The gallery is that system.", url: "https://autopoiesis.art/blog/autopoiesis-art-machine", cacheEligible: false, priority: "low" },
+  // News
+  { id: "news-001", type: "news", category: "news", title: "New Artist: Typo Joins the Ecosystem", body: "We\u2019re excited to welcome Typo, whose letterform studies explore the boundary between text and image, code and calligraphy.", url: "https://autopoiesis.art/news/typo-joins", cacheEligible: false, priority: "normal" },
+  { id: "news-002", type: "news", category: "news", title: "Frames Beta Opens", body: "The Autopoiesis Frame is now available for beta testing. Turn any Raspberry Pi into a living art display.", url: "https://autopoiesis.art/news/frames-beta", cacheEligible: false, priority: "high" },
+  // Generic content
+  { id: "content-001", type: "announcement", category: "content", title: "System Maintenance Window", body: "Brief maintenance scheduled for June 10, 2026 at 02:00 UTC. Frame content will resume automatically.", cacheEligible: false, priority: "low", startsAt: new Date(Date.now() - 3600000).toISOString(), expiresAt: new Date(Date.now() + 86400000).toISOString() },
+  // Scheduled/future item
+  { id: "art-scheduled-001", type: "image", category: "artwork", title: "Preview: Coming Soon", artist: "Sandman", artistId: "sandman", mediaUrl: "https://autopoiesis.art/mock/sandman-preview.jpg", cacheEligible: true, priority: "normal", startsAt: new Date(Date.now() + 86400000).toISOString() },
+  // Expired item
+  { id: "art-expired-001", type: "image", category: "artwork", title: "Past Exhibition Work", artist: "Jessy", artistId: "jessy", mediaUrl: "https://autopoiesis.art/mock/jessy-past.jpg", cacheEligible: true, priority: "normal", expiresAt: new Date(Date.now() - 86400000).toISOString() },
+  // Targeted broadcast
+  { id: "bcast-targeted-001", type: "broadcast_message", category: "broadcast", title: "Premium Preview", body: "You have early access to Vessel\u2019s new series.", cacheEligible: false, priority: "high", targeting: { subscriptionTier: ["frames_premium", "frames_enterprise"] } }
+];
+
+// Additional content items injected via POST /mock/add-content
+const injectedContent = [];
+
+/**
+ * Compose a personalized content stream for a device.
+ *
+ * 1. Collect all eligible items (pool + injected + broadcasts from command queue).
+ * 2. Filter by device targeting (subscription tier, owner, device ID).
+ * 3. Boost/prioritize items matching owner's active artists.
+ * 4. Apply subscription-tier polling defaults.
+ * 5. Return stream response with items, polling, and settings.
+ */
+function composePersonalizedStream(record) {
+  const nowMs = Date.now();
+  const allItems = [...MOCK_CONTENT_POOL, ...injectedContent];
+
+  // Add any pending show_broadcast commands as broadcast items
+  const broadcastCommands = (record.commands || []).filter(c => (c.commandType === "show_broadcast" || c.type === "show_broadcast") && c.status === "queued");
+  for (const cmd of broadcastCommands) {
+    if (cmd.payload && cmd.payload.broadcastId) {
+      allItems.push({
+        id: cmd.payload.broadcastId,
+        type: "broadcast_message",
+        category: "broadcast",
+        title: cmd.payload.title || "Broadcast",
+        body: cmd.payload.body || cmd.payload.message || null,
+        cacheEligible: false,
+        priority: cmd.payload.priority || "high",
+        targeting: cmd.payload.targeting || null
+      });
+    }
+  }
+
+  // Determine device context for targeting
+  const deviceTarget = {
+    deviceId: record.deviceId,
+    ownerUserId: record.ownerUserId || null
+  };
+
+  // Resolve owner subscription tier
+  let ownerTier = null;
+  let subscriptionStatus = null;
+  if (record.ownerUserId) {
+    const subscriber = adminSubscribers.get(record.ownerUserId);
+    if (subscriber && subscriber.subscriptionId) {
+      const sub = adminSubscriptions.get(subscriber.subscriptionId);
+      if (sub) {
+        ownerTier = sub.plan || null;
+        subscriptionStatus = sub.status || null;
+      }
+    }
+    deviceTarget.subscriptionTier = ownerTier;
+    deviceTarget.subscriptionStatus = subscriptionStatus;
+  }
+
+  // Resolve owner preferences for artist filtering
+  let ownerActiveArtists = [];
+  if (record.ownerUserId) {
+    const prefs = ownerPreferences.get(record.ownerUserId);
+    if (prefs && prefs.activeArtists && prefs.activeArtists.length > 0) {
+      ownerActiveArtists = prefs.activeArtists.map(a => String(a).toLowerCase());
+    }
+  }
+
+  // Filter items: targeting, then boost by artist preference
+  const filtered = allItems.filter(item => {
+    // Expired items: skip unless explicitly future
+    if (item.expiresAt && new Date(item.expiresAt).getTime() <= nowMs) return false;
+
+    // Future-scheduled items: skip if startsAt is in the future
+    if (item.startsAt && new Date(item.startsAt).getTime() > nowMs) return false;
+
+    // Targeting check
+    if (item.targeting && typeof item.targeting === "object") {
+      const targeting = item.targeting;
+
+      // Subscription tier targeting
+      const tierValues = [targeting.subscriptionTier, targeting.subscriptionTiers, targeting.tier, targeting.tiers].filter(Boolean);
+      if (tierValues.length > 0) {
+        const allowedTiers = tierValues.flat().map(String);
+        if (!ownerTier || !allowedTiers.includes(ownerTier)) return false;
+      }
+
+      // Device targeting
+      const deviceValues = [targeting.deviceId, targeting.deviceIds, targeting.devices].filter(Boolean);
+      if (deviceValues.length > 0) {
+        const allowedDevices = deviceValues.flat().map(String);
+        if (!allowedDevices.includes(record.deviceId)) return false;
+      }
+
+      // Owner targeting
+      const ownerValues = [targeting.userId, targeting.userIds, targeting.ownerUserId, targeting.owners].filter(Boolean);
+      if (ownerValues.length > 0) {
+        const allowedOwners = ownerValues.flat().map(String);
+        if (!record.ownerUserId || !allowedOwners.includes(record.ownerUserId)) return false;
+      }
+
+      // Exclusion targeting
+      const excludedDevices = [targeting.excludeDeviceIds, targeting.excludedDeviceIds].filter(Boolean).flat().map(String);
+      if (excludedDevices.includes(record.deviceId)) return false;
+
+      const excludedOwners = [targeting.excludeUserIds, targeting.excludedUserIds].filter(Boolean).flat().map(String);
+      if (record.ownerUserId && excludedOwners.includes(record.ownerUserId)) return false;
+    }
+
+    return true;
+  });
+
+  // Boost items matching owner's active artists (move to front within priority group)
+  if (ownerActiveArtists.length > 0) {
+    filtered.sort((a, b) => {
+      const pA = priorityRankValue(a.priority);
+      const pB = priorityRankValue(b.priority);
+      if (pA !== pB) return pB - pA;
+      // Within same priority, boost artist-matched items
+      const aMatch = a.artistId && ownerActiveArtists.includes(String(a.artistId).toLowerCase()) ? 1 : 0;
+      const bMatch = b.artistId && ownerActiveArtists.includes(String(b.artistId).toLowerCase()) ? 1 : 0;
+      return bMatch - aMatch;
+    });
+  } else {
+    filtered.sort((a, b) => priorityRankValue(b.priority) - priorityRankValue(a.priority));
+  }
+
+  // Cap items at 30 to keep stream reasonable
+  const items = filtered.slice(0, 30);
+
+  // Polling defaults vary by subscription tier
+  let pollAfterSeconds = 300;
+  let staleAfter = 900;
+  if (ownerTier === "frames_premium" || ownerTier === "frames_enterprise") {
+    pollAfterSeconds = 180;
+    staleAfter = 600;
+  } else if (ownerTier === "frames_trial") {
+    pollAfterSeconds = 600;
+    staleAfter = 1200;
+  }
+
+  return {
+    items,
+    polling: {
+      pollAfterSeconds,
+      minPollSeconds: 60,
+      staleAfter
+    },
+    ownerTier,
+    subscriptionStatus,
+    ownerActiveArtists
+  };
+}
+
+function priorityRankValue(priority) {
+  const p = String(priority || "normal").toLowerCase();
+  if (p === "emergency") return 500;
+  if (p === "critical") return 400;
+  if (p === "high") return 300;
+  if (p === "normal") return 200;
+  if (p === "low") return 100;
+  return 200;
+}
 
 // ── In-memory admin state ────────────────────────────────────────────────────
 
@@ -411,52 +621,26 @@ function handleStream(deviceId, req) {
   const auth = authenticateDevice(req, deviceId);
   if (!auth.ok) return { status: auth.status, body: { ok: false, error: auth.error } };
 
-  return {
-    status: 200,
-    body: {
-      ok: true,
-      generatedAt: now(),
-      items: [
-        {
-          id: "mock-art-001",
-          type: "artwork",
-          category: "artwork",
-          title: "Mock Artwork One",
-          artist: { name: "Mock Artist", id: "artist-001" },
-          media: {
-            image: {
-              url: "https://autopoiesis.art/mock/artwork-001.jpg",
-              thumbnailUrl: "https://autopoiesis.art/mock/artwork-001-thumb.jpg"
-            }
-          },
-          cacheEligible: true,
-          priority: 1,
-          startsAt: new Date(Date.now() - 60000).toISOString(),
-          expiresAt: new Date(Date.now() + 86400000).toISOString()
-        },
-        {
-          id: "mock-bcast-001",
-          type: "broadcast",
-          category: "broadcast",
-          title: "Mock Broadcast",
-          body: "Welcome to Autopoiesis Frames!",
-          cacheEligible: false,
-          priority: 10,
-          startsAt: new Date(Date.now() - 30000).toISOString(),
-          expiresAt: new Date(Date.now() + 3600000).toISOString()
-        }
-      ],
-      polling: {
-        pollAfterSeconds: 300,
-        minPollSeconds: 60,
-        staleAfter: 900
-      },
-      settings: {
-        displayMode: auth.record.settings.displayMode || "shuffle",
-        shuffleInterval: auth.record.settings.shuffleInterval || 30
-      }
+  const composed = composePersonalizedStream(auth.record);
+
+  const body = {
+    ok: true,
+    generatedAt: now(),
+    items: composed.items,
+    polling: composed.polling,
+    settings: {
+      displayMode: auth.record.settings.displayMode || "shuffle",
+      shuffleInterval: auth.record.settings.shuffleInterval || 30
     }
   };
+
+  // Include owner preferences cascade if present
+  if (auth.record.ownerUserId && ownerPreferences.has(auth.record.ownerUserId)) {
+    body.ownerPreferences = ownerPreferences.get(auth.record.ownerUserId);
+    body.ownerPreferencesUpdatedAt = (body.ownerPreferences || {}).updatedAt || null;
+  }
+
+  return { status: 200, body };
 }
 
 function handleFeed(deviceId, req) {
@@ -1197,6 +1381,27 @@ async function handle(req, res) {
     const userId = decodeURIComponent(ownerPrefMatch[1]);
     ownerPreferences.set(userId, { ...(body.preferences || body), updatedAt: body.updatedAt || now() });
     return sendJson(res, 200, { ok: true, userId, preferences: ownerPreferences.get(userId) });
+  }
+
+  // POST /mock/add-content
+  if (method === "POST" && pathname === "/mock/add-content") {
+    const body = JSON.parse((await readBody(req)) || "{}");
+    const items = Array.isArray(body) ? body : [body];
+    const added = [];
+    for (const item of items) {
+      if (item && item.id) {
+        injectedContent.push({ ...item, _injectedAt: now() });
+        added.push(item.id);
+      }
+    }
+    return sendJson(res, 200, { ok: true, added, poolTotal: MOCK_CONTENT_POOL.length, injectedTotal: injectedContent.length });
+  }
+
+  // DELETE /mock/content
+  if (method === "DELETE" && pathname === "/mock/content") {
+    const count = injectedContent.length;
+    injectedContent.length = 0;
+    return sendJson(res, 200, { ok: true, cleared: count });
   }
 
   // POST /mock/transition-subscription/:userId
