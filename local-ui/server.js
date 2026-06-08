@@ -4313,6 +4313,77 @@ function writeNetworkState(network) {
   }
 }
 
+/**
+ * Query detailed connection properties for the active Wi-Fi device.
+ * Returns ssid, signal, signalQuality, securityType, frequency, channel,
+ * bitrate, ip4Address, and ip6Address when available.
+ * Safe to call even if nmcli is absent — returns null.
+ */
+function wifiConnectionDetails(callback) {
+  execFile("nmcli", ["-t", "-f", "GENERAL.DEVICE,GENERAL.TYPE,GENERAL.STATE,GENERAL.CONNECTION," +
+    "GENERAL.IP4-ADDRESS,GENERAL.IP6-ADDRESS," +
+    "IP4.ADDRESS,IP6.ADDRESS," +
+    "802-11-wireless.ssid,802-11-wireless-security.key-mgmt," +
+    "GENERAL.WIFI-HW-ADDRESS"], "device", "show", (error, stdout) => {
+    // Fallback: use simpler approach with nmcli -t -f active fields
+    wifiConnectionDetailsFallback(callback);
+  });
+}
+
+/**
+ * Fallback Wi-Fi connection details using 'nmcli -t -f SSID,SIGNAL,SECURITY dev wifi list --rescan no'
+ * plus 'nmcli -t -f DEVICE,TYPE,STATE dev status' and IP lookup.
+ */
+function wifiConnectionDetailsFallback(callback) {
+  // Gather signal/security info for currently connected Wi-Fi
+  execFile("nmcli", ["-t", "-f", "ACTIVE,SIGNAL,SSID,SECURITY,FREQ,RATE", "device", "wifi", "list", "--rescan", "no"], (error, stdout) => {
+    if (error) {
+      callback(null);
+      return;
+    }
+    const lines = (stdout || "").split("\n").filter(Boolean);
+    const activeLine = lines.find(line => line.startsWith("yes:"));
+    if (!activeLine) {
+      callback(null);
+      return;
+    }
+    // nmcli -t output format: active:signal:ssid:security:freq:rate
+    const parts = splitNmcliLine(activeLine);
+    const ssid = parts[2] || null;
+    const signal = Number(parts[1]) || 0;
+    const security = parts[3] || "";
+    const frequency = parts[4] || null;
+    const bitrate = parts[5] || null;
+
+    // Get IP address
+    execFile("nmcli", ["-t", "-f", "IP4.ADDRESS", "device", "show"], (ipError, ipStdout) => {
+      let ip4Address = null;
+      if (!ipError && ipStdout) {
+        const ipMatch = ipStdout.match(/IP4\.ADDRESS[^:]*:([^/\n]+)/);
+        if (ipMatch) ip4Address = ipMatch[1];
+      }
+      execFile("nmcli", ["-t", "-f", "IP6.ADDRESS", "device", "show"], (ip6Error, ip6Stdout) => {
+        let ip6Address = null;
+        if (!ip6Error && ip6Stdout) {
+          const ip6Match = ip6Stdout.match(/IP6\.ADDRESS[^:]*:([^/\n]+)/);
+          if (ip6Match) ip6Address = ip6Match[1];
+        }
+        callback({
+          ssid,
+          signal,
+          signalQuality: signalQuality(signal),
+          securityType: classifySecurity(security),
+          security,
+          frequency,
+          bitrate,
+          ip4Address,
+          ip6Address
+        });
+      });
+    });
+  });
+}
+
 function networkStatus(callback) {
   execFile("nmcli", ["-t", "-f", "DEVICE,TYPE,STATE,CONNECTION", "device", "status"], (error, stdout) => {
     if (error) {
@@ -4355,8 +4426,30 @@ function networkStatus(callback) {
           }
         : { available: false }
     };
-    writeNetworkState(network);
-    callback(null, { ok: true, network, devices });
+
+    // Enrich Wi-Fi entry with signal quality, SSID, IP, frequency when connected
+    if (network.wifi.connected) {
+      wifiConnectionDetailsFallback((_, details) => {
+        if (details) {
+          network.wifi = {
+            ...network.wifi,
+            ssid: details.ssid,
+            signal: details.signal,
+            signalQuality: details.signalQuality,
+            securityType: details.securityType,
+            frequency: details.frequency,
+            bitrate: details.bitrate,
+            ip4Address: details.ip4Address,
+            ip6Address: details.ip6Address
+          };
+        }
+        writeNetworkState(network);
+        callback(null, { ok: true, network, devices });
+      });
+    } else {
+      writeNetworkState(network);
+      callback(null, { ok: true, network, devices });
+    }
   });
 }
 

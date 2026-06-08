@@ -1,5 +1,49 @@
 # Progress
 
+## 2026-06-08 - Wi-Fi connection detail enrichment for remote monitoring
+
+Date: 2026-06-08
+
+Milestone: RPI APPLIANCE — Wi-Fi signal quality and connection details in diagnostics/heartbeat
+
+Changed files:
+
+- `local-ui/server.js`
+- `scripts/wifi-network-enrichment-check.sh` (new)
+- `docs/progress.md`
+- `/data/.openclaw/workspace/autopoiesis-os-program/ROLLING-LOG.md`
+
+Implemented:
+
+- Added `wifiConnectionDetailsFallback(callback)` — queries the active Wi-Fi connection via `nmcli -t -f ACTIVE,SIGNAL,SSID,SECURITY,FREQ,RATE device wifi list --rescan no` plus IP address lookups via `nmcli -t -f IP4.ADDRESS/IP6.ADDRESS device show`. Returns `{ ssid, signal, signalQuality, securityType, security, frequency, bitrate, ip4Address, ip6Address }` for the active connection, or `null` when no Wi-Fi is connected or nmcli is unavailable.
+- Enriched `networkStatus()` — when `network.wifi.connected` is true, the function now calls `wifiConnectionDetailsFallback()` to enrich the `wifi` object in the network response with signal quality, SSID, security type, frequency, bitrate, and IP addresses. The enriched data is written to `network.json` via `writeNetworkState()` and returned in the API response.
+- The enrichment is conditional: LAN-only devices, offline devices, and devices without Wi-Fi hardware are unaffected. Wi-Fi devices that are available but not connected skip the enrichment.
+- **Heartbeat delivery chain**: The enriched network data flows through `network.json` → `status()` → `collectDiagnostics()` → `sendHeartbeat()` → hosted API heartbeat endpoint. This means the hosted API and admin dashboard now receive Wi-Fi signal quality, SSID, and IP address information with every heartbeat.
+- **Security**: Verified that no API keys, tokens, or secrets appear in network.json or the network status response.
+- Added `scripts/wifi-network-enrichment-check.sh` — a 12-step 46-check isolated validation gate proving: syntax validation, static contract (functions and enrichment fields present), wifiConnectionDetailsFallback structure (nmcli fields, signalQuality/classifySecurity reuse, null fallback), networkStatus enrichment path (conditional on wifi.connected, writeNetworkState after enrichment), live endpoint test with mock nmcli (Wi-Fi connected device, LAN-only device, offline device), security (no secrets in network data), diagnostics chain (network → collectDiagnostics), heartbeat chain (diagnostics → sendHeartbeat), regression (Wi-Fi scan still works, other endpoints still respond).
+
+Why this matters:
+
+The hosted API and admin dashboard had no visibility into device network quality. The heartbeat delivered diagnostics, but the network section only contained `online`, `primary` type, and basic device/connection names. When a Frame stopped working, the admin dashboard showed "wifi connected" but couldn't tell if the signal was weak (40%), if the SSID matched the expected network, or what IP address the device had. This enrichment provides Wi-Fi signal strength and quality classification (excellent/good/fair/weak), the connected SSID, security type, frequency, bitrate, and both IPv4 and IPv6 addresses — all delivered via the heartbeat to the hosted API. The admin dashboard can now display network quality indicators, flag devices with weak signal, and show connection details for remote troubleshooting. This was explicitly called out as a next step after the Wi-Fi scan deduplication work.
+
+Verification:
+
+- `scripts/wifi-network-enrichment-check.sh` passed all 46 checks (12 steps).
+- `scripts/wifi-scan-dedup-check.sh` passed all 25 checks (no regression).
+- `scripts/diagnostics-check.sh` passed all 39 checks (no regression).
+- `scripts/security-smoke.sh` passed (no regression).
+- `node --check local-ui/server.js` passed.
+- `bash -n install.sh update.sh uninstall-dev-tools.sh factory-reset.sh scripts/*.sh` passed.
+
+Next step:
+
+- On the Pi, verify that `network.json` includes signal quality when connected to real Wi-Fi hardware.
+- Wire the enriched network data into the admin dashboard's device detail view (signal strength indicator, SSID display, IP address).
+- Add network quality alerts to the hosted API: flag devices where signal quality drops to "weak" or Wi-Fi disconnects unexpectedly.
+- Add network change event tracking: log when SSID or signal quality changes significantly for long-term connectivity analysis.
+
+---
+
 ## 2026-06-08 - Hosted API server scaffold (hosted-api/server.js)
 
 Date: 2026-06-08
