@@ -11,7 +11,7 @@ set -euo pipefail
 # → local UI → local state files. Every device lifecycle operation flows
 # through both servers exactly as it would on a real Pi.
 #
-# 18 steps, ~70 checks.
+# 19 steps, ~86 checks.
 #
 # Usage:
 #   scripts/hosted-api-local-ui-bridge-check.sh
@@ -144,6 +144,51 @@ console.log('Bootstrap: ' + tables.length + ' tables');
 " 2>/dev/null && ok || fail "database bootstrap"
 check
 
+# ── Step 3b: Seed content into aos_broadcasts ──────────────────────────────
+step "Seed diverse content into database"
+SEED_RESULT=$(node -e "
+const AosDb = require('$HOSTED_DB');
+const db = new AosDb('$DB_FILE');
+
+const items = [
+  { id: 'art-vessel-001', title: 'Cellular Echo No. 7', type: 'artwork', media_url: 'https://autopoiesis.art/mock/vessel-cellular-echo.jpg', priority: 'normal', cache_allowed: 1, status: 'published', created_by: 'seed', metadata_json: JSON.stringify({ artist: 'Vessel', artistId: 'vessel', thumbnailUrl: 'https://autopoiesis.art/mock/vessel-cellular-echo-thumb.jpg' }) },
+  { id: 'art-sandman-001', title: 'Dream Threshold', type: 'artwork', media_url: 'https://autopoiesis.art/mock/sandman-dream.jpg', priority: 'normal', cache_allowed: 1, status: 'published', created_by: 'seed', metadata_json: JSON.stringify({ artist: 'Sandman', artistId: 'sandman', thumbnailUrl: 'https://autopoiesis.art/mock/sandman-dream-thumb.jpg' }) },
+  { id: 'art-jessy-001', title: 'Market Index III', type: 'artwork', media_url: 'https://autopoiesis.art/mock/jessy-market.jpg', priority: 'normal', cache_allowed: 1, status: 'published', created_by: 'seed', metadata_json: JSON.stringify({ artist: 'Jessy', artistId: 'jessy', thumbnailUrl: 'https://autopoiesis.art/mock/jessy-market-thumb.jpg' }) },
+  { id: 'art-kinema-001', title: 'Frame Sequence 14', type: 'video', media_url: 'https://autopoiesis.art/mock/kinema-frame14.mp4', priority: 'normal', cache_allowed: 1, status: 'published', duration: 45, sound_allowed: 1, created_by: 'seed', metadata_json: JSON.stringify({ artist: 'Kinema', artistId: 'kinema' }) },
+  { id: 'art-vessel-002', title: 'Autopoiesis Genesis', type: 'artwork', media_url: 'https://autopoiesis.art/mock/vessel-genesis.jpg', priority: 'high', cache_allowed: 1, status: 'published', created_by: 'seed', target_type: 'tier', target_value: 'frames_premium,frames_enterprise', metadata_json: JSON.stringify({ artist: 'Vessel', artistId: 'vessel', thumbnailUrl: 'https://autopoiesis.art/mock/vessel-genesis-thumb.jpg' }) },
+  { id: 'curatorial-001', title: 'Emergent Structures: A Vessel Retrospective', type: 'curatorial', body: 'An exploration of self-organizing systems through cellular automata and digital sculpture.', priority: 'normal', cache_allowed: 0, status: 'published', created_by: 'seed', metadata_json: JSON.stringify({ url: 'https://autopoiesis.art/exhibitions/emergent-structures' }) },
+  { id: 'blog-001', title: 'On Non-Human Creativity', type: 'blog_post', body: 'When we ask whether AI can make art, we are asking the wrong question.', priority: 'normal', cache_allowed: 0, status: 'published', created_by: 'seed', metadata_json: JSON.stringify({ url: 'https://autopoiesis.art/blog/on-non-human-creativity' }) },
+  { id: 'news-001', title: 'Frames Beta Opens', type: 'news', body: 'The Autopoiesis Frame is now available for beta testing.', priority: 'high', cache_allowed: 0, status: 'published', created_by: 'seed', metadata_json: JSON.stringify({ url: 'https://autopoiesis.art/news/frames-beta' }) },
+  { id: 'bcast-urgent-001', title: 'System Maintenance Window', type: 'system_notice', body: 'Brief maintenance scheduled for June 10, 2026 at 02:00 UTC.', priority: 'low', cache_allowed: 0, status: 'published', created_by: 'seed', starts_at: new Date(Date.now() - 3600000).toISOString(), expires_at: new Date(Date.now() + 86400000).toISOString() },
+  // Expired — should be filtered out
+  { id: 'art-expired-001', title: 'Past Exhibition Work', type: 'artwork', media_url: 'https://autopoiesis.art/mock/jessy-past.jpg', priority: 'normal', cache_allowed: 1, status: 'published', created_by: 'seed', expires_at: new Date(Date.now() - 86400000).toISOString() },
+  // Future — should be filtered out
+  { id: 'art-scheduled-001', title: 'Preview: Coming Soon', type: 'artwork', media_url: 'https://autopoiesis.art/mock/sandman-preview.jpg', priority: 'normal', cache_allowed: 1, status: 'published', created_by: 'seed', starts_at: new Date(Date.now() + 86400000).toISOString() },
+  // Draft — should be filtered out
+  { id: 'art-draft-001', title: 'Draft Piece', type: 'artwork', media_url: 'https://autopoiesis.art/mock/draft.jpg', priority: 'normal', cache_allowed: 1, status: 'draft', created_by: 'seed' },
+];
+
+const stmt = db.db.prepare(
+  'INSERT OR IGNORE INTO aos_broadcasts (id, title, body, type, media_url, thumbnail_url, artist, artist_id, target_type, target_value, priority, duration, starts_at, expires_at, cache_allowed, sound_allowed, status, created_by, metadata_json) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
+);
+
+let inserted = 0;
+for (const item of items) {
+  try {
+    const meta = JSON.parse(item.metadata_json || '{}');
+    stmt.run(item.id, item.title, item.body || null, item.type, item.media_url || null, meta.thumbnailUrl || null, meta.artist || null, meta.artistId || null, item.target_type || 'all', item.target_value || '', item.priority, item.duration || null, item.starts_at || null, item.expires_at || null, item.cache_allowed, item.sound_allowed !== undefined ? item.sound_allowed : 1, item.status, item.created_by, item.metadata_json || '{}');
+    inserted++;
+  } catch (e) { console.error('Insert error:', item.id, e.message); }
+}
+
+const active = db.getActiveBroadcastCount();
+console.log(JSON.stringify({ inserted, active }));
+db.close();
+" 2>/dev/null)
+[ "$(jval "$SEED_RESULT" "d.inserted")" -ge 10 ] && ok || fail "seeded 10+ content items"
+[ "$(jval "$SEED_RESULT" "d.active")" -ge 7 ] && ok || fail "7+ active (non-expired, published) items"
+check
+
 # ── Step 4: Start hosted API server ──────────────────────────────────────────
 step "Start hosted API server"
 API_PORT=$(find_free_port)
@@ -274,22 +319,47 @@ db.close();
 echo "  Device status: $DEVICE_STATUS"
 check
 
-# ── Step 14: Sync feed via local UI ──────────────────────────────────────────
-step "Sync feed via local UI"
+# ── Step 15: Sync feed + verify personalized stream content ──────────────────
+step "Sync feed and verify personalized stream content"
 FEED=$(curl -sf -X POST "http://127.0.0.1:$UI_PORT/local/feed/sync" 2>/dev/null)
 [ "$(jval "$FEED" "d.ok")" = "true" ] && ok || fail "feed sync ok"
 [ -n "$(jval "$FEED" "d.syncedAt")" ] && ok || fail "syncedAt present"
 [ -n "$(jval "$FEED" "d.endpoint")" ] && ok || fail "endpoint present"
 
-# Hosted API stream endpoint returns correct shape (empty items = ok for now)
+# Hosted API stream endpoint returns real content items
 STREAM=$(curl -sf "http://127.0.0.1:$API_PORT/frames/device/$DEVICE_ID/stream" \
   -H "x-frame-device-key: $DEV_KEY" 2>/dev/null)
 [ "$(jval "$STREAM" "d.ok")" = "true" ] && ok || fail "hosted stream ok"
 [ "$(jval "$STREAM" "d.items !== undefined")" = "true" ] && ok || fail "hosted stream has items"
 [ "$(jval "$STREAM" "d.polling !== undefined")" = "true" ] && ok || fail "hosted stream has polling"
+
+# Verify items are non-empty (composition engine working)
+ITEM_COUNT=$(jval "$STREAM" "d.items.length")
+[ "$ITEM_COUNT" -ge 7 ] && ok || fail "stream has 7+ items (got $ITEM_COUNT)"
+
+# Verify priority ordering: high-priority items come first
+FIRST_PRIORITY=$(jval "$STREAM" "d.items[0].priority")
+[ "$FIRST_PRIORITY" = "high" ] && ok || fail "first item is high priority (got $FIRST_PRIORITY)"
+
+# Verify expired items are filtered out
+EXPIRED_COUNT=$(echo "$STREAM" | node -e "const d=JSON.parse(require('fs').readFileSync('/dev/stdin','utf8')); process.stdout.write(String(d.items.filter(i=>i.id==='art-expired-001').length))" 2>/dev/null)
+[ "$EXPIRED_COUNT" = "0" ] && ok || fail "expired item filtered out"
+
+# Verify future-scheduled items are filtered out
+FUTURE_COUNT=$(echo "$STREAM" | node -e "const d=JSON.parse(require('fs').readFileSync('/dev/stdin','utf8')); process.stdout.write(String(d.items.filter(i=>i.id==='art-scheduled-001').length))" 2>/dev/null)
+[ "$FUTURE_COUNT" = "0" ] && ok || fail "future-scheduled item filtered out"
+
+# Verify draft items are filtered out
+DRAFT_COUNT=$(echo "$STREAM" | node -e "const d=JSON.parse(require('fs').readFileSync('/dev/stdin','utf8')); process.stdout.write(String(d.items.filter(i=>i.id==='art-draft-001').length))" 2>/dev/null)
+[ "$DRAFT_COUNT" = "0" ] && ok || fail "draft item filtered out"
+
+# Verify content categories present
+CATEGORIES=$(echo "$STREAM" | node -e "const d=JSON.parse(require('fs').readFileSync('/dev/stdin','utf8')); const cats=[...new Set(d.items.map(i=>i.category))].sort(); process.stdout.write(cats.join(','))" 2>/dev/null)
+echo "  Categories: $CATEGORIES"
+[ -n "$CATEGORIES" ] && ok || fail "categories present"
 check
 
-# ── Step 15: Command queue + delivery via heartbeat ──────────────────────────
+# ── Step 16: Command queue + delivery via heartbeat ──────────────────────────
 step "Command queue and delivery via heartbeat"
 # Queue a command via AosDb (simulating admin action)
 CMD=$(node -e "
@@ -318,7 +388,7 @@ echo "$COMMANDS" | grep -q "sync_settings" && ok || fail "sync_settings command 
 echo "  Command $CMD_ID queued, delivered, and processed"
 check
 
-# ── Step 16: Check release via local UI ──────────────────────────────────────
+# ── Step 17: Check release via local UI ──────────────────────────────────────
 step "Check release via local UI"
 RELEASE=$(curl -sf -X POST "http://127.0.0.1:$UI_PORT/local/release/check" 2>/dev/null)
 [ "$(jval "$RELEASE" "d.ok")" = "true" ] && ok || fail "release check ok"
@@ -326,7 +396,7 @@ RELEASE=$(curl -sf -X POST "http://127.0.0.1:$UI_PORT/local/release/check" 2>/de
 echo "$RELEASE" | grep -q "0.1.1" && ok || fail "correct version 0.1.1"
 check
 
-# ── Step 17: Verify device state consistency ─────────────────────────────────
+# ── Step 18: Verify device state consistency ─────────────────────────────────
 step "Verify device state consistency"
 
 # Local UI status must show paired device with correct owner
@@ -349,7 +419,7 @@ FINAL_HEALTH=$(curl -sf "http://127.0.0.1:$API_PORT/health" 2>/dev/null)
 [ "$(jval "$FINAL_HEALTH" "d.ok")" = "true" ] && ok || fail "hosted API still healthy after full lifecycle"
 check
 
-# ── Step 18: Cross-server consistency ────────────────────────────────────────
+# ── Step 19: Cross-server consistency ────────────────────────────────────────
 step "Cross-server consistency"
 
 # Local UI and hosted API must agree on device ID

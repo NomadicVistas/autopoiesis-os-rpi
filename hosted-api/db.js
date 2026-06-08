@@ -57,6 +57,27 @@ function jsonStringify(val) {
   return JSON.stringify(val);
 }
 
+function _broadcastTypeToCategory(type) {
+  if (!type) return 'content';
+  const t = String(type).toLowerCase();
+  if (t === 'artwork' || t === 'image' || t === 'video' || t === 'audio' || t === 'generative') return 'artwork';
+  if (t === 'curatorial' || t === 'exhibition') return 'curatorial';
+  if (t === 'blog_post' || t === 'blog') return 'blog';
+  if (t === 'news' || t === 'announcement') return 'news';
+  if (t === 'broadcast_message' || t === 'broadcast' || t === 'system_notice') return 'broadcast';
+  return 'content';
+}
+
+function _priorityRank(priority) {
+  const p = String(priority || 'normal').toLowerCase();
+  if (p === 'emergency') return 500;
+  if (p === 'critical') return 400;
+  if (p === 'high') return 300;
+  if (p === 'normal') return 200;
+  if (p === 'low') return 100;
+  return 200;
+}
+
 // ---------------------------------------------------------------------------
 // AosDb class
 // ---------------------------------------------------------------------------
@@ -962,6 +983,153 @@ class AosDb {
       "SELECT artwork_id FROM aos_artwork_likes WHERE user_id = ? ORDER BY created_at DESC"
     ).all(userId);
     return rows.map(r => r.artwork_id);
+  }
+
+  // ── Stream Content ─────────────────────────────────────────────────────
+
+  /**
+   * Get active content items from aos_broadcasts for stream composition.
+   *
+   * Returns published, non-expired broadcasts ordered by priority desc, then
+   * created_at desc. Filters by target_type/target_value for device/owner/tier
+   * targeting, and respects starts_at/expires_at scheduling.
+   *
+   * @param {object} context
+   * @param {string} context.deviceId
+   * @param {string} [context.ownerUserId]
+   * @param {string} [context.subscriptionTier]
+   * @param {string[]} [context.activeArtists]
+   * @param {number} [context.limit=30]
+   * @returns {Array<object>}
+   */
+  getStreamContent(context = {}) {
+    const { deviceId, ownerUserId, subscriptionTier, activeArtists = [] } = context;
+    const limit = context.limit || 30;
+    const nowISO = now();
+
+    // Fetch all published, non-expired broadcasts
+    const rows = this.db.prepare(
+      `SELECT * FROM aos_broadcasts
+       WHERE status = 'published'
+         AND (expires_at IS NULL OR expires_at > ?)
+         AND (starts_at IS NULL OR starts_at <= ?)
+       ORDER BY
+         CASE priority
+           WHEN 'emergency' THEN 500
+           WHEN 'critical' THEN 400
+           WHEN 'high' THEN 300
+           WHEN 'normal' THEN 200
+           WHEN 'low' THEN 100
+           ELSE 200
+         END DESC,
+         created_at DESC`
+    ).all(nowISO, nowISO);
+
+    // Filter by targeting
+    const filtered = rows.filter(row => {
+      const targetType = row.target_type;
+      const targetValue = row.target_value;
+
+      // "all" targets pass through
+      if (!targetType || targetType === 'all') return true;
+
+      // Parse target_value as comma-separated list
+      const values = String(targetValue || '')
+        .split(',')
+        .map(v => v.trim())
+        .filter(Boolean);
+
+      if (values.length === 0) return true;
+
+      switch (targetType) {
+        case 'device':
+        case 'device_id':
+          return deviceId ? values.includes(deviceId) : false;
+        case 'owner':
+        case 'user_id':
+          return ownerUserId ? values.includes(ownerUserId) : false;
+        case 'tier':
+        case 'subscription_tier':
+          return subscriptionTier ? values.includes(subscriptionTier) : false;
+        case 'exclude_device':
+          return deviceId ? !values.includes(deviceId) : true;
+        case 'exclude_owner':
+        case 'exclude_user':
+          return ownerUserId ? !values.includes(ownerUserId) : true;
+        default:
+          return true;
+      }
+    });
+
+    // Map rows to stream items
+    const items = filtered.slice(0, limit).map(row => {
+      const item = {
+        id: row.id,
+        type: row.type || 'content',
+        category: _broadcastTypeToCategory(row.type),
+        title: row.title,
+        priority: row.priority || 'normal',
+        cacheEligible: !!row.cache_allowed,
+        soundRequired: !!(row.sound_allowed && row.type === 'video'),
+      };
+
+      if (row.body) item.body = row.body;
+      if (row.media_url) {
+        item.mediaUrl = row.media_url;
+      }
+      if (row.thumbnail_url) {
+        item.thumbnailUrl = row.thumbnail_url;
+      } else if (row.media_url && (row.type === 'image' || row.type === 'artwork')) {
+        item.thumbnailUrl = row.media_url;
+      }
+      if (row.duration) item.duration = row.duration;
+      if (row.starts_at) item.startsAt = row.starts_at;
+      if (row.expires_at) item.expiresAt = row.expires_at;
+
+      // Artist attribution from dedicated columns
+      if (row.artist) item.artist = row.artist;
+      if (row.artist_id) item.artistId = row.artist_id;
+
+      // Additional metadata from metadata_json
+      const meta = jsonParse(row.metadata_json || '{}', {});
+      if (!item.artist && meta.artist) item.artist = meta.artist;
+      if (!item.artistId && meta.artistId) item.artistId = meta.artistId;
+      if (meta.url) item.url = meta.url;
+      if (!item.thumbnailUrl && meta.thumbnailUrl) item.thumbnailUrl = meta.thumbnailUrl;
+      if (meta.targeting) item.targeting = meta.targeting;
+
+      return item;
+    });
+
+    // Boost artist-matched items within priority groups
+    if (activeArtists.length > 0) {
+      const lowerArtists = activeArtists.map(a => String(a).toLowerCase());
+      items.sort((a, b) => {
+        const pa = _priorityRank(a.priority);
+        const pb = _priorityRank(b.priority);
+        if (pa !== pb) return pb - pa;
+        const am = a.artistId && lowerArtists.includes(String(a.artistId).toLowerCase()) ? 1 : 0;
+        const bm = b.artistId && lowerArtists.includes(String(b.artistId).toLowerCase()) ? 1 : 0;
+        return bm - am;
+      });
+    }
+
+    return items;
+  }
+
+  /**
+   * Get active (published, non-expired) broadcast count for monitoring.
+   * @returns {number}
+   */
+  getActiveBroadcastCount() {
+    const nowISO = now();
+    const row = this.db.prepare(
+      `SELECT count(*) AS cnt FROM aos_broadcasts
+       WHERE status = 'published'
+         AND (expires_at IS NULL OR expires_at > ?)
+         AND (starts_at IS NULL OR starts_at <= ?)`
+    ).get(nowISO, nowISO);
+    return row ? row.cnt : 0;
   }
 
   // ── Internal helpers ─────────────────────────────────────────────────────

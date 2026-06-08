@@ -129,6 +129,9 @@ CREATE TABLE IF NOT EXISTS aos_broadcasts (
   body          TEXT,
   type          TEXT    NOT NULL DEFAULT 'system_notice',
   media_url     TEXT,
+  thumbnail_url TEXT,
+  artist        TEXT,
+  artist_id     TEXT,
   target_type   TEXT    NOT NULL DEFAULT 'all',
   target_value  TEXT    NOT NULL DEFAULT '',
   priority      TEXT    NOT NULL DEFAULT 'normal',
@@ -141,6 +144,7 @@ CREATE TABLE IF NOT EXISTS aos_broadcasts (
   sound_allowed INTEGER NOT NULL DEFAULT 1,
   status        TEXT    NOT NULL DEFAULT 'draft',
   created_by    TEXT    NOT NULL,
+  metadata_json TEXT    NOT NULL DEFAULT '{}',
   created_at    TEXT    NOT NULL DEFAULT (datetime('now')),
   updated_at    TEXT    NOT NULL DEFAULT (datetime('now'))
 );

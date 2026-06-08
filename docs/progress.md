@@ -1,5 +1,61 @@
 # Progress
 
+## 2026-06-08 - Hosted API stream composition engine
+
+Date: 2026-06-08
+
+Milestone: LEAD / INTEGRATION — hosted API personalized stream composition from database
+
+Changed files:
+
+- `hosted-api/db.js` (getStreamContent, getActiveBroadcastCount, helper functions)
+- `hosted-api/server.js` (handleStream rewrite with composition engine)
+- `scripts/aos-schema-sqlite-validation.sql` (aos_broadcasts: added thumbnail_url, artist, artist_id, metadata_json)
+- `migrations/20260607000001_initial_aos_frames.sql` (matching schema update)
+- `scripts/hosted-api-server-check.sh` (content seeding, stream contract verification)
+- `scripts/hosted-api-local-ui-bridge-check.sh` (content seeding, personalized stream verification)
+- `docs/progress.md`
+- `docs/agent-notes/pulse.md`
+- `/data/.openclaw/workspace/autopoiesis-os-program/ROLLING-LOG.md`
+
+Implemented:
+
+- Added `getStreamContent(context)` to `hosted-api/db.js` — the core database query method for the personalized content stream. Queries `aos_broadcasts` for published, non-expired content, filters by device targeting (target_type/target_value for device, owner, tier, exclusions), respects scheduling (starts_at/expires_at), sorts by priority (emergency > critical > high > normal > low), and boosts artist-matched items within priority groups when the owner has active artist preferences. Maps database rows to stream items with proper field projection (type → category, cache_allowed → cacheEligible, artist_id → artistId, thumbnail_url → thumbnailUrl). Falls back to metadata_json for backward-compatible artist/thumbnail/url/targeting data. Caps at 30 items.
+- Added `getActiveBroadcastCount()` — returns count of published, non-expired broadcasts for monitoring.
+- Added `_broadcastTypeToCategory(type)` — maps broadcast type strings to stream item categories (artwork, curatorial, blog, news, broadcast, content).
+- Added `_priorityRank(priority)` — numeric priority mapping for sort comparisons.
+- Rewrote `handleStream()` in `hosted-api/server.js` — previously returned an empty `items: []` array with hardcoded polling defaults. Now resolves owner context (subscription tier for polling, active artists for boosting), calls `db.getStreamContent()` for personalized items, and includes owner preferences cascade. The subscription tier now correctly reads `sub.plan` instead of the previous `sub.subscription.plan` (which would have failed since AosDb.getSubscription returns `{ plan, status }` directly).
+- Extended `aos_broadcasts` schema with 4 new columns: `thumbnail_url` (TEXT), `artist` (TEXT), `artist_id` (TEXT), `metadata_json` (TEXT, default '{}'). These first-class columns enable direct SQL querying by artist, thumbnail resolution without JSON parsing, and extensible metadata for future fields. Updated both the SQLite validation schema and the canonical PostgreSQL migration.
+- Seeded 12 diverse content items in bridge check and 6 items in server check: artworks (image, video), curatorial, blog, news, system notice — with expired, future-scheduled, and draft items for filtering verification.
+- Updated Step 11 of `hosted-api-server-check.sh` — now verifies non-empty stream (4+ items), high-priority-first ordering, expired/draft item filtering, and polling/settings contract.
+- Added Step 15 to `hosted-api-local-ui-bridge-check.sh` — verifies non-empty personalized stream (7+ items), priority ordering, expired/future/draft item filtering, and category diversity (artwork, blog, broadcast, curatorial, news).
+- Added static contract checks for `getStreamContent` and `getActiveBroadcastCount` in server check Step 2.
+
+Why this matters:
+
+The hosted API's stream endpoint was returning `items: []` — an empty scaffold. The entire feed pipeline on the device side (normalization, eligibility filtering, display queue composition, cache eligibility, priority ordering, category-aware dwell time) had no real content to process from the real database-backed API. The mock API had a rich composition engine with 18 diverse items, but the hosted API had nothing. This change closes that gap: `aos_broadcasts` is now the content source, `getStreamContent()` is the composition engine, and `handleStream()` is the delivery layer. The stream endpoint produces personalized, targeted, prioritized content from real database rows — exactly what the device feed pipeline needs. The schema extension (thumbnail_url, artist, artist_id, metadata_json) makes `aos_broadcasts` usable as a general-purpose content table for all stream item types, not just admin broadcasts. This unblocks: device-side feed pipeline testing with real data, cache behavior verification, display queue composition, artist preference boosting, subscription-tier targeting, and the entire MVP 0.2 personal stream feature.
+
+Verification:
+
+- `scripts/hosted-api-server-check.sh` passed all 74 checks (12 steps, previously 68).
+- `scripts/hosted-api-local-ui-bridge-check.sh` passed all 94 checks (19 steps, previously 86).
+- `scripts/hosted-api-db-check.sh` passed all 45 checks (15 steps, no regression).
+- `scripts/security-smoke.sh` passed (no regression).
+- `node --check hosted-api/server.js` passed.
+- `node --check hosted-api/db.js` passed.
+- `node --check local-ui/server.js` passed.
+- `node --check scripts/mock-hosted-api/server.js` passed.
+- `bash -n install.sh update.sh uninstall-dev-tools.sh factory-reset.sh scripts/*.sh` passed.
+
+Next step:
+
+- Populate `aos_broadcasts` with real gallery content (artworks from autopoiesis.art, curatorial text, blog posts).
+- Wire the stream composition into the admin dashboard for content management.
+- Test the device-side feed pipeline with the personalized stream: verify normalization, eligibility, display queue, and cache behavior.
+- Add `scripts/hosted-api-local-ui-bridge-check.sh` to `scripts/verify-all.sh`.
+
+---
+
 ## 2026-06-08 - Hosted API → local UI end-to-end bridge check
 
 Date: 2026-06-08

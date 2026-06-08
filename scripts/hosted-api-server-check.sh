@@ -66,6 +66,12 @@ for fn in handleRegister handlePairingStatus handleGetSettings handlePushSetting
   echo "$SRV" | grep -qP "function $fn" && ok || fail "function: $fn"
 done
 
+# DB methods for stream composition
+DB_CODE=$(cat "$HOSTED_DB")
+for method in getStreamContent getActiveBroadcastCount; do
+  echo "$DB_CODE" | grep -qP "$method\\s*\\(" && ok || fail "db method: $method"
+done
+
 echo "  Checks: $PASS passed, $FAIL failed"
 
 # ── Step 3: Database bootstrap ───────────────────────────────────────────────
@@ -100,7 +106,7 @@ echo "  Checks: $PASS passed, $FAIL failed"
 
 # ── Step 4: Server startup ──────────────────────────────────────────────────
 step "Server startup"
-# Re-create database for clean server test
+# Re-create database for clean server test + seed content
 rm -f "$DB_FILE"
 node -e "
 const AosDb = require('$HOSTED_DB');
@@ -110,6 +116,17 @@ const db = new AosDb('$DB_FILE');
 for (const stmt of sql.split(';').map(s => s.trim()).filter(s => s.length > 0)) {
   db.db.prepare(stmt).run();
 }
+// Seed content for stream composition testing
+const items = [
+  { id: 'seed-art-001', title: 'Test Artwork', type: 'artwork', media_url: 'https://autopoiesis.art/test.jpg', thumbnail_url: 'https://autopoiesis.art/test-thumb.jpg', artist: 'Vessel', artist_id: 'vessel', priority: 'normal', cache_allowed: 1, status: 'published', created_by: 'seed' },
+  { id: 'seed-news-001', title: 'Test News', type: 'news', body: 'News body', priority: 'high', cache_allowed: 0, status: 'published', created_by: 'seed' },
+  { id: 'seed-blog-001', title: 'Test Blog', type: 'blog_post', body: 'Blog body', priority: 'normal', cache_allowed: 0, status: 'published', created_by: 'seed' },
+  { id: 'seed-cur-001', title: 'Test Curatorial', type: 'curatorial', body: 'Curatorial body', priority: 'normal', cache_allowed: 0, status: 'published', created_by: 'seed' },
+  { id: 'seed-expired-001', title: 'Expired', type: 'artwork', media_url: 'https://autopoiesis.art/exp.jpg', priority: 'normal', cache_allowed: 1, status: 'published', created_by: 'seed', expires_at: new Date(Date.now() - 86400000).toISOString() },
+  { id: 'seed-draft-001', title: 'Draft', type: 'artwork', priority: 'normal', cache_allowed: 1, status: 'draft', created_by: 'seed' },
+];
+const stmt = db.db.prepare('INSERT OR IGNORE INTO aos_broadcasts (id, title, body, type, media_url, thumbnail_url, artist, artist_id, priority, cache_allowed, status, created_by, expires_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)');
+for (const item of items) { stmt.run(item.id, item.title, item.body || null, item.type, item.media_url || null, item.thumbnail_url || null, item.artist || null, item.artist_id || null, item.priority, item.cache_allowed, item.status, item.created_by, item.expires_at || null); }
 db.close();
 " 2>/dev/null
 
@@ -234,9 +251,22 @@ STREAM=$(curl -sf "http://127.0.0.1:$PORT/frames/device/test-device-001/stream" 
   -H "x-frame-device-key: $DEV_KEY")
 echo "$STREAM" | grep -q '"ok":true' && ok || fail "stream ok"
 echo "$STREAM" | grep -q '"generatedAt"' && ok || fail "generatedAt"
-echo "$STREAM" | grep -qP '"items":\s*\[\]' && ok || fail "items array"
+echo "$STREAM" | grep -q '"items"' && ok || fail "items present"
+# Items should be non-empty now that content is seeded
+ITEM_COUNT=$(echo "$STREAM" | node -e "const d=JSON.parse(require('fs').readFileSync('/dev/stdin','utf8')); process.stdout.write(String(d.items.length))" 2>/dev/null)
+[ "$ITEM_COUNT" -ge 4 ] && ok || fail "stream has 4+ items (got $ITEM_COUNT)"
+# High-priority items should come first
+FIRST_PRIO=$(echo "$STREAM" | node -e "const d=JSON.parse(require('fs').readFileSync('/dev/stdin','utf8')); process.stdout.write(d.items[0] ? d.items[0].priority : 'none')" 2>/dev/null)
+[ "$FIRST_PRIO" = "high" ] && ok || fail "first item is high priority (got $FIRST_PRIO)"
+# Expired items should be filtered
+EXPIRED=$(echo "$STREAM" | node -e "const d=JSON.parse(require('fs').readFileSync('/dev/stdin','utf8')); process.stdout.write(String(d.items.filter(i=>i.id==='seed-expired-001').length))" 2>/dev/null)
+[ "$EXPIRED" = "0" ] && ok || fail "expired item filtered"
+# Draft items should be filtered
+DRAFTS=$(echo "$STREAM" | node -e "const d=JSON.parse(require('fs').readFileSync('/dev/stdin','utf8')); process.stdout.write(String(d.items.filter(i=>i.id==='seed-draft-001').length))" 2>/dev/null)
+[ "$DRAFTS" = "0" ] && ok || fail "draft item filtered"
 echo "$STREAM" | grep -q '"polling"' && ok || fail "polling present"
 echo "$STREAM" | grep -q '"displayMode"' && ok || fail "displayMode in settings"
+echo "  Items: $ITEM_COUNT, first priority: $FIRST_PRIO"
 echo "  Checks: $PASS passed, $FAIL failed"
 
 # ── Step 12: Full lifecycle integration ──────────────────────────────────────

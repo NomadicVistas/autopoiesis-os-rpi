@@ -310,34 +310,52 @@ function handleHeartbeat(db, deviceId, body, auth) {
  * GET /frames/device/:id/stream
  * Returns the personalized content stream for a device.
  *
- * Future: query aos_ content tables for real artwork, curatorial, blog, news.
- * Current scaffold: returns empty stream with correct contract shape.
+ * Queries aos_broadcasts for real content, applies targeting/scheduling/priority
+ * filtering, boosts artist-matched items, and returns subscription-tier-aware
+ * polling defaults.
  */
 function handleStream(db, deviceId, auth) {
   const record = auth.record;
   const settings = db.getSettings(deviceId) || {};
 
-  // Determine polling defaults based on subscription tier
+  // Resolve owner context for targeting and polling
+  let ownerTier = null;
+  let activeArtists = [];
   let polling = { intervalSeconds: 300, idleSeconds: 900 };
 
   if (record.ownerUserId) {
     const sub = db.getSubscription(record.ownerUserId);
-    if (sub && sub.subscription) {
-      const plan = sub.subscription.plan || "frames_basic";
-      if (plan === "frames_trial") {
+    if (sub && sub.plan) {
+      ownerTier = sub.plan;
+      if (sub.plan === "frames_trial") {
         polling = { intervalSeconds: 600, idleSeconds: 1200 };
-      } else if (plan === "frames_premium" || plan === "frames_enterprise") {
+      } else if (sub.plan === "frames_premium" || sub.plan === "frames_enterprise") {
         polling = { intervalSeconds: 180, idleSeconds: 600 };
+      }
+    }
+
+    // Resolve owner preferences for artist boosting
+    const ownerPrefs = db.getUserPreferences(record.ownerUserId);
+    if (ownerPrefs && ownerPrefs.preferences) {
+      if (ownerPrefs.preferences.activeArtists && ownerPrefs.preferences.activeArtists.length > 0) {
+        activeArtists = ownerPrefs.preferences.activeArtists;
       }
     }
   }
 
-  // Future: query content from aos_ tables (aos_broadcasts, artwork metadata, etc.)
-  // For now, return empty items array with correct contract shape
+  // Compose personalized stream from database content
+  const items = db.getStreamContent({
+    deviceId,
+    ownerUserId: record.ownerUserId || null,
+    subscriptionTier: ownerTier,
+    activeArtists,
+    limit: 30
+  });
+
   const body = {
     ok: true,
     generatedAt: now(),
-    items: [],
+    items,
     polling,
     settings: {
       displayMode: (settings.settings && settings.settings.displayMode) || "shuffle",
