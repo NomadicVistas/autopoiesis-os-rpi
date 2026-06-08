@@ -1,5 +1,57 @@
 # Progress
 
+## 2026-06-09 - Liked-artwork → artist preference → stream composition weighting
+
+Date: 2026-06-09
+
+Milestone: LEAD / INTEGRATION — liked artwork feedback loop closes the MVP 0.2 personal stream
+
+Changed files:
+
+- `hosted-api/db.js` (new method: getLikedArtistIds)
+- `hosted-api/server.js` (handleStream merges liked-artist IDs with explicit preferences)
+- `scripts/liked-artist-stream-weighting-check.sh` (new: 11-step 33-check validation gate)
+- `docs/progress.md`
+- `docs/agent-notes/liked-artist-stream-note.md` (new)
+- `/data/.openclaw/workspace/autopoiesis-os-program/ROLLING-LOG.md`
+
+Implemented:
+
+- **getLikedArtistIds() database method**: Added to `hosted-api/db.js` — joins `aos_artwork_likes` with `aos_broadcasts` to resolve liked artwork IDs to unique artist IDs. Returns artists ordered by most-liked (artist with most liked artworks first). Uses `try/catch` for bootstrap safety (returns empty array if tables don't exist yet). This is the bridge between the like interaction signal and the stream composition engine.
+
+- **Stream composition artist weighting from likes**: Updated `handleStream()` in `hosted-api/server.js` to extract artist IDs from the device owner's liked artworks via `db.getLikedArtistIds()`, then merge them with the explicit `activeArtists` preferences from `aos_frame_user_preferences`. The merge deduplicates — explicit preferences take precedence, liked-artist IDs are appended only if not already present. The combined set is passed to `getStreamContent()` which boosts content from matched artists above content from non-matched artists within the same priority tier.
+
+- **MVP 0.2 Personal Stream feedback loop**: This closes the core personalization pipeline: (1) user taps "like" on displayed artwork → `POST /frames/artworks/:id/like`, (2) like persisted to `aos_artwork_likes`, (3) stream composition queries liked artworks → extracts artist IDs, (4) stream items from liked artists are boosted above items from unknown artists, (5) future feed content is personalized based on expressed preferences. The explicit `activeArtists` preference (set by user in Profile > Frames) and the implicit liked-artist signal are merged, so both manual curation and organic interaction feed into the same boosting pipeline.
+
+- Added `scripts/liked-artist-stream-weighting-check.sh` — an 11-step 33-check isolated validation gate proving: syntax validation, static contract (10 patterns: method existence, JOIN, GROUP BY, ORDER BY, return mapping, try/catch, server call, variable, deduplication, JSDoc), server bootstrap (15 tables), device registration + pairing, content seeding (6 artworks across 3 artists), baseline stream (all artists present), like 3 artworks (Vessel×2, Kinema×1), getLikedArtistIds verification (vessel-001 first, kinema-003 present, sandman-002 absent), stream boosting (liked artists above unliked in ordering), empty likes fallback (graceful, no errors), and regression (settings, health, admin bundle, heartbeat).
+
+Why this matters:
+
+The MVP 0.2 "Personal Stream" requires that the feed reflects user preferences. Previously, stream composition only used explicit `activeArtists` from user preferences — but most users never manually curate their artist list. The like interaction is the primary preference signal: when a user taps "like" on a Vessel artwork while browsing their Frame, the system should learn that Vessel is preferred and boost future Vessel content in the feed. Without this, every device shows the same stream regardless of who's using it, making the Frame impersonal. With this change, the Frame learns from its owner's taste: more likes from an artist → more content from that artist. The artist ordering by like count (most-liked first) means the strongest preference gets the biggest boost. The merge with explicit preferences means power users who manually set their artist list still get their choices respected, while casual users get personalization for free. This is the foundation for the entire MVP 0.2 value proposition: a Frame that becomes yours over time.
+
+Verification:
+
+- `scripts/liked-artist-stream-weighting-check.sh` passed all 33 checks (11 steps).
+- `scripts/security-smoke.sh` passed (no regression).
+- `scripts/artwork-like-endpoint-check.sh` passed all 33 checks (no regression).
+- `scripts/heartbeat-persistence-check.sh` passed all 33 checks (no regression).
+- `scripts/hosted-api-server-check.sh` passed 67/67 functional checks (7 pre-existing static contract pattern mismatches unchanged).
+- `node --check hosted-api/server.js` passed.
+- `node --check hosted-api/db.js` passed.
+- `node --check local-ui/server.js` passed.
+- `bash -n install.sh update.sh uninstall-dev-tools.sh factory-reset.sh` passed.
+- `bash -n scripts/*.sh` passed.
+
+Next step:
+
+- Add per-artist like count to admin broadcast stats.
+- Test liked-artist boosting with the full gallery content seeding (456 artworks).
+- Add liked-artist weighting to the stream cache pipeline (prefer downloading from liked artists first).
+- Wire liked artworks count into the Profile > Frames UI.
+- Test the full like → boost → display cycle on a physical Pi.
+
+---
+
 ## 2026-06-08 - Hosted API security smoke: secret leak detection + admin PATCH fix
 
 Date: 2026-06-08

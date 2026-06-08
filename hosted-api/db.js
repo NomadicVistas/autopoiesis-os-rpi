@@ -1120,6 +1120,33 @@ class AosDb {
     return rows.map(r => r.artwork_id);
   }
 
+  /**
+   * Get unique artist IDs from a user's liked artworks.
+   *
+   * Joins aos_artwork_likes with aos_broadcasts (where liked artwork_id = broadcast id)
+   * to extract the artist_id for each liked artwork. Returns deduplicated artist IDs
+   * ordered by most-liked (artist with most liked artworks first).
+   *
+   * @param {string} userId
+   * @returns {string[]} Array of unique artist IDs, most-liked first
+   */
+  getLikedArtistIds(userId) {
+    try {
+      const rows = this.db.prepare(
+        `SELECT b.artist_id, COUNT(*) AS like_count
+         FROM aos_artwork_likes l
+         JOIN aos_broadcasts b ON l.artwork_id = b.id
+         WHERE l.user_id = ? AND b.artist_id IS NOT NULL AND b.artist_id != ''
+         GROUP BY b.artist_id
+         ORDER BY like_count DESC`
+      ).all(userId);
+      return rows.map(r => r.artist_id);
+    } catch (_) {
+      // Table may not exist in fresh bootstrap
+      return [];
+    }
+  }
+
   // ── Stream Content ─────────────────────────────────────────────────────
 
   /**
