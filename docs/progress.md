@@ -1,5 +1,48 @@
 # Progress
 
+## 2026-06-08 - Kiosk feed polling respects subscription-tier intervals and auto-refreshes
+
+Date: 2026-06-08
+
+Milestone: RPI APPLIANCE — kiosk display feed sync interval and content refresh
+
+Changed files:
+
+- `local-ui/server.js`
+- `scripts/kiosk-feed-polling-check.sh` (new)
+- `docs/progress.md`
+- `docs/agent-notes/pulse.md`
+- `/data/.openclaw/workspace/autopoiesis-os-program/ROLLING-LOG.md`
+
+Implemented:
+
+- Extended `frameSettings` in `renderFrame()` with three new fields passed to the client-side kiosk JS: `pollAfterSeconds` (from `frame.pollingStatus.pollAfterSeconds`, default 900s), `offlineRetrySeconds` (from the server's `OFFLINE_RETRY_SECONDS` constant), and `currentItemCount` (from `frame.playableItems`). Previously, the client-side JS had no visibility into polling intervals or current item counts.
+- Replaced the hardcoded `setInterval(..., 15 * 60 * 1000)` sync timer with a dynamic `kioskFeedSync()` function that uses `Math.max(60, frameSettings.pollAfterSeconds) * 1000` as the interval. This means premium users (180s polling) get content updates 5x faster than before, trial users (600s) get slower updates, and the default (900s) remains unchanged.
+- Added auto-refresh logic: `kioskFeedSync()` parses the sync response, compares `eligibleItems || totalItems` against `lastKnownItemCount`, and triggers `location.reload()` after a fade transition when new content arrives. Previously, background syncs were fire-and-forget — new items were downloaded but never displayed until the page was manually refreshed.
+- Updated the empty-feed retry to use `frameSettings.offlineRetrySeconds` (default 30s) with a 10-second minimum floor, instead of the previous hardcoded `Math.max(imageDurationMs, 15000)`. A device waiting for its first sync now retries at the configured offline rate rather than the display dwell rate.
+- Added `scripts/kiosk-feed-polling-check.sh`, a 7-step 34-check isolated validation gate proving: syntax validation, static contract (pollAfterSeconds/offlineRetrySeconds/currentItemCount in frameSettings), client-side polling interval from frameSettings with 60-second minimum, removal of hardcoded 15-minute setInterval, kioskFeedSync function with item count change detection and location.reload, empty feed retry using offlineRetrySeconds, live integration with mock API (full pairing + sync lifecycle), frame HTML rendering with all new fields and functions present, and subscription-tier-aware polling value (verified 300s from mock API stream response).
+
+Why this matters:
+
+The kiosk's feed sync was a fire-and-forget background call on a hardcoded 15-minute timer. The server already returned subscription-tier-aware polling intervals (trial=600s, basic=300s, premium=180s), but the kiosk ignored them entirely. Premium users paying for faster content updates got the same experience as unregistered devices. Worse, even when the background sync downloaded new items, the kiosk never displayed them — the page would continue showing stale content until the user manually navigated away. For a kiosk appliance meant to run unattended for days, this meant content updates were invisible until the device happened to reboot. This change makes the kiosk respect the server's polling interval (so premium devices sync every 3 minutes instead of 15) and automatically reload when new content arrives, making the subscription-tier polling model actually functional on the device.
+
+Verification:
+
+- `scripts/kiosk-feed-polling-check.sh` passed all 34 checks (7 steps).
+- `scripts/device-lifecycle-check.sh` passed all 18 steps (no regression).
+- `scripts/security-smoke.sh` passed (no regression).
+- `node --check local-ui/server.js` passed.
+- `bash -n install.sh update.sh uninstall-dev-tools.sh factory-reset.sh scripts/*.sh` passed.
+
+Next step:
+
+- On the Pi, verify that the kiosk auto-refreshes smoothly when new content syncs.
+- Test subscription tier changes: confirm polling interval updates after plan upgrade/downgrade.
+- Add polling interval metrics to diagnostics: current interval, last sync result, last new-content reload.
+- Wire `kiosk-feed-polling-check.sh` into `scripts/verify-all.sh`.
+
+---
+
 ## 2026-06-08 - Hosted API stream composition engine
 
 Date: 2026-06-08

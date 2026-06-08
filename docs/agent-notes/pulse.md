@@ -1241,3 +1241,13 @@ Next for this workstream:
 - Populate stream with real content from `aos_broadcasts` and artwork metadata.
 - Wire into `AUTOPOIESIS_API_BASE_URL` for end-to-end device testing.
 - Run the full hosted mock bridge against the database-backed server.
+
+### 2026-06-08 — Kiosk feed polling (RPI APPLIANCE)
+
+- The kiosk feed sync used a hardcoded 15-minute interval and never displayed new content after background syncs.
+- Now uses server-provided `pollAfterSeconds` from `frame.pollingStatus` with 60-second minimum clamp.
+- `kioskFeedSync()` parses sync response, detects item count changes, and triggers `location.reload()` with fade transition.
+- Empty feed retry uses `offlineRetrySeconds` (30s default) instead of display dwell time.
+- frameSettings now includes `pollAfterSeconds`, `offlineRetrySeconds`, `currentItemCount`.
+- Verified with 34-check kiosk-feed-polling-check.sh — live mock API integration confirms 300s polling from stream response.
+- Next: physical Pi auto-refresh testing, verify-all.sh wiring, polling metrics in diagnostics.

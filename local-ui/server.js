@@ -5055,7 +5055,10 @@ function renderFrame() {
       videoAutoplay: preferences.videoAutoplay !== false,
       soundAutoplay: Boolean(preferences.soundAutoplay),
       showArtworkInfoOnTap: preferences.showArtworkInfoOnTap !== false,
-      imageDurationMs
+      imageDurationMs,
+      pollAfterSeconds: frame.pollingStatus && frame.pollingStatus.pollAfterSeconds ? frame.pollingStatus.pollAfterSeconds : 900,
+      offlineRetrySeconds: OFFLINE_RETRY_SECONDS,
+      currentItemCount: frame.playableItems || 0
     })};
     const FADE_MS = 600;
     let frameIndex = 0;
@@ -5159,8 +5162,9 @@ function renderFrame() {
     function renderFrameItem() {
       if (!stage || !frameItems.length) {
         if (!frameItems.length) {
+          const emptyRetryMs = Math.max(frameSettings.offlineRetrySeconds * 1000, 10000);
           fetch("/local/feed/sync", { method: "POST" }).finally(() => {
-            setTimeout(() => { location.reload(); }, Math.max(frameSettings.imageDurationMs, 15000));
+            setTimeout(() => { location.reload(); }, emptyRetryMs);
           });
         }
         return;
@@ -5189,7 +5193,22 @@ function renderFrame() {
       });
     }
     transitionToNext();
-    setInterval(() => fetch("/local/feed/sync", { method: "POST" }).catch(() => {}), 15 * 60 * 1000);`
+    const pollIntervalMs = Math.max(60, frameSettings.pollAfterSeconds) * 1000;
+    let lastKnownItemCount = frameSettings.currentItemCount;
+    function kioskFeedSync() {
+      fetch("/local/feed/sync", { method: "POST" })
+        .then(r => r.json().catch(() => null))
+        .then(result => {
+          if (!result) return;
+          const newItemCount = Number(result.eligibleItems || result.totalItems || 0);
+          if (result.ok && newItemCount > 0 && newItemCount !== lastKnownItemCount) {
+            lastKnownItemCount = newItemCount;
+            setTimeout(() => location.reload(), FADE_MS);
+          }
+        })
+        .catch(() => {});
+    }
+    setInterval(kioskFeedSync, pollIntervalMs);`
   );
 }
 
