@@ -1,5 +1,52 @@
 # Progress
 
+## 2026-06-08 - Kiosk frame cross-fade transitions
+
+Date: 2026-06-08
+
+Milestone: RPI APPLIANCE - kiosk frame display transition quality
+
+Changed files:
+
+- `local-ui/server.js`
+- `scripts/frame-crossfade-check.sh`
+- `docs/progress.md`
+- `docs/agent-notes/pulse.md`
+- `/data/.openclaw/workspace/autopoiesis-os-program/ROLLING-LOG.md`
+
+Implemented:
+
+- Added CSS opacity transition (600ms ease-in-out) on `.frame-stage` with `.fading` class that sets `opacity: 0`.
+- Added `FADE_MS` constant (600ms) synchronized with the CSS transition duration.
+- Added `isFirstFrame` state variable — first item renders instantly without a fade-in from blank.
+- Added `transitionToNext()` function that orchestrates the fade cycle:
+  1. Hides the overlay.
+  2. Skips fade on first frame (instant render).
+  3. On subsequent frames: adds `.fading` class → waits FADE_MS → swaps content via `renderFrameItem()` → removes `.fading` class via double `requestAnimationFrame` (ensures browser paints the new content before starting the fade-in).
+- Updated `scheduleNext()` advance callback to call `transitionToNext()` instead of `renderFrameItem()` directly.
+- Updated initial frame launch to call `transitionToNext()` instead of `renderFrameItem()`.
+- `renderFrameItem()` remains the core content-swap function (unchanged logic, just called through the transition layer).
+- Added `scripts/frame-crossfade-check.sh`, a 25-check isolated gate proving: CSS transition property and fading class, FADE_MS constant and CSS duration synchronization, transitionToNext function structure, isFirstFrame lifecycle, overlay handling, scheduleNext integration, first-frame skip, renderFrameItem standalone integrity, and media ended event preservation.
+
+Why this matters:
+
+The kiosk frame cycled through artwork by instantly replacing `stage.innerHTML` on each transition. This created a jarring visual flash — the screen went blank for one frame between every artwork. For a digital art frame designed to live in someone's home or gallery, this is the single most visible quality issue. The cross-fade system transforms the frame from a prototype that "shows art" into a product that "presents art" — smooth, contemplative transitions between pieces that respect the viewing experience. The 600ms duration is long enough for a gentle dissolve but short enough not to feel sluggish. The first-frame skip avoids an unnecessary fade-in from a blank screen on load.
+
+Verification:
+
+- `scripts/frame-crossfade-check.sh` passed all 25 checks.
+- `scripts/feed-display-dwell-check.sh` passed all 12 steps (no regression).
+- `scripts/broadcast-command-check.sh` passed (no regression).
+- `scripts/security-smoke.sh` passed.
+- `node --check local-ui/server.js` passed.
+- `bash -n install.sh update.sh uninstall-dev-tools.sh factory-reset.sh scripts/*.sh` passed.
+- `git diff --check` passed.
+
+Next step:
+
+- On the Pi, verify the cross-fade renders smoothly on the Chromium kiosk with `--disable-gpu` and SwiftShader. If the software renderer causes visible stuttering, consider reducing FADE_MS to 400ms or switching to a simpler opacity step.
+- Consider adding a transition style preference (fade, slide, none) in settings for user customization.
+
 ## 2026-06-08 - Heartbeat commands contract normalization
 
 Date: 2026-06-08

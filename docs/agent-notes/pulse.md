@@ -1,5 +1,14 @@
 # Pulse Agent Notes
 
+## 2026-06-08 - Kiosk frame cross-fade transitions
+
+Date/time: 2026-06-08 03:56 UTC / 2026-06-08 05:56 Europe/Berlin
+Agent: Pulse
+Context: RPI APPLIANCE cron pass. The kiosk frame cycled through artwork by instantly replacing `stage.innerHTML` on each transition, creating a jarring visual flash between every artwork. For a digital art frame designed to live in someone's home or gallery, this is the single most visible quality issue.
+What changed: Added CSS opacity transition (600ms ease-in-out) on `.frame-stage` with `.fading` class. Added `transitionToNext()` function that orchestrates: fade out (add `.fading`) → wait FADE_MS → swap content → fade in (remove `.fading` via double requestAnimationFrame). First frame skips fade (isFirstFrame guard). `scheduleNext()` advance callback now calls `transitionToNext()` instead of `renderFrameItem()` directly. `renderFrameItem()` core logic unchanged.
+What needs review: The 600ms fade relies on Chromium's opacity transition with `--disable-gpu` and SwiftShader (software rendering used for Pi compatibility). On the actual Pi hardware, this should be tested for smoothness. If the software renderer stutters, reduce FADE_MS to 400ms.
+Next recommended action: Test cross-fade on Pi Chromium. Consider adding a transition style preference (fade/slide/none) for user customization.
+
 ## 2026-06-08 - Heartbeat commands contract normalization
 
 Date/time: 2026-06-08 03:30 UTC / 2026-06-08 05:30 Europe/Berlin

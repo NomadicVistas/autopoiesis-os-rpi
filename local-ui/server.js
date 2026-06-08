@@ -4765,9 +4765,11 @@ function renderFrame() {
       showArtworkInfoOnTap: preferences.showArtworkInfoOnTap !== false,
       imageDurationMs
     })};
+    const FADE_MS = 600;
     let frameIndex = 0;
     let currentItem = null;
     let frameTimer = null;
+    let isFirstFrame = true;
     const stage = document.getElementById("frame-stage");
     const overlay = document.getElementById("frame-overlay");
     function escapeText(value) {
@@ -4840,11 +4842,27 @@ function renderFrame() {
       const advance = () => {
         if (advanced) return;
         advanced = true;
-        if (overlay) overlay.hidden = true;
-        renderFrameItem();
+        transitionToNext();
       };
       if (media) media.addEventListener("ended", advance, { once: true });
       frameTimer = setTimeout(advance, itemDisplayMs(item));
+    }
+    function transitionToNext() {
+      if (overlay) overlay.hidden = true;
+      if (isFirstFrame || !stage) {
+        isFirstFrame = false;
+        renderFrameItem();
+        return;
+      }
+      stage.classList.add("fading");
+      setTimeout(() => {
+        renderFrameItem();
+        requestAnimationFrame(() => {
+          requestAnimationFrame(() => {
+            stage.classList.remove("fading");
+          });
+        });
+      }, FADE_MS);
     }
     function renderFrameItem() {
       if (!stage || !frameItems.length) {
@@ -4878,7 +4896,7 @@ function renderFrame() {
         if (event.target === overlay) overlay.hidden = true;
       });
     }
-    renderFrameItem();
+    transitionToNext();
     setInterval(() => fetch("/local/feed/sync", { method: "POST" }).catch(() => {}), 15 * 60 * 1000);`
   );
 }
@@ -6120,7 +6138,7 @@ label { display: grid; gap: 8px; color: #c8c6bb; font-size: 18px; }
 .frame-gallery, .frame-empty { width: min(1280px, 100%); margin: auto; }
 .frame-topline { display: flex; justify-content: space-between; align-items: center; gap: 18px; color: #9ad0bb; }
 .frame-count { margin: 0; color: #c8c6bb; font-size: 18px; }
-.frame-stage { display: grid; gap: 18px; }
+.frame-stage { display: grid; gap: 18px; transition: opacity 600ms ease-in-out; } .frame-stage.fading { opacity: 0; }
 .frame-media { margin: 0; display: grid; place-items: center; min-height: 68vh; background: #101412; border: 1px solid #2d3834; border-radius: 8px; overflow: hidden; }
 .frame-media img, .frame-media video { display: block; width: 100%; height: 68vh; object-fit: contain; background: #0d1110; }
 .frame-media audio { width: min(720px, 90%); }
