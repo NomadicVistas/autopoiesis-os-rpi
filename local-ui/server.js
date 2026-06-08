@@ -652,6 +652,42 @@ function deliveryStatusSummary() {
   };
 }
 
+function broadcastDeliveriesPayload() {
+  const summary = deliveryStatusSummary();
+  if (!summary.ok || !summary.items) return { ok: true, broadcastCount: 0, deliveries: [] };
+  const broadcasts = summary.items.filter(item =>
+    item.source === "broadcast" ||
+    item.source === "admin" ||
+    item.source === "command" ||
+    (item.itemId && item.itemId.startsWith("broadcast-"))
+  );
+  const deliveries = broadcasts.map(b => ({
+    broadcastId: b.itemId,
+    status: b.status,
+    commandId: b.commandId || null,
+    eventCount: b.eventCount,
+    receivedAt: b.receivedAt,
+    shownAt: b.shownAt,
+    dismissedAt: b.dismissedAt,
+    expiredAt: b.expiredAt,
+    skippedAt: b.skippedAt,
+    scheduled: b.status === "scheduled" || null
+  }));
+  return {
+    ok: true,
+    broadcastCount: deliveries.length,
+    statusCounts: {
+      received: deliveries.filter(d => d.status === "received").length,
+      scheduled: deliveries.filter(d => d.status === "scheduled").length,
+      shown: deliveries.filter(d => d.status === "shown").length,
+      dismissed: deliveries.filter(d => d.status === "dismissed").length,
+      expired: deliveries.filter(d => d.status === "expired").length,
+      skipped: deliveries.filter(d => d.status === "skipped").length
+    },
+    deliveries
+  };
+}
+
 const FEED_CURSOR_MAX_SHOWN = Number(process.env.AUTOPOIESIS_FEED_CURSOR_MAX_SHOWN || 500);
 
 function feedCursor() {
@@ -3398,6 +3434,7 @@ async function collectDiagnostics(options = {}) {
       feedItems: deliveryStatus.feedItems || 0,
       statusCounts: deliveryStatus.statusCounts || {}
     },
+    broadcastDeliveries: broadcastDeliveriesPayload(),
     releaseHistory,
     eventIngestion: eventIngestionSummary(),
     framePlayback: frameState.playback,
@@ -4071,6 +4108,7 @@ async function supportBundle(options = {}) {
         recentBroadcastEvents: diagnostics.displayDelivery ? diagnostics.displayDelivery.recentBroadcastEvents || 0 : 0
       },
       deliveryStatus: diagnostics.deliveryStatus || { totalItems: 0, broadcastItems: 0, feedItems: 0, statusCounts: {} },
+      broadcastDeliveries: diagnostics.broadcastDeliveries || { broadcastCount: 0, statusCounts: {}, deliveries: [] },
       releaseHistory: {
         totalEntries: releaseHistory.count || 0,
         lastStatus: diagnostics.releaseHistory ? diagnostics.releaseHistory.lastStatus || null : null,
@@ -5507,6 +5545,7 @@ async function sendHeartbeat() {
             replaySince: eventReplaySince
           }
         : null,
+      broadcastDeliveries: broadcastDeliveriesPayload(),
       events
     })
   });
@@ -5947,6 +5986,9 @@ async function handle(req, res) {
     }
     if (req.method === "GET" && url.pathname === "/local/delivery-status") {
       return sendJson(res, deliveryStatusSummary());
+    }
+    if (req.method === "GET" && url.pathname === "/local/broadcast-deliveries") {
+      return sendJson(res, broadcastDeliveriesPayload());
     }
     if (req.method === "GET" && url.pathname === "/local/release/history") {
       return sendJson(res, publicReleaseHistory(url.searchParams.get("limit")));
