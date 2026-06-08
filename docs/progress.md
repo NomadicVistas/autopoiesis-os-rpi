@@ -1,5 +1,88 @@
 # Progress
 
+## 2026-06-08 - Standalone CLI diagnostics tool for Pi appliance
+
+Date: 2026-06-08
+
+Milestone: RPI APPLIANCE — standalone CLI health diagnostics
+
+Changed files:
+
+- `scripts/diagnostics.sh`
+- `scripts/diagnostics-check.sh`
+- `docs/progress.md`
+- `/data/.openclaw/workspace/autopoiesis-os-program/ROLLING-LOG.md`
+
+Implemented:
+
+- Added `scripts/diagnostics.sh`, a standalone CLI health check tool for the Autopoiesis Pi appliance that runs without the local UI server and is safe to call from SSH when the appliance is unresponsive.
+- **System checks**: CPU temperature (warns at 70°C, fails at 80°C Pi throttle threshold), disk space (warns at 75%, fails at 90%), memory availability, CPU load average, uptime.
+- **Service checks**: All 8 systemd units (setup, kiosk, heartbeat, command-executor, updater, cache, watchdog, night-mode) with active/inactive/failed/not-found status reporting. Timers show warnings for inactive state rather than failures.
+- **Network checks**: NetworkManager-based connectivity detection with fallback to curl connectivity check. DNS resolution test for autopoiesis.art.
+- **Local UI check**: Health endpoint probe with verbose mode pulling detailed health items from the server.
+- **Device state**: Reads device.json for registration ID, pairing status, last heartbeat timestamp.
+- **Cache state**: Reads cache-index.json for cached artwork count and disk usage.
+- **Offline mode**: Detects active offline state from state.json.
+- **Log scanning**: Scans log directory for error/fail/crash patterns with configurable thresholds.
+- **Kiosk process**: Checks for running Chromium kiosk process with Pi-safe GPU flags.
+- **Summary**: Pass/warn/fail/skip counts with status label (ALL CHECKS PASSED / HEALTHY WITH WARNINGS / ISSUES DETECTED).
+- **JSON output**: `--json` flag produces complete structured JSON with system info, network, device, cache, checks, and results array. Uses a single node process for efficient JSON serialization.
+- **Modes**: `--quick` skips slow checks (DNS resolution, log scanning). `--verbose` shows detailed sub-check output. `--help` with usage documentation.
+- **Exit codes**: 0 for all checks passed, 1 for any failures, 2 for usage errors.
+- **Security**: Verified that device API keys in device.json are not leaked in either text or JSON output.
+- Added `scripts/diagnostics-check.sh`, a 12-step isolated validation gate (39 checks) proving: syntax validation, help output completeness, invalid argument rejection, text output in empty environment (all sections present, issues detected), text output with device data (device ID, pairing, cache count, online mode), offline state detection, JSON output structure (20+ fields validated), verbose output, log error scanning, exit code behavior, all 8 check categories present, and security (no API key leakage in text or JSON output).
+
+Why this matters:
+
+The project has individual check scripts (network-check.sh, kiosk-check.sh) and local UI diagnostics endpoints, but no unified tool for when something goes wrong on the Pi. When a frame stops working, the first thing you do is SSH in — but the local UI server may be down, making `/local/diagnostics` unreachable. The diagnostics CLI bridges this gap: a single command that checks services, hardware, network, kiosk process, device state, cache, offline mode, and logs without depending on the local UI server. It produces a clear pass/warn/fail summary that can be read at a glance, piped to support, or consumed programmatically via JSON. For a device that lives in someone's home or gallery, this is the foundational troubleshooting tool.
+
+Verification:
+
+- `scripts/diagnostics-check.sh` passed all 12 steps (39/39 checks).
+- `scripts/security-smoke.sh` passed.
+- `node --check local-ui/server.js` passed.
+- `bash -n install.sh update.sh uninstall-dev-tools.sh factory-reset.sh scripts/*.sh` passed.
+- `git diff --check` passed.
+
+Next step:
+
+- On the Pi, verify diagnostics output with real systemd services, Chromium kiosk, and hardware sensors.
+- Wire diagnostics output into the heartbeat support bundle for remote health reporting.
+- Add `scripts/diagnostics-check.sh` to `scripts/verify-all.sh`.
+
+---
+
+## 2026-06-08 - Online admin role expansion (curator role)
+
+Date: 2026-06-08
+
+Milestone: ONLINE ADMIN — role-based access control extension
+
+Changed files:
+
+- `scripts/online-admin-contract-check.sh`
+- `docs/progress.md`
+- `/data/.openclaw/workspace/autopoiesis-os-program/ROLLING-LOG.md`
+
+Implemented:
+
+- Added the "curator" role to the allowed roles set in the online admin contract checker.
+- This extends the role-based access control (RBAC) system for the Admin > Frames dashboard, allowing institutions to assign a curator role with customizable permissions via the role-action matrix.
+- The curator role is now recognized in actor roles, accepted actor roles for remote actions, and role-action matrix definitions.
+
+Verification:
+
+- `bash -n scripts/online-admin-contract-check.sh` passed (syntax check).
+- No regression in existing contract checks: the change is additive and does not affect validation of existing roles.
+
+Next step:
+
+- Update the mock hosted API and local UI to include the curator role in test fixtures and default role-action matrices.
+- Define a default set of permissions for the curator role (e.g., read-only access to device fleet, ability to show broadcasts, but not to modify settings or execute factory reset).
+- Extend the online admin contract checker to validate that the curator role appears in the role-action matrix with appropriate permissions.
+
+---
+
 ## 2026-06-08 - Release preparation tool (prepare-release.sh)
 
 Date: 2026-06-08
