@@ -1583,9 +1583,13 @@ function publicFeed() {
   const items = eligibleFeedItems(feed, preferences).map(({ raw, visibility, ...item }) => item);
   const displayQueue = mixedFeedQueue(feed, preferences).map(({ raw, visibility, ...item }) => item);
   const cache = readJson(paths.feedCache, { generatedAt: null, count: 0, items: [] });
+  const offlineState = (readJson(paths.state, {}).offline || {});
   return {
     ok: true,
     syncedAt: feed.syncedAt || null,
+    source: feed.source || null,
+    offline: Boolean(feed.offline),
+    offlineState: offlineState.active ? { active: true, since: offlineState.since || null, cachedItemsUsed: offlineState.cachedItemsUsed || 0 } : { active: false },
     polling: feed.polling || null,
     pollingStatus: feedPollingSummary(feed),
     totalItems: (feed.items || []).length,
@@ -1926,6 +1930,77 @@ function contentTypeForPath(filePath) {
   }[ext] || "application/octet-stream";
 }
 
+function buildOfflineFeed() {
+  const cachedItems = cachedOfflineItems();
+  const preferences = readJson(paths.preferences, {});
+  const now = new Date().toISOString();
+  const items = cachedItems.map((cached, index) => ({
+    id: cached.id,
+    source: cached.source || "offline_cache",
+    type: cached.type || "cached_media",
+    title: cached.title || null,
+    artist: cached.artist || null,
+    body: cached.body || null,
+    priority: cached.priority || "normal",
+    expiresAt: cached.expiresAt || null,
+    order: cached.order != null ? cached.order : index,
+    cacheAllowed: true,
+    displayCategory: "artwork",
+    mediaUrl: cached.media && cached.media.available ? cached.media.url : null,
+    thumbnailUrl: cached.thumbnail && cached.thumbnail.available ? cached.thumbnail.url : null,
+    media: cached.media || { available: false },
+    thumbnail: cached.thumbnail || { available: false }
+  }));
+  return {
+    syncedAt: now,
+    source: "offline_cache",
+    polling: null,
+    items,
+    offline: true,
+    offlineCachedItems: items.length
+  };
+}
+
+function isOfflineEligibleError(error) {
+  const msg = String(error.message || "").toLowerCase();
+  const isNetwork = (
+    error.name === "AbortError" ||
+    msg.includes("econnrefused") ||
+    msg.includes("enotfound") ||
+    msg.includes("econnreset") ||
+    msg.includes("etimedout") ||
+    msg.includes("ehostunreach") ||
+    msg.includes("enetunreach") ||
+    msg.includes("fetch failed") ||
+    msg.includes("network") ||
+    msg.includes("timeout") ||
+    msg.includes("aborted") ||
+    error.code === "ECONNREFUSED" ||
+    error.code === "ENOTFOUND" ||
+    error.code === "ECONNRESET" ||
+    error.code === "ETIMEDOUT" ||
+    error.code === "EHOSTUNREACH" ||
+    error.code === "ENETUNREACH"
+  );
+  if (isNetwork) return true;
+  // HTTP-level errors that indicate server-side unavailability
+  if (msg.includes("unavailable") || msg.includes("503") || msg.includes("502") || msg.includes("504")) return true;
+  if (msg.startsWith("http 5") || /^http \d{3}$/.test(msg)) return true;
+  // Connection refused at HTTP level
+  if (msg.includes("service unavailable") || msg.includes("bad gateway") || msg.includes("gateway timeout")) return true;
+  return false;
+}
+
+function writeOfflineState(patch) {
+  const state = readJson(paths.state, {});
+  state.offline = {
+    ...(state.offline || {}),
+    ...patch,
+    updatedAt: new Date().toISOString()
+  };
+  writeJson(paths.state, state);
+}
+
 async function syncFeedFromRemote() {
   const device = readJson(paths.device, {});
   if (!device.deviceId || !device.paired) return { ok: false, skipped: true, reason: "Device is not paired" };
@@ -1934,16 +2009,66 @@ async function syncFeedFromRemote() {
   let result;
   let endpoint = "stream";
   let fallbackReason = null;
+  let offline = false;
   try {
     result = await apiRequest("/frames/device/" + encodedDeviceId + "/stream");
   } catch (error) {
     endpoint = "feed";
     fallbackReason = error.message;
-    result = await apiRequest("/frames/device/" + encodedDeviceId + "/feed");
+    try {
+      result = await apiRequest("/frames/device/" + encodedDeviceId + "/feed");
+    } catch (secondError) {
+      fallbackReason = secondError.message;
+      const cachedItems = cachedOfflineItems();
+      if (isOfflineEligibleError(secondError) && cachedItems.length > 0) {
+        const offlineFeed = buildOfflineFeed();
+        writeFeedState(offlineFeed);
+        writeOfflineState({
+          active: true,
+          reason: "hosted_api_unreachable",
+          lastError: secondError.message,
+          cachedItemsUsed: offlineFeed.items.length,
+          since: new Date().toISOString()
+        });
+        writeJson(paths.device, { ...device, lastFeedSyncAt: offlineFeed.syncedAt });
+        return {
+          ok: true,
+          endpoint: "offline_cache",
+          offline: true,
+          fallbackReason,
+          syncedAt: offlineFeed.syncedAt,
+          totalItems: offlineFeed.items.length,
+          eligibleItems: offlineFeed.items.length
+        };
+      }
+      writeOfflineState({
+        active: cachedItems.length === 0,
+        reason: "hosted_api_unreachable_no_cache",
+        lastError: secondError.message,
+        cachedItemsUsed: 0,
+        since: new Date().toISOString()
+      });
+      return {
+        ok: false,
+        error: secondError.message,
+        offline: true,
+        cachedItemsAvailable: cachedItems.length
+      };
+    }
   }
   if (result.settings || result.preferences) applyRemoteSettingsPayload(result, "stream_sync");
   const feed = normalizeFeedPayload({ ...result, source: result.source || endpoint });
   writeFeedState(feed);
+  const prevOffline = readJson(paths.state, {}).offline;
+  if (prevOffline && prevOffline.active) {
+    writeOfflineState({
+      active: false,
+      reason: "recovered",
+      recoveredAt: new Date().toISOString(),
+      lastError: null,
+      cachedItemsUsed: 0
+    });
+  }
   writeJson(paths.device, { ...device, lastFeedSyncAt: feed.syncedAt });
   return {
     ok: true,
@@ -2884,6 +3009,10 @@ function diagnosticsHealth(diagnostics, data) {
     }
   }
 
+  if (diagnostics.offline && diagnostics.offline.active) {
+    add("warning", "offline_mode", "Device is operating in offline mode using cached artwork. The hosted API is unreachable.");
+  }
+
   if (diagnostics.framePlayback) {
     if (diagnostics.framePlayback.status === "no_playable_items") {
       add("warning", "frame_no_playable_items", "The local frame queue exists, but no item has renderable media or text.");
@@ -3033,7 +3162,8 @@ async function collectDiagnostics(options = {}) {
           expiresAt: broadcast.expiresAt || null
         }
       : null,
-    nightMode: nightModeState(data.preferences)
+    nightMode: nightModeState(data.preferences),
+    offline: (readJson(paths.state, {}).offline || { active: false })
   };
   if (options.includeServices) {
     diagnostics.services = await serviceDiagnostics();
@@ -3659,6 +3789,7 @@ async function supportBundle(options = {}) {
       feedCursor: diagnostics.feed ? diagnostics.feed.displayCursor || null : null,
       framePlayback: diagnostics.framePlayback || null,
       offlinePlayableItems: offlineCache.playableItems || 0,
+      offline: diagnostics.offline || { active: false },
       commandAudit: {
         totalEntries: commandAudit.count || 0,
         lastStatus: diagnostics.commandAudit ? diagnostics.commandAudit.lastStatus || null : null,

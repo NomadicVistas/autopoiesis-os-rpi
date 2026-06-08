@@ -1,5 +1,14 @@
 # Pulse Agent Notes
 
+## 2026-06-08 - Feed sync offline fallback with cache integration
+
+Date/time: 2026-06-08 01:50 UTC / 2026-06-08 03:50 Europe/Berlin
+Agent: Pulse
+Context: LEAD / INTEGRATION cron pass. The feed system had no error handling for hosted API failures. If both stream and feed endpoints failed, the kiosk showed "Waiting for the living stream" even when cached artwork existed locally. This was a hard dependency on the hosted API for the frame to function at all.
+What changed: Added `buildOfflineFeed()` to build a complete feed from cached artwork items. Added `isOfflineEligibleError()` to classify network and HTTP-level errors (ECONNREFUSED, ETIMEDOUT, 503, etc.) as eligible for offline fallback. Updated `syncFeedFromRemote()` to catch errors and fall back to cached items. Added `writeOfflineState()` for offline state tracking. Updated diagnostics, health, and support bundle to report offline status. Created `scripts/feed-offline-fallback-check.sh` — 12-step integration gate.
+What needs review: The offline feed uses ALL cached items regardless of cache preferences (liked/recent/selected). Cache preferences should filter which content survives offline in a future iteration. The `isOfflineEligibleError()` function includes HTTP 502/503/504 as offline-eligible; auth errors (401/403) and not-found (404) are intentionally excluded since they indicate configuration issues. When both API calls fail and no cache exists, the function returns `ok: false` — the kiosk shows the empty state, which is correct behavior.
+Next recommended action: Wire cache preferences into the offline feed builder so users control which content survives offline. Add cache eviction logic. On the Pi, test the offline→online recovery cycle: disconnect network, verify cached art displays, reconnect, verify live feed resumes.
+
 ## 2026-06-08 - One-command remote installer for Raspberry Pi
 
 Date/time: 2026-06-08 00:57 UTC / 2026-06-08 02:57 Europe/Berlin

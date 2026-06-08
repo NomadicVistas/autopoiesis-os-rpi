@@ -1,5 +1,70 @@
 # Progress
 
+## 2026-06-08 - Feed sync offline fallback with cache integration
+
+Date: 2026-06-08
+
+Milestone: LEAD / INTEGRATION - cross-system offline fallback
+
+Changed files:
+
+- `local-ui/server.js`
+- `scripts/feed-offline-fallback-check.sh`
+- `docs/progress.md`
+- `docs/agent-notes/pulse.md`
+- `/data/.openclaw/workspace/autopoiesis-os-program/ROLLING-LOG.md`
+
+Implemented:
+
+- Added `buildOfflineFeed()` — builds a complete feed from cached artwork items when the hosted API is unreachable. The function reads the cache index, filters non-expired items with usable cached assets, and produces a normalized feed with `source: "offline_cache"`, cache-browsable media URLs, and proper display metadata.
+- Added `isOfflineEligibleError()` — classifies both network-level errors (ECONNREFUSED, ETIMEDOUT, DNS failures) and HTTP-level errors (503 Unavailable, 502 Bad Gateway, 504 Gateway Timeout) as eligible for offline fallback. Auth errors (401/403) and not-found errors (404) are NOT classified as offline-eligible, since they indicate configuration issues rather than connectivity problems.
+- Added `writeOfflineState()` — tracks offline state in the runtime state file with `active`, `reason`, `since`, `lastError`, and `cachedItemsUsed` fields. State is updated to `active: false` with `reason: "recovered"` when a successful remote sync completes after an offline period.
+- Updated `syncFeedFromRemote()` — when both stream and feed API calls fail, the function now catches the error, checks if cached items are available, and if so builds an offline feed and writes it to the feed state. The offline feed is a full replacement for the remote feed: the kiosk frame displays cached artwork with correct display timing, the display cursor tracks shown items, and cache URLs serve the actual cached assets. When no cached items are available, the function returns `ok: false` with `offline: true` and `cachedItemsAvailable: 0` so the caller knows the device is offline with no fallback content.
+- Updated `publicFeed()` — now reports `offline: true/false`, `source` (includes `offline_cache`), and `offlineState` with active status and metadata.
+- Updated `collectDiagnostics()` — includes `offline` state from the runtime state file.
+- Updated `diagnosticsHealth()` — raises `offline_mode` warning when the device is operating in offline mode.
+- Updated support bundle — includes `offline` state in the summary section.
+- Added `scripts/feed-offline-fallback-check.sh`, a 12-step isolated integration gate proving:
+  1. Syntax validation
+  2. Mock API startup (returns 503 to simulate server unavailability)
+  3. Local UI startup with paired device
+  4. Seeded cached artwork in cache index and on-disk assets
+  5. Feed sync offline fallback: API unreachable → `ok: true, offline: true, endpoint: "offline_cache"` with 1 cached item
+  6. Feed GET confirms `offline: true, source: "offline_cache"` with active offlineState and displayable queue items
+  7. Diagnostics shows `offline.active: true, reason: "hosted_api_unreachable"`
+  8. Health raises `offline_mode` warning
+  9. Support bundle includes `offline.active: true` in summary
+  10. Frame state shows cached items as playable with `media.cached: true`
+  11. `isOfflineEligibleError()` covers all network and HTTP-level error patterns
+  12. `buildOfflineFeed()` generates feed from cache with `offline_cache` source
+
+Why this matters:
+
+The feed system previously had no error handling for when the hosted API was unreachable. If both the stream and feed endpoints failed, the error propagated to the kiosk page, which showed "Waiting for the living stream" even when perfectly good artwork was sitting in the local cache. This created a hard dependency on the hosted API for the frame to function at all — the device was either online and displaying art, or offline and displaying nothing.
+
+The offline fallback bridges the feed, cache, and diagnostics systems into a coherent offline experience. When the hosted API goes down (network outage, server maintenance, DNS failure), the device automatically switches to displaying cached artwork. The kiosk frame continues cycling through art with correct display timing, the cursor tracks which items have been shown, and the device reports its offline status through diagnostics, health, and support bundles. When connectivity is restored, the next successful sync clears the offline state.
+
+This is the foundational cross-system integration for MVP 0.3 (Offline Living Frame). It proves that the three systems — feed delivery, artwork cache, and health/diagnostics — can compose to produce a graceful degradation experience rather than a hard failure.
+
+Verification:
+
+- `scripts/feed-offline-fallback-check.sh` passed all 12 steps.
+- `scripts/device-lifecycle-check.sh` passed all 18 steps (no regression).
+- `scripts/hosted-mock-bridge-check.sh` passed all 6 contract gates (no regression).
+- `scripts/feed-targeting-check.sh` passed (no regression).
+- `scripts/feed-cursor-check.sh` passed (no regression).
+- `scripts/feed-display-dwell-check.sh` passed all 12 steps (no regression).
+- `scripts/security-smoke.sh` passed.
+- `node --check local-ui/server.js` passed.
+- `bash -n install.sh update.sh uninstall-dev-tools.sh factory-reset.sh scripts/*.sh` passed.
+- `git diff --check` passed.
+
+Next step:
+
+- On the Pi, after installing and pairing, disconnect the network and verify the kiosk continues displaying cached artwork. Reconnect and verify the frame recovers to the live feed.
+- Wire cache preferences (liked artworks, recent artworks, selected artists) into the offline feed builder so users control which content survives offline.
+- Add cache eviction logic to manage storage when the cache grows beyond the configured size limit.
+
 ## 2026-06-08 - One-command remote installer for Raspberry Pi
 
 Date: 2026-06-08
