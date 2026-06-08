@@ -1,5 +1,52 @@
 # Progress
 
+## 2026-06-08 - Release preparation tool (prepare-release.sh)
+
+Date: 2026-06-08
+
+Milestone: RELEASE / ROLLOUT — changelog-to-release manifest bridge
+
+Changed files:
+
+- `scripts/prepare-release.sh`
+- `scripts/prepare-release-check.sh`
+- `docs/progress.md`
+- `docs/agent-notes/pulse.md`
+- `/data/.openclaw/workspace/autopoiesis-os-program/ROLLING-LOG.md`
+
+Implemented:
+
+- Added `scripts/prepare-release.sh`, a release preparation tool that reads CHANGELOG.md, extracts version notes, and generates a release manifest JSON compatible with `scripts/release-manifest-check.sh`.
+- **Changelog extraction**: Parses CHANGELOG.md sections, converts markdown bullet items to a plain-text changes summary with section-category prefixes. For version bumps, extracts the `[Unreleased]` section; for current version, extracts the matching version section.
+- **Sanitization**: Change summaries are filtered against the same forbidden patterns used by `release-manifest-check.sh` (deviceApiKey, pairingCodeHash, accessToken, secret, password, local paths). Items containing these patterns are redacted, preventing manifest rejection.
+- **Version bumping**: Supports `--bump patch|minor|major` to increment VERSION. Bumping renames `[Unreleased]` to `[<new-version>] - <date>` in CHANGELOG.md and inserts a fresh empty `[Unreleased]` section at the top.
+- **Git tagging**: Optional `--tag` flag creates an annotated git tag `v<version>` with the first 10 change items as the tag message.
+- **Artifact support**: Accepts `--artifact-url` + `--sha256` or `--artifact <path>` (computes SHA-256 from local file) for full release artifact manifests with download URLs.
+- **Manifest generation**: Produces complete JSON manifest including version, channel, tag, createdAt, notesUrl, rollbackNotes, previousVersion, optional minVersion/maxVersion constraints, optional rolloutPercent, artifact URL + SHA-256, assets array, and changes summary (capped at 50 items).
+- **Validation**: Automatically runs the generated manifest through `scripts/release-manifest-check.sh` with strict mode (`REQUIRE_CHANNEL=1`, `REQUIRE_TAG=1`) to verify the manifest is ready for devices.
+- **Dry-run mode**: `--dry-run` previews the manifest, bump, and tag actions without modifying any files.
+- **Default values**: Channel defaults to `stable`, notesUrl defaults to GitHub compare URL, rollbackNotes defaults to a generic rollback instruction.
+- Added `scripts/prepare-release-check.sh`, a 13-step 29-check isolated gate proving: syntax validation, help output completeness, dry-run manifest generation for current VERSION, dry-run version bump, output-to-file, artifact URL + SHA-256, local artifact file SHA-256 computation, release-manifest-check.sh validation pass, invalid argument handling, custom channel and rollout percent, min/max version constraints, changelog extraction correctness, dry-run non-modification guarantee, and full bump cycle with VERSION file update, CHANGELOG.md section renaming, and file restoration.
+
+Why this matters:
+
+The project has a complete changelog (CHANGELOG.md, validated by a 22-check gate) and a release manifest validator (release-manifest-check.sh, 50+ validation rules), but no tool bridging the two. Every release manifest field — version, tag, notesUrl, rollbackNotes, changes, artifactUrl, sha256 — required manual extraction from the changelog and manual JSON construction. The prepare-release tool automates this entire pipeline: one command reads the changelog, extracts structured notes, generates a validated manifest, and optionally bumps VERSION, updates CHANGELOG.md, and creates a git tag. This is the missing bridge between "changelog exists" and "can cut a release" — enabling GitHub release creation, hosted API release endpoint serving, remote installer artifact resolution, and device update delivery without manual manifest authoring.
+
+Verification:
+
+- `scripts/prepare-release-check.sh` passed all 13 steps (29/29 checks).
+- `scripts/changelog-check.sh` passed all 22 checks (no regression).
+- `scripts/security-smoke.sh` passed.
+- `node --check local-ui/server.js` passed.
+- `bash -n install.sh update.sh uninstall-dev-tools.sh factory-reset.sh scripts/*.sh` passed.
+- `git diff --check` passed.
+
+Next step:
+
+- Use `scripts/prepare-release.sh --bump patch --tag --artifact-url <url> --artifact dist/autopoiesis-os.tar.gz --output release.json` to cut the first release from the changelog.
+- Test the remote installer (`remote-install.sh`) against a GitHub release created with this manifest.
+- Wire the manifest output into the hosted API's release endpoint so devices receive the generated manifest during update checks.
+
 ## 2026-06-08 - CHANGELOG.md and changelog validation gate
 
 Date: 2026-06-08

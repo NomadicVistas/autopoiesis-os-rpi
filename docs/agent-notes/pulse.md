@@ -1,5 +1,14 @@
 # Pulse Agent Notes
 
+## 2026-06-08 - Release preparation tool (prepare-release.sh)
+
+Date/time: 2026-06-08 08:28 UTC / 2026-06-08 10:28 Europe/Berlin
+Agent: Pulse
+Context: LEAD / INTEGRATION cron pass. The project has a changelog (CHANGELOG.md, 22-check gate) and a release manifest validator (release-manifest-check.sh, 50+ rules) but no tool connecting them. Cutting a release required manually extracting changelog notes, building JSON, computing checksums, and running validation. This blocked: GitHub release creation, hosted API release endpoint, remote installer testing, and device update delivery.
+What changed: Created `scripts/prepare-release.sh` — reads CHANGELOG.md, extracts version notes, converts to plain-text changes summary, generates validated release manifest JSON. Supports version bumping (patch/minor/major), CHANGELOG.md section renaming, git tagging, artifact URL + SHA-256 (local file or explicit), dry-run, custom channel/rollout/constraints. Change summaries are sanitized against the same forbidden patterns as release-manifest-check.sh. Created `scripts/prepare-release-check.sh` — 13-step 29-check gate proving all paths.
+What needs review: The sanitization uses pattern replacement rather than line removal — terms like "deviceApiKey" become "[redacted]" in the changes summary. This is intentional to preserve the item count and structure, but could be switched to line removal if redacted items look confusing in the release notes.
+Next recommended action: Use the tool to cut the first real release: `scripts/prepare-release.sh --bump patch --tag --artifact dist/autopoiesis-os.tar.gz --output release.json`. Then test the remote installer against the GitHub release.
+
 ## 2026-06-08 - CHANGELOG.md and changelog validation gate
 
 Date/time: 2026-06-08 07:58 UTC / 2026-06-08 09:58 Europe/Berlin
