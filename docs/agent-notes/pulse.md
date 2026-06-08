@@ -1,5 +1,17 @@
 # Pulse Agent Notes
 
+## 2026-06-08 - Admin content management CRUD validation + handler fix
+
+Ewoud added admin content management CRUD methods to hosted-api/db.js (createBroadcast, getBroadcast, listBroadcasts, updateBroadcast, publishBroadcast, unpublishBroadcast, archiveBroadcast, getBroadcastStats, _mapBroadcast) and corresponding route handlers in hosted-api/server.js.
+
+**Critical fix applied:** The 8 new handler functions returned flat objects like `{ ok: true, broadcast }` but `sendResult()` expects `{ status, body }` format. This caused every admin content management endpoint to crash. Fixed by wrapping all returns in the correct format matching other handlers.
+
+Validated with `scripts/admin-content-management-check.sh` — 15 steps, 131 checks, all passed. The check proves the full CRUD lifecycle including round-trip from content creation to device stream delivery.
+
+**Key insight:** When adding new route handlers to hosted-api/server.js, all return values must follow `{ status: NNN, body: { ... } }` convention — not flat `{ ok, ... }` objects. The `sendResult(res, result)` function destructures `result.status` and `result.body`.
+
+**Uncommitted changes:** Ewoud's original CRUD additions to db.js and server.js are uncommitted (they were in the working tree when this session started). My changes to server.js fix the handler return format and add the validation check script.
+
 ## 2026-06-08 - Hosted API database query layer (hosted-api/db.js)
 
 Date/time: 2026-06-08 11:12 UTC / 2026-06-08 13:12 Europe/Berlin

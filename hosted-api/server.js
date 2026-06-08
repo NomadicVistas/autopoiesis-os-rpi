@@ -493,6 +493,99 @@ function handleAdminBroadcastDeliveryDetail(db, broadcastId) {
   };
 }
 
+/* --------------------------------------------------------------------------
+ * Admin Content Management Handlers
+ * -------------------------------------------------------------------------- */
+
+function handleAdminCreateBroadcast(db, body) {
+  if (!body.title && body.type !== 'system_notice') {
+    return { status: 400, body: { ok: false, error: "Title is required" } };
+  }
+  try {
+    const broadcast = db.createBroadcast({
+      title: body.title || '',
+      body: body.body,
+      type: body.type,
+      mediaUrl: body.mediaUrl,
+      thumbnailUrl: body.thumbnailUrl,
+      artist: body.artist,
+      artistId: body.artistId,
+      targetType: body.targetType,
+      targetValue: body.targetValue,
+      priority: body.priority,
+      duration: body.duration,
+      startsAt: body.startsAt,
+      expiresAt: body.expiresAt,
+      repeatCount: body.repeatCount,
+      dismissible: body.dismissible,
+      cacheAllowed: body.cacheAllowed,
+      soundAllowed: body.soundAllowed,
+      status: body.status || 'draft',
+      createdBy: body.createdBy || 'admin',
+      metadata: body.metadata
+    });
+    return { status: 200, body: { ok: true, created: true, broadcast } };
+  } catch (err) {
+    return { status: 500, body: { ok: false, error: err.message } };
+  }
+}
+
+function handleAdminListBroadcasts(db, filters) {
+  try {
+    const result = db.listBroadcasts(filters);
+    return { status: 200, body: { ok: true, ...result } };
+  } catch (err) {
+    return { status: 500, body: { ok: false, error: err.message } };
+  }
+}
+
+function handleAdminGetBroadcast(db, id) {
+  const broadcast = db.getBroadcast(id);
+  if (!broadcast) return { status: 404, body: { ok: false, error: "Broadcast not found" } };
+  return { status: 200, body: { ok: true, broadcast } };
+}
+
+function handleAdminUpdateBroadcast(db, id, updates) {
+  const existing = db.getBroadcast(id);
+  if (!existing) return { status: 404, body: { ok: false, error: "Broadcast not found" } };
+  const broadcast = db.updateBroadcast(id, updates);
+  return { status: 200, body: { ok: true, updated: true, broadcast } };
+}
+
+function handleAdminPublishBroadcast(db, id) {
+  const existing = db.getBroadcast(id);
+  if (!existing) return { status: 404, body: { ok: false, error: "Broadcast not found" } };
+  if (existing.status === 'published') return { status: 400, body: { ok: false, error: "Already published" } };
+  if (existing.status === 'archived') return { status: 400, body: { ok: false, error: "Cannot publish archived item" } };
+  const broadcast = db.publishBroadcast(id);
+  return { status: 200, body: { ok: true, published: true, broadcast } };
+}
+
+function handleAdminUnpublishBroadcast(db, id) {
+  const existing = db.getBroadcast(id);
+  if (!existing) return { status: 404, body: { ok: false, error: "Broadcast not found" } };
+  if (existing.status !== 'published') return { status: 400, body: { ok: false, error: "Not published" } };
+  const broadcast = db.unpublishBroadcast(id);
+  return { status: 200, body: { ok: true, unpublished: true, broadcast } };
+}
+
+function handleAdminArchiveBroadcast(db, id) {
+  const existing = db.getBroadcast(id);
+  if (!existing) return { status: 404, body: { ok: false, error: "Broadcast not found" } };
+  if (existing.status === 'archived') return { status: 400, body: { ok: false, error: "Already archived" } };
+  const broadcast = db.archiveBroadcast(id);
+  return { status: 200, body: { ok: true, archived: true, broadcast } };
+}
+
+function handleAdminBroadcastStats(db) {
+  try {
+    const stats = db.getBroadcastStats();
+    return { status: 200, body: { ok: true, stats } };
+  } catch (err) {
+    return { status: 500, body: { ok: false, error: err.message } };
+  }
+}
+
 // ── Request router ───────────────────────────────────────────────────────────
 
 async function handle(db, req, res) {
@@ -509,6 +602,68 @@ async function handle(db, req, res) {
   const adminBdDetailMatch = pathname.match(/^\/frames\/admin\/broadcast-deliveries\/([^/]+)$/);
   if (method === "GET" && adminBdDetailMatch) {
     return sendResult(res, handleAdminBroadcastDeliveryDetail(db, adminBdDetailMatch[1]));
+  }
+
+  // ── Admin content management endpoints ─────────────────────────────────
+
+  // POST /frames/admin/broadcasts — Create new broadcast/content item
+  if (method === "POST" && pathname === "/frames/admin/broadcasts") {
+    const body = JSON.parse((await readBody(req)) || "{}");
+    return sendResult(res, handleAdminCreateBroadcast(db, body));
+  }
+
+  // GET /frames/admin/broadcasts/stats — Content statistics
+  if (method === "GET" && pathname === "/frames/admin/broadcasts/stats") {
+    return sendResult(res, handleAdminBroadcastStats(db));
+  }
+
+  // GET /frames/admin/broadcasts — List broadcasts with filters
+  if (method === "GET" && pathname === "/frames/admin/broadcasts") {
+    const url = new URL(req.url, "http://localhost");
+    const filters = {};
+    if (url.searchParams.get("status")) filters.status = url.searchParams.get("status");
+    if (url.searchParams.get("type")) filters.type = url.searchParams.get("type");
+    if (url.searchParams.get("priority")) filters.priority = url.searchParams.get("priority");
+    if (url.searchParams.get("artistId")) filters.artistId = url.searchParams.get("artistId");
+    if (url.searchParams.get("targetType")) filters.targetType = url.searchParams.get("targetType");
+    if (url.searchParams.get("createdBy")) filters.createdBy = url.searchParams.get("createdBy");
+    if (url.searchParams.get("activeOnly")) filters.activeOnly = url.searchParams.get("activeOnly") === "true";
+    if (url.searchParams.get("limit")) filters.limit = parseInt(url.searchParams.get("limit"), 10);
+    if (url.searchParams.get("offset")) filters.offset = parseInt(url.searchParams.get("offset"), 10);
+    if (url.searchParams.get("sortBy")) filters.sortBy = url.searchParams.get("sortBy");
+    if (url.searchParams.get("sortOrder")) filters.sortOrder = url.searchParams.get("sortOrder");
+    return sendResult(res, handleAdminListBroadcasts(db, filters));
+  }
+
+  // GET /frames/admin/broadcasts/:id — Get single broadcast
+  const adminBcDetailMatch = pathname.match(/^\/frames\/admin\/broadcasts\/([^/]+)$/);
+  if (method === "GET" && adminBcDetailMatch) {
+    const id = adminBcDetailMatch[1];
+    if (id === "stats") return; // already handled above
+    return sendResult(res, handleAdminGetBroadcast(db, id));
+  }
+
+  // PATCH /frames/admin/broadcasts/:id — Update broadcast
+  if (method === "PATCH" && adminBcDetailMatch) {
+    const body = JSON.parse((await readBody(req)) || "{}");
+    return sendResult(res, handleAdminUpdateBroadcast(db, adminBcDetailMatch[1], body));
+  }
+
+  // POST /frames/admin/broadcasts/:id/publish — Publish a draft
+  const adminBcPublishMatch = pathname.match(/^\/frames\/admin\/broadcasts\/([^/]+)\/publish$/);
+  if (method === "POST" && adminBcPublishMatch) {
+    return sendResult(res, handleAdminPublishBroadcast(db, adminBcPublishMatch[1]));
+  }
+
+  // POST /frames/admin/broadcasts/:id/unpublish — Revert to draft
+  const adminBcUnpublishMatch = pathname.match(/^\/frames\/admin\/broadcasts\/([^/]+)\/unpublish$/);
+  if (method === "POST" && adminBcUnpublishMatch) {
+    return sendResult(res, handleAdminUnpublishBroadcast(db, adminBcUnpublishMatch[1]));
+  }
+
+  // DELETE /frames/admin/broadcasts/:id — Archive (soft-delete)
+  if (method === "DELETE" && adminBcDetailMatch) {
+    return sendResult(res, handleAdminArchiveBroadcast(db, adminBcDetailMatch[1]));
   }
 
   // ── Device registration ───────────────────────────────────────────────

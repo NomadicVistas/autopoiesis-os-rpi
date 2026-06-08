@@ -1,5 +1,48 @@
 # Progress
 
+## 2026-06-08 - Admin content management CRUD validation + server handler fix
+
+Date: 2026-06-08
+
+Milestone: LEAD / INTEGRATION — admin content management CRUD validation and server handler return format fix
+
+Changed files:
+
+- `hosted-api/server.js` (fix admin handler return format: `{ status, body }` wrapping)
+- `scripts/admin-content-management-check.sh` (new)
+- `docs/progress.md`
+- `docs/agent-notes/pulse.md`
+- `/data/.openclaw/workspace/autopoiesis-os-program/ROLLING-LOG.md`
+
+Implemented:
+
+- Fixed all 8 admin content management handler functions in `hosted-api/server.js` to return the correct `{ status, body }` format expected by `sendResult()`. Previously, handlers like `handleAdminCreateBroadcast`, `handleAdminListBroadcasts`, etc. returned flat objects like `{ ok: true, broadcast }` directly, but `sendResult(res, result)` expects `result.status` (HTTP status code) and `result.body` (JSON payload). This caused every admin content management endpoint to crash with "The 'string' argument must be of type string or an instance of Buffer or ArrayBuffer. Received undefined" because `sendJson` received `undefined` for both status and body. The fix wraps all success returns as `{ status: 200, body: { ... } }` and error returns as `{ status: NNN, body: { ok: false, error: "..." } }`, matching the convention used by all other route handlers (register, pairing, settings, heartbeat, stream, etc.).
+- Added `scripts/admin-content-management-check.sh`, a 15-step 131-check isolated validation gate proving: syntax validation for hosted API + DB + self; static contract (8 route patterns, 8 handler functions, 9 DB methods); server bootstrap with 14 tables; broadcast creation (artwork with full metadata, curatorial, blog, premium-targeted, emergency, expired); unfiltered list with total/items/limit/offset; filtered list (status, type, priority, artistId, pagination, activeOnly); single broadcast get by ID with field verification and 404 for nonexistent; update with field persistence verification and 404 for nonexistent; full publish/unpublish lifecycle including double-operation rejection, multi-item publishing, and re-publishing; archive (soft-delete) with double-archive rejection and archived-item-not-publishable guard; broadcast statistics with total/active/draft/published/archived counts, byType/byPriority/byStatus breakdowns, and topArtists; stream composition surfacing admin-created content with emergency-first priority ordering; round-trip integrity (create → publish → stream → verify fields → archive → verify status); and content targeting (premium-only content excluded from unsubscribed device).
+
+Why this matters:
+
+The admin content management endpoints (CRUD + publish/unpublish/archive/stats) were non-functional because the handler functions returned the wrong format. Every call to POST/GET/PATCH/DELETE /frames/admin/broadcasts/* crashed with an unhandled error, making the entire content management pipeline unusable. The 131-check validation gate now proves the full CRUD lifecycle works end-to-end: create diverse content items (artworks, curatorial, blog, emergency, premium-targeted, expired), filter and paginate the list, get/update individual items, manage the publish lifecycle (draft → published → draft, with guards against invalid transitions), soft-delete via archive, and query statistics. Critically, the check also proves the round-trip from admin content creation through to device stream delivery: content created via admin CRUD, published, and then surfaced in the personalized stream endpoint with correct priority ordering. This closes the content pipeline loop: admin creates content → content enters `aos_broadcasts` → `getStreamContent()` queries `aos_broadcasts` → stream endpoint delivers to devices. This unblocks real content population, admin content management UI, and the entire MVP 0.2 personal stream feature.
+
+Verification:
+
+- `scripts/admin-content-management-check.sh` passed all 131 checks (15 steps).
+- `scripts/hosted-api-server-check.sh` passed all 74 checks (12 steps, no regression).
+- `scripts/security-smoke.sh` passed (no regression).
+- `node --check local-ui/server.js` passed.
+- `node --check hosted-api/server.js` passed.
+- `node --check hosted-api/db.js` passed.
+- `bash -n install.sh update.sh uninstall-dev-tools.sh factory-reset.sh scripts/*.sh` passed.
+
+Next step:
+
+- Populate `aos_broadcasts` with real gallery content (artworks from autopoiesis.art, curatorial text, blog posts).
+- Wire the admin content management endpoints into the admin dashboard UI for content creation and management.
+- Add content seeding scripts for development and staging environments.
+- Test the device-side feed pipeline with content created via admin CRUD.
+
+---
+
+
 ## 2026-06-08 - Kiosk feed polling respects subscription-tier intervals and auto-refreshes
 
 Date: 2026-06-08

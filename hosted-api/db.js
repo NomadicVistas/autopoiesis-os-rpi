@@ -1132,7 +1132,331 @@ class AosDb {
     return row ? row.cnt : 0;
   }
 
+  // ── Broadcast Content Management ──────────────────────────────────────────
+
+  /**
+   * Create a new broadcast / content item in aos_broadcasts.
+   * @param {object} data
+   * @param {string} data.id          – Optional custom ID (auto-generated if omitted)
+   * @param {string} data.title
+   * @param {string} [data.body]
+   * @param {string} [data.type]      – Content type (default: 'system_notice')
+   * @param {string} [data.mediaUrl]
+   * @param {string} [data.thumbnailUrl]
+   * @param {string} [data.artist]
+   * @param {string} [data.artistId]
+   * @param {string} [data.targetType] – Targeting type (default: 'all')
+   * @param {string} [data.targetValue]
+   * @param {string} [data.priority]   – Priority level (default: 'normal')
+   * @param {number} [data.duration]   – Display duration in seconds
+   * @param {string} [data.startsAt]   – Scheduled start ISO timestamp
+   * @param {string} [data.expiresAt]  – Expiry ISO timestamp
+   * @param {number} [data.repeatCount]
+   * @param {boolean} [data.dismissible]
+   * @param {boolean} [data.cacheAllowed]
+   * @param {boolean} [data.soundAllowed]
+   * @param {string} [data.status]     – 'draft' | 'published' | 'archived' (default: 'draft')
+   * @param {string} data.createdBy    – User ID of the creator
+   * @param {object} [data.metadata]   – Arbitrary JSON metadata
+   * @returns {object} Created broadcast row
+   */
+  createBroadcast(data = {}) {
+    const id = data.id || uid("bcast");
+    const stmt = this.db.prepare(`
+      INSERT INTO aos_broadcasts (
+        id, title, body, type, media_url, thumbnail_url, artist, artist_id,
+        target_type, target_value, priority, duration,
+        starts_at, expires_at, repeat_count,
+        dismissible, cache_allowed, sound_allowed,
+        status, created_by, metadata_json
+      ) VALUES (
+        ?, ?, ?, ?, ?, ?, ?, ?,
+        ?, ?, ?, ?,
+        ?, ?, ?,
+        ?, ?, ?,
+        ?, ?, ?
+      )
+    `);
+    stmt.run(
+      id,
+      data.title || '',
+      data.body || null,
+      data.type || 'system_notice',
+      data.mediaUrl || null,
+      data.thumbnailUrl || null,
+      data.artist || null,
+      data.artistId || null,
+      data.targetType || 'all',
+      data.targetValue || '',
+      data.priority || 'normal',
+      data.duration || null,
+      data.startsAt || null,
+      data.expiresAt || null,
+      data.repeatCount || 0,
+      data.dismissible !== undefined ? (data.dismissible ? 1 : 0) : 1,
+      data.cacheAllowed !== undefined ? (data.cacheAllowed ? 1 : 0) : 0,
+      data.soundAllowed !== undefined ? (data.soundAllowed ? 1 : 0) : 1,
+      data.status || 'draft',
+      data.createdBy || 'system',
+      jsonStringify(data.metadata || {})
+    );
+    return this.getBroadcast(id);
+  }
+
+  /**
+   * Get a single broadcast by ID.
+   * @param {string} id
+   * @returns {object|null} Mapped broadcast or null
+   */
+  getBroadcast(id) {
+    const row = this.db.prepare('SELECT * FROM aos_broadcasts WHERE id = ?').get(id);
+    return row ? this._mapBroadcast(row) : null;
+  }
+
+  /**
+   * List broadcasts with optional filters and pagination.
+   * @param {object} [filters]
+   * @param {string} [filters.status]      – Filter by status
+   * @param {string} [filters.type]        – Filter by content type
+   * @param {string} [filters.priority]    – Filter by priority
+   * @param {string} [filters.artistId]    – Filter by artist ID
+   * @param {string} [filters.targetType]  – Filter by target type
+   * @param {string} [filters.createdBy]   – Filter by creator
+   * @param {boolean} [filters.activeOnly] – Only published, non-expired (default: false)
+   * @param {number} [filters.limit]       – Max results (default: 50, max: 200)
+   * @param {number} [filters.offset]      – Offset for pagination
+   * @param {string} [filters.sortBy]      – 'created_at' | 'updated_at' | 'priority' (default: 'created_at')
+   * @param {string} [filters.sortOrder]   – 'asc' | 'desc' (default: 'desc')
+   * @returns {{ items: object[], total: number, limit: number, offset: number }}
+   */
+  listBroadcasts(filters = {}) {
+    const limit = Math.min(Math.max(1, filters.limit || 50), 200);
+    const offset = Math.max(0, filters.offset || 0);
+
+    const clauses = [];
+    const params = [];
+
+    if (filters.status) { clauses.push('status = ?'); params.push(filters.status); }
+    if (filters.type) { clauses.push('type = ?'); params.push(filters.type); }
+    if (filters.priority) { clauses.push('priority = ?'); params.push(filters.priority); }
+    if (filters.artistId) { clauses.push('artist_id = ?'); params.push(filters.artistId); }
+    if (filters.targetType) { clauses.push('target_type = ?'); params.push(filters.targetType); }
+    if (filters.createdBy) { clauses.push('created_by = ?'); params.push(filters.createdBy); }
+
+    if (filters.activeOnly) {
+      const nowISO = now();
+      clauses.push("status = 'published'");
+      clauses.push('(expires_at IS NULL OR expires_at > ?)');
+      params.push(nowISO);
+      clauses.push('(starts_at IS NULL OR starts_at <= ?)');
+      params.push(nowISO);
+    }
+
+    const where = clauses.length > 0 ? 'WHERE ' + clauses.join(' AND ') : '';
+
+    // Validate sort
+    const allowedSorts = { 'created_at': 'created_at', 'updated_at': 'updated_at', 'priority': 'priority' };
+    const sortCol = allowedSorts[filters.sortBy] || 'created_at';
+    const order = filters.sortOrder === 'asc' ? 'ASC' : 'DESC';
+
+    // For priority sort, use numeric rank
+    const orderBy = sortCol === 'priority'
+      ? `ORDER BY CASE priority WHEN 'emergency' THEN 500 WHEN 'critical' THEN 400 WHEN 'high' THEN 300 WHEN 'normal' THEN 200 WHEN 'low' THEN 100 ELSE 200 END ${order}`
+      : `ORDER BY ${sortCol} ${order}`;
+
+    const countRow = this.db.prepare(`SELECT count(*) AS cnt FROM aos_broadcasts ${where}`).get(...params);
+    const total = countRow ? countRow.cnt : 0;
+
+    const rows = this.db.prepare(
+      `SELECT * FROM aos_broadcasts ${where} ${orderBy} LIMIT ? OFFSET ?`
+    ).all(...params, limit, offset);
+
+    return {
+      items: rows.map(r => this._mapBroadcast(r)),
+      total,
+      limit,
+      offset
+    };
+  }
+
+  /**
+   * Update an existing broadcast. Only provided fields are updated.
+   * @param {string} id
+   * @param {object} updates
+   * @returns {object|null} Updated broadcast or null if not found
+   */
+  updateBroadcast(id, updates = {}) {
+    const existing = this.db.prepare('SELECT * FROM aos_broadcasts WHERE id = ?').get(id);
+    if (!existing) return null;
+
+    const fields = [];
+    const values = [];
+
+    const columnMap = {
+      title: 'title', body: 'body', type: 'type',
+      mediaUrl: 'media_url', thumbnailUrl: 'thumbnail_url',
+      artist: 'artist', artistId: 'artist_id',
+      targetType: 'target_type', targetValue: 'target_value',
+      priority: 'priority', duration: 'duration',
+      startsAt: 'starts_at', expiresAt: 'expires_at',
+      repeatCount: 'repeat_count', status: 'status'
+    };
+
+    for (const [key, col] of Object.entries(columnMap)) {
+      if (updates[key] !== undefined) {
+        fields.push(`${col} = ?`);
+        values.push(updates[key]);
+      }
+    }
+
+    // Boolean fields need integer conversion
+    if (updates.dismissible !== undefined) {
+      fields.push('dismissible = ?');
+      values.push(updates.dismissible ? 1 : 0);
+    }
+    if (updates.cacheAllowed !== undefined) {
+      fields.push('cache_allowed = ?');
+      values.push(updates.cacheAllowed ? 1 : 0);
+    }
+    if (updates.soundAllowed !== undefined) {
+      fields.push('sound_allowed = ?');
+      values.push(updates.soundAllowed ? 1 : 0);
+    }
+    if (updates.metadata !== undefined) {
+      fields.push('metadata_json = ?');
+      values.push(jsonStringify(updates.metadata));
+    }
+
+    if (fields.length === 0) return this._mapBroadcast(existing);
+
+    fields.push('updated_at = ?');
+    values.push(now());
+    values.push(id);
+
+    this.db.prepare(`UPDATE aos_broadcasts SET ${fields.join(', ')} WHERE id = ?`).run(...values);
+    return this.getBroadcast(id);
+  }
+
+  /**
+   * Archive (soft-delete) a broadcast by setting status to 'archived'.
+   * @param {string} id
+   * @returns {object|null} Archived broadcast or null if not found
+   */
+  archiveBroadcast(id) {
+    return this.updateBroadcast(id, { status: 'archived' });
+  }
+
+  /**
+   * Publish a draft broadcast.
+   * @param {string} id
+   * @returns {object|null} Published broadcast or null
+   */
+  publishBroadcast(id) {
+    return this.updateBroadcast(id, { status: 'published' });
+  }
+
+  /**
+   * Unpublish a broadcast (set back to draft).
+   * @param {string} id
+   * @returns {object|null} Unpublished broadcast or null
+   */
+  unpublishBroadcast(id) {
+    return this.updateBroadcast(id, { status: 'draft' });
+  }
+
+  /**
+   * Get broadcast content statistics for admin dashboard.
+   * @returns {object} Content stats
+   */
+  getBroadcastStats() {
+    const nowISO = now();
+
+    const statusCounts = this.db.prepare(
+      `SELECT status, count(*) AS cnt FROM aos_broadcasts GROUP BY status`
+    ).all().reduce((acc, r) => { acc[r.status] = r.cnt; return acc; }, {});
+
+    const typeCounts = this.db.prepare(
+      `SELECT type, count(*) AS cnt FROM aos_broadcasts GROUP BY type`
+    ).all().reduce((acc, r) => { acc[r.type] = r.cnt; return acc; }, {});
+
+    const priorityCounts = this.db.prepare(
+      `SELECT priority, count(*) AS cnt FROM aos_broadcasts GROUP BY priority`
+    ).all().reduce((acc, r) => { acc[r.priority] = r.cnt; return acc; }, {});
+
+    const activeCount = this.db.prepare(
+      `SELECT count(*) AS cnt FROM aos_broadcasts
+       WHERE status = 'published'
+         AND (expires_at IS NULL OR expires_at > ?)
+         AND (starts_at IS NULL OR starts_at <= ?)`
+    ).get(nowISO, nowISO).cnt;
+
+    const expiredCount = this.db.prepare(
+      `SELECT count(*) AS cnt FROM aos_broadcasts
+       WHERE status = 'published' AND expires_at IS NOT NULL AND expires_at <= ?`
+    ).get(nowISO).cnt;
+
+    const scheduledCount = this.db.prepare(
+      `SELECT count(*) AS cnt FROM aos_broadcasts
+       WHERE status = 'published' AND starts_at IS NOT NULL AND starts_at > ?`
+    ).get(nowISO).cnt;
+
+    const artistCounts = this.db.prepare(
+      `SELECT artist_id, artist, count(*) AS cnt FROM aos_broadcasts
+       WHERE artist_id IS NOT NULL AND status = 'published'
+       GROUP BY artist_id, artist
+       ORDER BY cnt DESC LIMIT 20`
+    ).all().map(r => ({ artistId: r.artist_id, artist: r.artist, count: r.cnt }));
+
+    return {
+      total: Object.values(statusCounts).reduce((a, b) => a + b, 0),
+      active: activeCount,
+      draft: statusCounts.draft || 0,
+      published: statusCounts.published || 0,
+      archived: statusCounts.archived || 0,
+      expired: expiredCount,
+      scheduled: scheduledCount,
+      byType: typeCounts,
+      byPriority: priorityCounts,
+      byStatus: statusCounts,
+      topArtists: artistCounts
+    };
+  }
+
   // ── Internal helpers ─────────────────────────────────────────────────────
+
+  /**
+   * Map an aos_broadcasts row to a camelCase response object.
+   * @param {object} row
+   * @returns {object}
+   */
+  _mapBroadcast(row) {
+    return {
+      id: row.id,
+      title: row.title,
+      body: row.body || null,
+      type: row.type,
+      category: _broadcastTypeToCategory(row.type),
+      mediaUrl: row.media_url || null,
+      thumbnailUrl: row.thumbnail_url || null,
+      artist: row.artist || null,
+      artistId: row.artist_id || null,
+      targetType: row.target_type,
+      targetValue: row.target_value,
+      priority: row.priority,
+      duration: row.duration || null,
+      startsAt: row.starts_at || null,
+      expiresAt: row.expires_at || null,
+      repeatCount: row.repeat_count,
+      dismissible: !!row.dismissible,
+      cacheAllowed: !!row.cache_allowed,
+      soundAllowed: !!row.sound_allowed,
+      status: row.status,
+      createdBy: row.created_by,
+      metadata: jsonParse(row.metadata_json, {}),
+      createdAt: row.created_at,
+      updatedAt: row.updated_at,
+    };
+  }
 
   _mapDevice(row) {
     return {
