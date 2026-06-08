@@ -1730,6 +1730,7 @@ class AosDb {
       updateChannel: row.update_channel,
       paired: !!row.paired,
       remoteEnabled: !!row.remote_enabled,
+      disabled: !!row.disabled,
       subscriptionStatus: row.subscription_status,
       lastHeartbeatAt: row.last_heartbeat_at,
       currentMode: row.current_mode,

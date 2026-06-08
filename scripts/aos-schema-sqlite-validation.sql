@@ -26,6 +26,7 @@ CREATE TABLE IF NOT EXISTS aos_frame_devices (
   release_target_version TEXT,
   release_channel     TEXT,
   release_updated_at  TEXT,
+  disabled            INTEGER NOT NULL DEFAULT 0,
   release_error       TEXT,
   created_at          TEXT    NOT NULL DEFAULT (datetime('now')),
   updated_at          TEXT    NOT NULL DEFAULT (datetime('now'))

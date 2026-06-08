@@ -26,6 +26,12 @@
  *   GET  /frames/admin/bundle                       – Online admin dashboard bundle
  *   GET  /frames/admin/broadcast-deliveries         – Admin: list broadcast deliveries
  *   GET  /frames/admin/broadcast-deliveries/:id     – Admin: per-broadcast delivery detail
+ *   POST /frames/admin/subscriptions               – Admin: create subscription
+ *   GET  /frames/admin/subscriptions/:userId       – Admin: get subscription + entitlements
+ *   PATCH /frames/admin/subscriptions/:userId      – Admin: update subscription
+ *   POST /frames/admin/subscriptions/:userId/cancel – Admin: cancel subscription
+ *   POST /frames/admin/devices/:id/actions         – Admin: queue remote action
+ *   PATCH /frames/admin/devices/:id                – Admin: update device properties
  */
 
 "use strict";
@@ -798,6 +804,232 @@ function handleAdminGetBroadcast(db, id) {
   return { status: 200, body: { ok: true, broadcast } };
 }
 
+// ── Admin Subscription Management Handlers ─────────────────────────────────
+
+/**
+ * POST /frames/admin/subscriptions
+ * Create a new subscription for a user.
+ */
+function handleAdminCreateSubscription(db, body) {
+  if (!body.userId) return { status: 400, body: { ok: false, error: "userId is required" } };
+  const validPlans = Object.keys(PLAN_LIMITS);
+  if (body.plan && !validPlans.includes(body.plan)) {
+    return { status: 400, body: { ok: false, error: "Invalid plan. Valid: " + validPlans.join(", ") } };
+  }
+  const validStatuses = ["trial", "active", "expired", "cancelled", "past_due", "inactive"];
+  if (body.status && !validStatuses.includes(body.status)) {
+    return { status: 400, body: { ok: false, error: "Invalid status. Valid: " + validStatuses.join(", ") } };
+  }
+  // Check if subscription already exists
+  const existing = db.getSubscription(body.userId);
+  if (existing) {
+    return { status: 409, body: { ok: false, error: "Subscription already exists for user " + body.userId, existingSubscription: existing } };
+  }
+  const result = db.upsertSubscription(body.userId, {
+    plan: body.plan || "frames_trial",
+    status: body.status || "trial",
+    provider: body.provider || "manual"
+  });
+  return { status: 201, body: { ok: true, created: true, subscription: result.subscription } };
+}
+
+/**
+ * PATCH /frames/admin/subscriptions/:userId
+ * Update a user's subscription (plan, status, provider).
+ */
+function handleAdminUpdateSubscription(db, userId, body) {
+  const existing = db.getSubscription(userId);
+  if (!existing) return { status: 404, body: { ok: false, error: "Subscription not found for user " + userId } };
+
+  const validPlans = Object.keys(PLAN_LIMITS);
+  if (body.plan && !validPlans.includes(body.plan)) {
+    return { status: 400, body: { ok: false, error: "Invalid plan. Valid: " + validPlans.join(", ") } };
+  }
+  const validStatuses = ["trial", "active", "expired", "cancelled", "past_due", "inactive"];
+  if (body.status && !validStatuses.includes(body.status)) {
+    return { status: 400, body: { ok: false, error: "Invalid status. Valid: " + validStatuses.join(", ") } };
+  }
+
+  const result = db.upsertSubscription(userId, {
+    plan: body.plan || existing.plan,
+    status: body.status || existing.status,
+    provider: body.provider || existing.provider
+  });
+  return { status: 200, body: { ok: true, updated: true, subscription: result.subscription } };
+}
+
+/**
+ * POST /frames/admin/subscriptions/:userId/cancel
+ * Cancel a user's subscription (sets status to 'cancelled').
+ */
+function handleAdminCancelSubscription(db, userId) {
+  const existing = db.getSubscription(userId);
+  if (!existing) return { status: 404, body: { ok: false, error: "Subscription not found for user " + userId } };
+  if (existing.status === "cancelled") {
+    return { status: 400, body: { ok: false, error: "Subscription already cancelled" } };
+  }
+  const result = db.upsertSubscription(userId, {
+    plan: existing.plan,
+    status: "cancelled",
+    provider: existing.provider
+  });
+  return { status: 200, body: { ok: true, cancelled: true, subscription: result.subscription } };
+}
+
+/**
+ * GET /frames/admin/subscriptions/:userId
+ * Get a single user's subscription details with entitlements.
+ */
+function handleAdminGetSubscription(db, userId) {
+  const sub = db.getSubscription(userId);
+  if (!sub) return { status: 404, body: { ok: false, error: "Subscription not found for user " + userId } };
+  const deviceCount = db.countDevicesByOwner(userId);
+  const entitlements = computeEntitlements(sub, deviceCount);
+  return {
+    status: 200,
+    body: { ok: true, subscription: sub, entitlements }
+  };
+}
+
+// ── Admin Device Fleet Action Endpoints ─────────────────────────────────────
+
+/**
+ * POST /frames/admin/devices/:id/actions
+ * Queue a remote action on a device. Validates against role-action matrix.
+ */
+function handleAdminDeviceAction(db, deviceId, body) {
+  if (!body.action) return { status: 400, body: { ok: false, error: "action is required" } };
+
+  const device = db.getDevice(deviceId);
+  if (!device) return { status: 404, body: { ok: false, error: "Device not found" } };
+  if (!device.paired) return { status: 400, body: { ok: false, error: "Device is not paired" } };
+
+  // Validate action against admin role in the action matrix
+  const adminRole = ROLE_ACTION_MATRIX.find(r => r.role === "admin");
+  if (!adminRole || !adminRole.actions[body.action]) {
+    return { status: 400, body: { ok: false, error: "Unknown action: " + body.action } };
+  }
+
+  // Compute action availability to check device-state gates
+  let ownerSubscription = null;
+  if (device.ownerUserId) {
+    const sub = db.getSubscription(device.ownerUserId);
+    ownerSubscription = sub ? { plan: sub.plan, status: sub.status } : null;
+  }
+  const pendingCommands = db.getPendingCommands(deviceId);
+  const availability = buildActionAvailability(device, "admin", ownerSubscription, pendingCommands.length);
+  const actionAvail = availability.actions[body.action];
+
+  if (actionAvail && !actionAvail.allowed) {
+    return {
+      status: 409,
+      body: {
+        ok: false,
+        error: "Action not available: " + (actionAvail.reason || "device state prevents this action"),
+        reasonCode: actionAvail.reasonCode || "action_blocked",
+        deviceState: availability.deviceState
+      }
+    };
+  }
+
+  // Map action names to command types
+  const ACTION_TO_COMMAND = {
+    sync_settings: "sync_settings",
+    clear_cache: "clear_cache",
+    restart_display: "restart_display",
+    enable_device: "enable_device",
+    disable_device: "disable_device",
+    restart_device: "restart_device",
+    update_device: "update_device",
+    show_broadcast: "show_broadcast",
+    factory_reset_request: "factory_reset_request"
+  };
+
+  const commandType = ACTION_TO_COMMAND[body.action];
+  if (!commandType) {
+    return { status: 400, body: { ok: false, error: "Cannot map action to command: " + body.action } };
+  }
+
+  // Determine risk level
+  const riskMap = {
+    sync_settings: "low",
+    clear_cache: "low",
+    restart_display: "medium",
+    enable_device: "low",
+    disable_device: "high",
+    restart_device: "high",
+    update_device: "high",
+    show_broadcast: "low",
+    factory_reset_request: "critical"
+  };
+
+  const payload = body.payload || {};
+
+  const command = db.queueCommand(deviceId, commandType, payload, riskMap[commandType] || "medium");
+
+  return {
+    status: 200,
+    body: {
+      ok: true,
+      queued: true,
+      commandId: command.commandId || command.id,
+      action: body.action,
+      commandType,
+      risk: riskMap[commandType] || "medium",
+      deviceId,
+      queuedAt: now(),
+      deviceState: availability.deviceState
+    }
+  };
+}
+
+/**
+ * PATCH /frames/admin/devices/:id
+ * Update device properties (e.g. disabled, remoteEnabled, deviceName).
+ */
+function handleAdminUpdateDevice(db, deviceId, body) {
+  const device = db.getDevice(deviceId);
+  if (!device) return { status: 404, body: { ok: false, error: "Device not found" } };
+
+  const allowedFields = ["disabled", "remoteEnabled", "deviceName", "updateChannel"];
+  const updates = {};
+  for (const field of allowedFields) {
+    if (body[field] !== undefined) {
+      updates[field] = body[field];
+    }
+  }
+
+  if (Object.keys(updates).length === 0) {
+    return { status: 400, body: { ok: false, error: "No updatable fields provided. Allowed: " + allowedFields.join(", ") } };
+  }
+
+  // Apply updates via direct DB operations
+  const setClauses = [];
+  const params = [];
+  if (updates.disabled !== undefined) { setClauses.push("disabled = ?"); params.push(updates.disabled ? 1 : 0); }
+  if (updates.remoteEnabled !== undefined) { setClauses.push("remote_enabled = ?"); params.push(updates.remoteEnabled ? 1 : 0); }
+  if (updates.deviceName !== undefined) { setClauses.push("device_name = ?"); params.push(updates.deviceName); }
+  if (updates.updateChannel !== undefined) { setClauses.push("update_channel = ?"); params.push(updates.updateChannel); }
+
+  if (setClauses.length > 0) {
+    setClauses.push("updated_at = datetime('now')");
+    params.push(deviceId);
+    db.db.prepare(
+      `UPDATE aos_frame_devices SET ${setClauses.join(", ")} WHERE device_id = ?`
+    ).run(...params);
+  }
+
+  const updated = db.getDevice(deviceId);
+  return {
+    status: 200,
+    body: { ok: true, updated: true, device: updated }
+  };
+}
+
+/* --------------------------------------------------------------------------
+ * Admin Content Management Handlers
+ * -------------------------------------------------------------------------- */
+
 function handleAdminUpdateBroadcast(db, id, updates) {
   const existing = db.getBroadcast(id);
   if (!existing) return { status: 404, body: { ok: false, error: "Broadcast not found" } };
@@ -1147,6 +1379,60 @@ async function handle(db, req, res) {
     const adminAuth = authenticateAdmin(req);
     if (!adminAuth.ok) return sendJson(res, adminAuth.status, { ok: false, error: adminAuth.error });
     return sendResult(res, handleAdminDeviceSnapshot(db, adminSnapshotMatch[1]));
+  }
+
+  // ── Admin subscription management endpoints ────────────────────────────
+
+  // POST /frames/admin/subscriptions — Create subscription
+  if (method === "POST" && pathname === "/frames/admin/subscriptions") {
+    const adminAuth = authenticateAdmin(req);
+    if (!adminAuth.ok) return sendJson(res, adminAuth.status, { ok: false, error: adminAuth.error });
+    const body = JSON.parse((await readBody(req)) || "{}");
+    return sendResult(res, handleAdminCreateSubscription(db, body));
+  }
+
+  // GET /frames/admin/subscriptions/:userId — Get subscription + entitlements
+  const adminSubMatch = pathname.match(/^\/frames\/admin\/subscriptions\/([^/]+)$/);
+  if (method === "GET" && adminSubMatch) {
+    const adminAuth = authenticateAdmin(req);
+    if (!adminAuth.ok) return sendJson(res, adminAuth.status, { ok: false, error: adminAuth.error });
+    return sendResult(res, handleAdminGetSubscription(db, adminSubMatch[1]));
+  }
+
+  // PATCH /frames/admin/subscriptions/:userId — Update subscription
+  if (method === "PATCH" && adminSubMatch) {
+    const adminAuth = authenticateAdmin(req);
+    if (!adminAuth.ok) return sendJson(res, adminAuth.status, { ok: false, error: adminAuth.error });
+    const body = JSON.parse((await readBody(req)) || "{}");
+    return sendResult(res, handleAdminUpdateSubscription(db, adminSubMatch[1], body));
+  }
+
+  // POST /frames/admin/subscriptions/:userId/cancel — Cancel subscription
+  const adminSubCancelMatch = pathname.match(/^\/frames\/admin\/subscriptions\/([^/]+)\/cancel$/);
+  if (method === "POST" && adminSubCancelMatch) {
+    const adminAuth = authenticateAdmin(req);
+    if (!adminAuth.ok) return sendJson(res, adminAuth.status, { ok: false, error: adminAuth.error });
+    return sendResult(res, handleAdminCancelSubscription(db, adminSubCancelMatch[1]));
+  }
+
+  // ── Admin device fleet action endpoints ──────────────────────────────────
+
+  // POST /frames/admin/devices/:id/actions — Queue remote action
+  const adminDevActionMatch = pathname.match(/^\/frames\/admin\/devices\/([^/]+)\/actions$/);
+  if (method === "POST" && adminDevActionMatch) {
+    const adminAuth = authenticateAdmin(req);
+    if (!adminAuth.ok) return sendJson(res, adminAuth.status, { ok: false, error: adminAuth.error });
+    const body = JSON.parse((await readBody(req)) || "{}");
+    return sendResult(res, handleAdminDeviceAction(db, adminDevActionMatch[1], body));
+  }
+
+  // PATCH /frames/admin/devices/:id — Update device properties
+  const adminDevUpdateMatch = pathname.match(/^\/frames\/admin\/devices\/([^/]+)$/);
+  if (method === "PATCH" && adminDevUpdateMatch) {
+    const adminAuth = authenticateAdmin(req);
+    if (!adminAuth.ok) return sendJson(res, adminAuth.status, { ok: false, error: adminAuth.error });
+    const body = JSON.parse((await readBody(req)) || "{}");
+    return sendResult(res, handleAdminUpdateDevice(db, adminDevUpdateMatch[1], body));
   }
 
   // ── Admin content management endpoints ─────────────────────────────────

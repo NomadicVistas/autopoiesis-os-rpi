@@ -1,5 +1,68 @@
 # Progress
 
+## 2026-06-08 - Online admin subscription CRUD + device fleet action endpoints
+
+Date: 2026-06-08
+
+Milestone: ONLINE ADMIN — subscription CRUD admin endpoints and device fleet action endpoints
+
+Changed files:
+
+- `hosted-api/server.js` (6 new handlers + 6 new routes for subscription/device admin)
+- `hosted-api/db.js` (disabled field in _mapDevice)
+- `scripts/aos-schema-sqlite-validation.sql` (disabled column on aos_frame_devices)
+- `migrations/sqlite/20260608000002_add_device_disabled_column.sql` (new: add disabled column)
+- `scripts/online-admin-subscription-fleet-check.sh` (new: 15-step 100-check validation gate)
+- `docs/progress.md`
+- `docs/agent-notes/online-admin-subscription-fleet-note.md` (new)
+- `/data/.openclaw/workspace/autopoiesis-os-program/ROLLING-LOG.md`
+
+Implemented:
+
+- **Subscription CRUD admin endpoints**: Added 4 admin-only endpoints for subscription lifecycle management:
+  - `POST /frames/admin/subscriptions` — create subscription with plan/status validation, 409 on duplicate.
+  - `GET /frames/admin/subscriptions/:userId` — get subscription with computed entitlements (device limits, cache, offline, degradation status).
+  - `PATCH /frames/admin/subscriptions/:userId` — update plan, status, or provider. Validates against PLAN_LIMITS keys and valid status enum.
+  - `POST /frames/admin/subscriptions/:userId/cancel` — cancel subscription. Double-cancel returns 400. Non-existent returns 404.
+
+- **Device fleet action endpoint**: Added `POST /frames/admin/devices/:id/actions` — queues a remote action (e.g. restart_device, disable_device, factory_reset_request) after validating against the full 5-layer role-action matrix (subscription degradation → role policy → paired/disabled/remote → online → pending conflicts). Each action maps to a command type with risk level (low/medium/high/critical). Factory reset is `critical` risk. Blocked actions return 409 with `reasonCode` and `deviceState` object.
+
+- **Device property update endpoint**: Added `PATCH /frames/admin/devices/:id` — updates device properties (disabled, remoteEnabled, deviceName, updateChannel). Allows admin to disable/enable devices, toggle remote actions, rename devices, and change update channels.
+
+- **Disabled column migration**: Added `disabled INTEGER NOT NULL DEFAULT 0` to `aos_frame_devices` via migration `20260608000002_add_device_disabled_column.sql`. Also added to SQLite validation schema and `_mapDevice()` output.
+
+- **Plan validation**: All subscription endpoints validate plan against the 4 PLAN_LIMITS tiers (frames_trial, frames_basic, frames_premium, frames_enterprise). Invalid plans return 400 with the list of valid options.
+
+- **Status validation**: Subscription status validated against 6 valid values (trial, active, expired, cancelled, past_due, inactive).
+
+- Added `scripts/online-admin-subscription-fleet-check.sh` — a 15-step 100-check isolated validation gate proving: syntax validation, static contract (6 handlers, route patterns, PLAN_LIMITS, ACTION_TO_COMMAND, riskMap, disabled column, migration file), database bootstrap + migration (disabled column exists), server startup, device registration + pairing (2 devices, 2 owners), subscription CRUD (create with entitlements, get with device limits, update plan, double-create 409 rejection), subscription cancel (cancel confirmed, double-cancel 400, non-existent 404), invalid plan/status rejection (400 with valid options), device action queue (restart_device with risk level), device disable via PATCH (restart blocked with device_disabled, enable_device escape hatch still works), device re-enable, error cases (invalid action, missing action, unknown device, empty PATCH), admin auth required (6 new endpoints reject missing/wrong token), regression (admin bundle reflects subscription changes, device endpoints unaffected).
+
+Why this matters:
+
+The online admin platform had complete read-only visibility via the admin bundle and device snapshot endpoints, but zero write capabilities. The admin dashboard could view fleet data, user subscriptions, and device states, but couldn't actually manage any of it — no way to create subscriptions, change plans, cancel subscriptions, disable devices, toggle remote actions, or queue remote commands through the API. These are the foundational write operations that turn the admin dashboard from a monitoring tool into a management tool. Subscription CRUD enables the admin to onboard new users with appropriate plans, upgrade/downgrade tiers, and handle cancellations — all of which directly affect entitlements (device limits, cache, offline, degradation). Device fleet actions enable remote device management: restart, update, disable, enable, cache clear, settings sync, and factory reset — all gated through the same role-action matrix that the admin bundle already computes. The disabled column + device property PATCH enables fleet-level operations like remotely disabling a stolen device or changing an update channel. Together, these endpoints provide the complete admin write layer that the online admin dashboard needs.
+
+Verification:
+
+- `scripts/online-admin-subscription-fleet-check.sh` passed all 100 checks (15 steps).
+- `scripts/heartbeat-persistence-check.sh` passed all 33 checks (10 steps, no regression).
+- `scripts/admin-auth-check.sh` passed all 38 checks (7 steps, no regression).
+- `scripts/security-smoke.sh` passed (no regression).
+- `node --check hosted-api/server.js` passed.
+- `node --check hosted-api/db.js` passed.
+- `node --check local-ui/server.js` passed.
+- `bash -n install.sh update.sh uninstall-dev-tools.sh factory-reset.sh` passed.
+- `bash -n scripts/*.sh` passed.
+
+Next step:
+
+- Wire subscription and fleet action endpoints into the admin dashboard frontend.
+- Add user preferences admin endpoint (GET/PATCH `/frames/admin/users/:id/preferences`).
+- Add subscription reactivation endpoint.
+- Add audit trail logging for subscription and device state changes.
+- Add fleet bulk actions (batch enable/disable/update).
+
+---
+
 ## 2026-06-08 - Artwork like endpoint integration fix: device auth → DB persistence
 
 Date: 2026-06-08
