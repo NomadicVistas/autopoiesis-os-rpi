@@ -1,5 +1,66 @@
 # Progress
 
+## 2026-06-08 - Wi-Fi scan deduplication, signal quality, and touch-friendly rendering
+
+Date: 2026-06-08
+
+Milestone: RPI APPLIANCE — Wi-Fi onboarding quality and touchscreen UX
+
+Changed files:
+
+- `local-ui/server.js`
+- `scripts/wifi-scan-dedup-check.sh` (new)
+- `docs/progress.md`
+- `/data/.openclaw/workspace/autopoiesis-os-program/ROLLING-LOG.md`
+
+Implemented:
+
+- Added `signalQuality(signal)` — classifies Wi-Fi signal strength into four human-readable quality levels: excellent (80+), good (60–79), fair (40–59), weak (0–39). Handles null/undefined/non-numeric input by returning "weak".
+- Added `classifySecurity(security)` — normalizes nmcli security strings into concise types: WPA3, WPA2, WPA, WEP, or open. Case-insensitive matching on substring presence. Handles empty/null input by returning "open".
+- Added `deduplicateWifiNetworks(raw)` — deduplicates raw nmcli scan output by SSID, keeping the entry with the strongest signal per SSID. Null/undefined entries are safely filtered. Results are enriched with `signalQuality` and `securityType`, then sorted by signal strength descending.
+- Updated `scanWifi()` callback — raw nmcli output now passes through `deduplicateWifiNetworks()` before being returned. Previously, each BSSID appeared as a separate entry, showing the same SSID multiple times (a typical Pi with 5 nearby networks would show 15–20 entries).
+- Updated `renderWifiScan()` HTML and CSS — complete visual redesign for Pi touchscreen:
+  - Signal bars: CSS-based 4-bar signal strength indicator with quality-based highlighting (excellent/good/fair/weak).
+  - Security badge: concise security type label (WPA3/WPA2/WPA/WEP/open) instead of raw nmcli string.
+  - Larger touch targets: 14px padding, 8px border-radius, hover/active states.
+  - Hidden network note: when no networks are found, shows a hint about entering SSID manually.
+  - Connection feedback: submit button changes to "Connecting..." and disables during connection attempt. On failure, shows error message with re-enable.
+  - Network row layout: flexbox with SSID (truncated if long), signal bars, and security badge.
+- Added `scripts/wifi-scan-dedup-check.sh` — a 12-step 25-check isolated validation gate proving:
+  1. Syntax validation (local-ui/server.js, self).
+  2. Static contract: all three new functions exist in server code.
+  3. signalQuality unit tests (15/15): boundary values for excellent/good/fair/weak, null, undefined, non-numeric.
+  4. classifySecurity unit tests (15/15): WPA3/WPA2/WPA/WEP variants, case sensitivity, empty/null/undefined.
+  5. deduplicateWifiNetworks unit tests (10/10): same-SSID dedup keeping strongest, sort by signal, empty array, empty-SSID filter, signalQuality enrichment, securityType enrichment, open network, multi-AP same-SSID different-security, null/undefined entries, full quality mapping.
+  6. Live endpoint with mock nmcli: 6 raw entries (3 SSIDs × 2 BSSIDs) deduplicated to 3, sorted strongest-first, signal quality enriched, security type enriched, strongest BSSID preserved per SSID.
+  7. HTML rendering: signal-bars CSS, security-badge CSS, network-row styling, hidden-network-note, Connecting... feedback, button disabled during connection.
+  8. connectWifi regression: signature preserved, wifiConfigured flag still set.
+  9. connectLan regression: signature preserved.
+  10. networkStatus regression: signature preserved.
+  11. Security: scan response contains only expected fields (ssid, signal, security, securityType, signalQuality).
+  12. Regression: touchscreen-check.sh syntax valid.
+
+Why this matters:
+
+The Wi-Fi scan page is the first interactive screen a user sees on a new Pi after booting. Previously, nmcli returned one entry per BSSID — a network with 3 access points appeared 3 times, a busy environment could show 20+ entries for 5 actual networks. The raw output also showed signal as a number ("85% WPA2") rather than a visual indicator, and the touch targets were small default-sized buttons. For a 7" Pi touchscreen operated by finger, this was a poor first impression. The deduplication collapses multi-AP networks into single entries with the strongest signal, the quality classification provides visual bars, the security badge is concise, and the touch targets are large and well-spaced. The connection flow now provides real-time feedback ("Connecting..." with disabled button) instead of silently hanging. This is the first-boot experience improvement for the production appliance.
+
+Verification:
+
+- `scripts/wifi-scan-dedup-check.sh` passed all 25 checks (12 steps).
+- `scripts/security-smoke.sh` passed.
+- `node --check local-ui/server.js` passed.
+- `node --check scripts/mock-hosted-api/server.js` passed.
+- `bash -n install.sh update.sh uninstall-dev-tools.sh factory-reset.sh scripts/*.sh` passed.
+- `git diff --check` passed.
+
+Next step:
+
+- On the Pi, verify the Wi-Fi scan page renders correctly on the 7" touchscreen with Chromium kiosk mode.
+- Test with a real Wi-Fi environment (multiple APs, hidden networks, open networks).
+- Add Wi-Fi signal strength to the device heartbeat metrics for remote network quality monitoring.
+
+---
+
 ## 2026-06-08 - Subscription-tier device limits and feature entitlements
 
 Date: 2026-06-08

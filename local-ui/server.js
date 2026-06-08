@@ -4760,7 +4760,28 @@ refreshNetwork();`
 function renderWifiScan() {
   return page(
     "Autopoiesis Wi-Fi",
-    `<main class="screen">
+    `<style>
+      .network-list .network-row {
+        display: flex; justify-content: space-between; align-items: center;
+        width: 100%; padding: 14px 16px; margin: 4px 0; text-align: left;
+        border: 1px solid rgba(255,255,255,0.08); border-radius: 8px;
+        background: rgba(255,255,255,0.03); cursor: pointer;
+        transition: background 0.15s, border-color 0.15s; font-size: 1rem;
+      }
+      .network-list .network-row:hover,
+      .network-list .network-row:active { background: rgba(255,255,255,0.08); border-color: rgba(255,255,255,0.16); }
+      .network-row .ssid { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+      .network-row .meta { display: flex; align-items: center; gap: 8px; flex-shrink: 0; margin-left: 12px; }
+      .signal-bars { display: inline-flex; align-items: flex-end; gap: 2px; height: 16px; }
+      .signal-bars .bar { width: 4px; border-radius: 1px; background: rgba(255,255,255,0.18); }
+      .signal-bars.excellent .bar:nth-child(-n+4) { background: rgba(255,255,255,0.7); }
+      .signal-bars.good .bar:nth-child(-n+3) { background: rgba(255,255,255,0.7); }
+      .signal-bars.fair .bar:nth-child(-n+2) { background: rgba(255,255,255,0.7); }
+      .signal-bars.weak .bar:nth-child(1) { background: rgba(255,255,255,0.7); }
+      .security-badge { font-size: 0.8rem; opacity: 0.5; }
+      .hidden-network-note { margin: 12px 0; padding: 12px; border-radius: 8px; background: rgba(255,255,255,0.04); }
+    </style>
+    <main class="screen">
       <section class="panel wide">
         <p class="kicker">Local network</p>
         <h1>Wi-Fi</h1>
@@ -4776,7 +4797,13 @@ function renderWifiScan() {
     `const list = document.getElementById("wifi-list");
 const form = document.getElementById("wifi-form");
 function escapeText(value) {
-  return String(value).replace(/[&<>"]/g, char => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", "\"": "&quot;" }[char]));
+  return String(value).replace(/[&<>"]/g, char => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[char]));
+}
+function signalBarsHTML(quality) {
+  const heights = [4, 7, 11, 16];
+  return '<span class="signal-bars ' + quality + '">' +
+    heights.map(h => '<span class="bar" style="height:' + h + 'px"></span>').join('') +
+    '</span>';
 }
 async function scanWifi() {
   list.textContent = "Scanning...";
@@ -4786,33 +4813,52 @@ async function scanWifi() {
     list.textContent = data.error || "Wi-Fi scan unavailable.";
     return;
   }
-  list.innerHTML = data.networks.map(network => (
-    "<button type=\"button\" class=\"network-row\" data-ssid=\"" + escapeText(network.ssid) + "\">" +
-    "<span>" + escapeText(network.ssid) + "</span>" +
-    "<span>" + Number(network.signal || 0) + "% " + escapeText(network.security || "open") + "</span>" +
-    "</button>"
-  )).join("") || "No Wi-Fi networks found.";
-  list.querySelectorAll("[data-ssid]").forEach(button => {
-    button.addEventListener("click", () => {
+  if (data.networks.length === 0) {
+    list.innerHTML = '<p>No Wi-Fi networks found.</p>' +
+      '<p class="hidden-network-note">If your network is hidden, enter the name manually below.</p>';
+    return;
+  }
+  list.innerHTML = data.networks.map(network => {
+    const quality = network.signalQuality || 'weak';
+    const secType = network.securityType || 'open';
+    return '<button type="button" class="network-row" data-ssid="' + escapeText(network.ssid) + '">' +
+      '<span class="ssid">' + escapeText(network.ssid) + '</span>' +
+      '<span class="meta">' +
+        signalBarsHTML(quality) +
+        '<span class="security-badge">' + escapeText(secType) + '</span>' +
+      '</span>' +
+    '</button>';
+  }).join('');
+  list.querySelectorAll('[data-ssid]').forEach(button => {
+    button.addEventListener('click', () => {
       form.elements.ssid.value = button.dataset.ssid;
       form.elements.password.focus();
     });
   });
 }
-form.addEventListener("submit", async event => {
+form.addEventListener('submit', async event => {
   event.preventDefault();
+  const submitBtn = form.querySelector('button[type=submit]');
+  submitBtn.textContent = 'Connecting...';
+  submitBtn.disabled = true;
   const body = {
     ssid: form.elements.ssid.value,
     password: form.elements.password.value
   };
-  const response = await fetch("/local/wifi/connect", {
-    method: "POST",
-    headers: { "content-type": "application/json" },
+  const response = await fetch('/local/wifi/connect', {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
     body: JSON.stringify(body)
   });
   const data = await response.json();
-  list.textContent = data.ok ? "Connected. Returning to network status..." : (data.error || "Connection failed.");
-  if (data.ok) setTimeout(() => { location.href = "/network"; }, 900);
+  if (data.ok) {
+    list.innerHTML = '<p>Connected. Returning to network status...</p>';
+    setTimeout(() => { location.href = '/network'; }, 900);
+  } else {
+    list.innerHTML = '<p>' + escapeText(data.error || 'Connection failed. Check password and try again.') + '</p>';
+    submitBtn.textContent = 'Connect';
+    submitBtn.disabled = false;
+  }
 });
 scanWifi();`
   );
@@ -5458,6 +5504,56 @@ function readBody(req) {
   });
 }
 
+/**
+ * Classify signal strength into a human-readable quality label.
+ * 80+ = excellent, 60+ = good, 40+ = fair, below = weak.
+ */
+function signalQuality(signal) {
+  const s = Number(signal) || 0;
+  if (s >= 80) return "excellent";
+  if (s >= 60) return "good";
+  if (s >= 40) return "fair";
+  return "weak";
+}
+
+/**
+ * Normalize nmcli security strings into a concise classification.
+ * WPA3, WPA2, WPA, WEP, or open.
+ */
+function classifySecurity(security) {
+  const raw = String(security || "").toUpperCase();
+  if (raw.includes("WPA3")) return "WPA3";
+  if (raw.includes("WPA2")) return "WPA2";
+  if (raw.includes("WPA")) return "WPA";
+  if (raw.includes("WEP")) return "WEP";
+  return "open";
+}
+
+/**
+ * Deduplicate raw nmcli scan results by SSID, keeping the entry with the
+ * strongest signal per SSID, then sort by signal strength descending.
+ * Returns a new array with signalQuality and securityType added.
+ */
+function deduplicateWifiNetworks(raw) {
+  const bySsid = Object.create(null);
+  for (const entry of raw) {
+    if (!entry || !entry.ssid) continue;
+    const existing = bySsid[entry.ssid];
+    if (!existing || entry.signal > existing.signal) {
+      bySsid[entry.ssid] = entry;
+    }
+  }
+  return Object.values(bySsid)
+    .map(n => ({
+      ssid: n.ssid,
+      signal: n.signal,
+      security: n.security || "",
+      securityType: classifySecurity(n.security),
+      signalQuality: signalQuality(n.signal)
+    }))
+    .sort((a, b) => b.signal - a.signal);
+}
+
 function scanWifi(callback) {
   execFile("nmcli", ["-t", "-f", "SSID,SIGNAL,SECURITY", "device", "wifi", "list"], (error, stdout) => {
     if (error) {
@@ -5468,14 +5564,14 @@ function scanWifi(callback) {
       });
       return;
     }
-    const networks = stdout
+    const raw = stdout
       .split("\n")
       .filter(Boolean)
       .map(line => {
         const [ssid, signal, security] = splitNmcliLine(line);
         return { ssid, signal: Number(signal), security };
-      })
-      .filter(network => network.ssid);
+      });
+    const networks = deduplicateWifiNetworks(raw);
     callback(null, { ok: true, networks });
   });
 }

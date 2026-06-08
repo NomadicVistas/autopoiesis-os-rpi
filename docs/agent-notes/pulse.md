@@ -1,5 +1,16 @@
 # Pulse Agent Notes
 
+## 2026-06-08 - Wi-Fi scan deduplication and touch-friendly rendering
+
+Date/time: 2026-06-08 10:49 UTC / 2026-06-08 12:49 Europe/Berlin
+Agent: Pulse
+Context: RPI APPLIANCE cron pass. The Wi-Fi scan page is the first interactive screen on a new Pi. Previously showed duplicate SSIDs (nmcli returns per-BSSID entries), raw signal numbers, and tiny buttons — poor UX on a 7" touchscreen.
+What changed: Added signalQuality (4-level), classifySecurity (5-type), deduplicateWifiNetworks (SSIS dedup + strongest BSSID + sort + enrich). Redesigned renderWifiScan with CSS signal bars, security badges, larger touch targets, hidden-network hint, connection feedback. Added 12-step 25-check validation gate.
+What needs review: The deduplication assumes signal strength is the right merge strategy for multi-AP SSIDs. On Pi hardware, verify the CSS signal bars render correctly on Chromium with --disable-gpu. The connection flow now disables the button during connect but doesn't have a timeout — if nmcli hangs, the user is stuck (acceptable for MVP since nmcli has its own timeout).
+Next recommended action: Test on Pi hardware with real Wi-Fi environment. Add Wi-Fi signal strength to heartbeat metrics for remote network quality monitoring.
+
+---
+
 ## 2026-06-08 - Subscription-tier device limits and feature entitlements
 
 Date/time: 2026-06-08 10:19 UTC / 2026-06-08 12:19 Europe/Berlin
