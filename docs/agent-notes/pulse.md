@@ -1,5 +1,21 @@
 # Pulse Agent Notes
 
+## 2026-06-08 - Owner preference cascade system
+
+Date/time: 2026-06-08 10:32 UTC / 2026-06-08 12:32 Europe/Berlin
+
+Built the cross-system owner preference cascade — the key integration between profile, settings sync, feed, and admin.
+
+Key design decisions:
+- Owner cascade applies even during settings conflicts — owner intent takes precedence over device state.
+- Heartbeat independently delivers owner cascade (doesn't require full settings payload).
+- Device-level prefs (brightness, volume, nightMode) are explicitly excluded — they're physical per-device settings.
+- The cascade is additive: owner prefs override cascade fields, but non-cascade remote settings still apply normally.
+
+Contract gate: 12 steps, 7 unit tests + 8 live integration tests.
+
+Also verified that the previously-reported `broadcast-command-check.sh` failure is now resolved — test passes cleanly.
+
 ## 2026-06-08 - Release preparation tool (prepare-release.sh)
 
 Date/time: 2026-06-08 08:28 UTC / 2026-06-08 10:28 Europe/Berlin

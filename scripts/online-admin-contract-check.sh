@@ -49,7 +49,7 @@ node - "$SOURCE" <<'NODE'
 const fs = require("fs");
 
 const file = process.argv[2];
-const allowedRoles = new Set(["admin", "maintainer", "ops", "owner", "super_admin", "support"]);
+const allowedRoles = new Set(["admin", "maintainer", "ops", "owner", "super_admin", "support", "curator"]);
 const expectedActions = new Set([
   "sync_settings",
   "clear_cache",

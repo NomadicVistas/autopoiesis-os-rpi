@@ -29,6 +29,7 @@
  *   POST /mock/transition-subscription/:userId        – Test helper: transition subscription status
  *   POST /mock/pair-device/:id                      – Test helper: force-pair a device
  *   POST /mock/queue-command/:id                    – Test helper: queue a command
+ *   POST /mock/set-owner-preferences/:userId        – Test helper: set owner cascade preferences
  *   GET  /mock/state                                – Test helper: dump server state
  */
 
@@ -51,6 +52,7 @@ const commandCounter = { value: 0 };
 const adminUsers = new Map(); // userId -> user record
 const adminSubscribers = new Map(); // userId -> subscriber record
 const adminSubscriptions = new Map(); // subscriptionId -> subscription record
+const ownerPreferences = new Map(); // userId -> owner-level preference overrides
 
 function ensureDefaultAdminUser() {
   const userId = "user_mock_001";
@@ -211,14 +213,17 @@ function handleGetSettings(deviceId) {
   // For settings read, we accept both paired and unpaired (pre-sync)
   const record = devices.get(deviceId);
   if (!record) return { status: 404, body: { ok: false, error: "Device not found" } };
-  return {
-    status: 200,
-    body: {
-      ok: true,
-      settings: record.settings,
-      updatedAt: record.settings.updatedAt
-    }
+  const response = {
+    ok: true,
+    settings: record.settings,
+    updatedAt: record.settings.updatedAt
   };
+  // Include owner preferences if device has an owner with cascade overrides
+  if (record.ownerUserId && ownerPreferences.has(record.ownerUserId)) {
+    response.ownerPreferences = ownerPreferences.get(record.ownerUserId);
+    response.ownerPreferencesUpdatedAt = (response.ownerPreferences || {}).updatedAt || null;
+  }
+  return { status: 200, body: response };
 }
 
 function handlePushSettings(deviceId, body, req) {
@@ -352,6 +357,11 @@ function handleHeartbeat(deviceId, body, req) {
     settings: undefined,
     feed: undefined
   };
+
+  // Include owner preferences if device has an owner with cascade overrides
+  if (record.ownerUserId && ownerPreferences.has(record.ownerUserId)) {
+    response.ownerPreferences = ownerPreferences.get(record.ownerUserId);
+  }
 
   return { status: 200, body: response };
 }
@@ -1083,6 +1093,15 @@ async function handle(req, res) {
   if (method === "POST" && pathname === "/mock/add-user") {
     const body = JSON.parse((await readBody(req)) || "{}");
     return sendJson(res, ...Object.values(handleMockAddUser(body)));
+  }
+
+  // POST /mock/set-owner-preferences/:userId
+  const ownerPrefMatch = pathname.match(/^\/mock\/set-owner-preferences\/([^/]+)$/);
+  if (method === "POST" && ownerPrefMatch) {
+    const body = JSON.parse((await readBody(req)) || "{}");
+    const userId = decodeURIComponent(ownerPrefMatch[1]);
+    ownerPreferences.set(userId, { ...(body.preferences || body), updatedAt: body.updatedAt || now() });
+    return sendJson(res, 200, { ok: true, userId, preferences: ownerPreferences.get(userId) });
   }
 
   // POST /mock/transition-subscription/:userId

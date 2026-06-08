@@ -20,6 +20,25 @@ const UPDATE_SCRIPT =
 const REMOTE_AUTH_WINDOW_MS = Number(process.env.AUTOPOIESIS_REMOTE_AUTH_WINDOW_MS || 24 * 60 * 60 * 1000);
 const COMMAND_AUDIT_LIMIT = Number(process.env.AUTOPOIESIS_COMMAND_AUDIT_LIMIT || 100);
 const DELIVERY_LOG_LIMIT = Number(process.env.AUTOPOIESIS_DELIVERY_LOG_LIMIT || 200);
+
+// Preference fields that cascade from owner profile to all owned devices.
+// Device-level preferences (brightness, volume, nightMode, imageDuration, displayMode)
+// are NOT cascaded — they are per-device physical settings.
+const OWNER_CASCADE_FIELDS = [
+  "streamCategories",
+  "activeArtists",
+  "allowImages",
+  "allowVideos",
+  "allowSoundWorks",
+  "allowGenerativeWorks",
+  "soundEnabled",
+  "autoplay",
+  "videoAutoplay",
+  "soundAutoplay",
+  "cacheLikedArtworks",
+  "cacheRecentArtworks",
+  "offlineFallbackMode"
+];
 const RELEASE_LOG_LIMIT = Number(process.env.AUTOPOIESIS_RELEASE_LOG_LIMIT || 100);
 const HEARTBEAT_EVENT_LIMIT = Number(process.env.AUTOPOIESIS_HEARTBEAT_EVENT_LIMIT || 10);
 const FEED_QUEUE_LIMIT = Number(process.env.AUTOPOIESIS_FEED_QUEUE_LIMIT || 100);
@@ -1061,6 +1080,22 @@ function normalizeSettings(settings = {}) {
   return normalized;
 }
 
+// Merge owner-level preferences into local preferences.
+// Only OWNER_CASCADE_FIELDS are applied; device-level prefs are preserved.
+// Returns { preferences, cascadedFields[], applied: boolean }.
+function applyOwnerCascade(localPrefs = {}, ownerPrefs = {}) {
+  if (!ownerPrefs || typeof ownerPrefs !== "object") return { preferences: localPrefs, cascadedFields: [], applied: false };
+  const cascadedFields = [];
+  const merged = { ...localPrefs };
+  for (const field of OWNER_CASCADE_FIELDS) {
+    if (ownerPrefs[field] !== undefined) {
+      merged[field] = ownerPrefs[field];
+      cascadedFields.push(field);
+    }
+  }
+  return { preferences: merged, cascadedFields, applied: cascadedFields.length > 0 };
+}
+
 function settingsUpdatedAt(settings = {}, fallback = null) {
   return timestampString(settings.updatedAt || settings.updated_at || settings.modifiedAt || settings.modified_at || fallback);
 }
@@ -1084,7 +1119,8 @@ function writeSettingsSyncStatus(patch) {
 
 function applyRemoteSettingsPayload(result = {}, source = "settings_sync") {
   const remoteSettings = normalizeSettings(result.settings || result.preferences || {});
-  if (!Object.keys(remoteSettings).length) return { applied: false, skipped: true, reason: "No settings in response" };
+  const ownerPrefs = result.ownerPreferences || result.owner_preferences || null;
+  if (!Object.keys(remoteSettings).length && !ownerPrefs) return { applied: false, skipped: true, reason: "No settings in response" };
 
   const now = new Date().toISOString();
   const preferences = readJson(paths.preferences, {});
@@ -1096,30 +1132,96 @@ function applyRemoteSettingsPayload(result = {}, source = "settings_sync") {
   );
 
   if (remoteUpdatedAt && localUpdatedAt && parseTimestamp(remoteUpdatedAt) < parseTimestamp(localUpdatedAt)) {
-    writeSettingsSyncStatus({
-      status: "local_newer",
-      source,
-      conflict: true,
-      reason: "remote_settings_stale",
-      localUpdatedAt,
-      remoteUpdatedAt,
-      checkedAt: now
-    });
+    // Remote device settings are stale, but owner preferences still cascade.
+    // Owner cascade always applies — it reflects owner intent, not device state.
+    if (ownerPrefs) {
+      const cascade = applyOwnerCascade(preferences, ownerPrefs);
+      if (cascade.applied) {
+        writeJson(paths.preferences, { ...cascade.preferences, updatedAt: preferences.updatedAt });
+        const cascadeDevice = readJson(paths.device, {});
+        writeJson(paths.device, {
+          ...cascadeDevice,
+          ownerCascadeFields: cascade.cascadedFields,
+          ownerCascadeAt: now,
+          settingsSync: {
+            ...(cascadeDevice.settingsSync || {}),
+            status: "local_newer_owner_cascaded",
+            source,
+            conflict: true,
+            reason: "remote_settings_stale_owner_cascade_applied",
+            localUpdatedAt,
+            remoteUpdatedAt,
+            ownerCascadeFields: cascade.cascadedFields,
+            checkedAt: now
+          }
+        });
+      }
+    }
+    if (!ownerPrefs) {
+      writeSettingsSyncStatus({
+        status: "local_newer",
+        source,
+        conflict: true,
+        reason: "remote_settings_stale",
+        localUpdatedAt,
+        remoteUpdatedAt,
+        checkedAt: now
+      });
+    }
     return {
       applied: false,
       conflict: true,
       reason: "remote_settings_stale",
       localUpdatedAt,
-      remoteUpdatedAt
+      remoteUpdatedAt,
+      ownerCascadeApplied: Boolean(ownerPrefs)
+    };
+  }
+
+  // Owner-only path: no remote settings, just owner cascade
+  if (!Object.keys(remoteSettings).length && ownerPrefs) {
+    const cascade = applyOwnerCascade(preferences, ownerPrefs);
+    if (cascade.applied) {
+      writeJson(paths.preferences, { ...cascade.preferences, updatedAt: preferences.updatedAt });
+      const cascadeDevice = readJson(paths.device, {});
+      writeJson(paths.device, {
+        ...cascadeDevice,
+        ownerCascadeFields: cascade.cascadedFields,
+        ownerCascadeAt: now
+      });
+      writeSettingsSyncStatus({
+        status: "owner_cascade_only",
+        source,
+        conflict: false,
+        localUpdatedAt: settingsUpdatedAt(preferences),
+        remoteUpdatedAt: null,
+        ownerCascadeFields: cascade.cascadedFields,
+        checkedAt: now
+      });
+    }
+    return {
+      applied: cascade.applied,
+      conflict: false,
+      localUpdatedAt: settingsUpdatedAt(preferences),
+      remoteUpdatedAt: null,
+      ownerCascadeApplied: cascade.applied,
+      ownerCascadeFields: cascade.cascadedFields
     };
   }
 
   const appliedUpdatedAt = remoteUpdatedAt || now;
-  writeJson(paths.preferences, {
-    ...preferences,
-    ...remoteSettings,
-    updatedAt: appliedUpdatedAt
-  });
+  let mergedPrefs = { ...preferences, ...remoteSettings, updatedAt: appliedUpdatedAt };
+  let cascadeResult = null;
+
+  // Apply owner cascade on top of merged settings
+  if (ownerPrefs) {
+    cascadeResult = applyOwnerCascade(mergedPrefs, ownerPrefs);
+    if (cascadeResult.applied) {
+      mergedPrefs = cascadeResult.preferences;
+    }
+  }
+
+  writeJson(paths.preferences, mergedPrefs);
   writeSettingsSyncStatus({
     status: remoteUpdatedAt ? "remote_applied" : "remote_applied_untimestamped",
     source,
@@ -1128,11 +1230,24 @@ function applyRemoteSettingsPayload(result = {}, source = "settings_sync") {
     remoteUpdatedAt,
     checkedAt: now
   });
+
+  // Track cascade fields on device
+  if (cascadeResult && cascadeResult.applied) {
+    const cascadeDevice = readJson(paths.device, {});
+    writeJson(paths.device, {
+      ...cascadeDevice,
+      ownerCascadeFields: cascadeResult.cascadedFields,
+      ownerCascadeAt: now
+    });
+  }
+
   return {
     applied: true,
     conflict: false,
     localUpdatedAt: appliedUpdatedAt,
-    remoteUpdatedAt
+    remoteUpdatedAt,
+    ownerCascadeApplied: cascadeResult ? cascadeResult.applied : false,
+    ownerCascadeFields: cascadeResult ? cascadeResult.cascadedFields : []
   };
 }
 
@@ -5563,6 +5678,10 @@ async function sendHeartbeat() {
   }
   const normalizedCommands = normalizeCommandsPayload(result.commands);
   if (result.settings) applyRemoteSettingsPayload(result, "heartbeat");
+  // Owner preferences can arrive via heartbeat even without full settings payload
+  if (!result.settings && (result.ownerPreferences || result.owner_preferences)) {
+    applyRemoteSettingsPayload({ ownerPreferences: result.ownerPreferences || result.owner_preferences }, "heartbeat_owner_cascade");
+  }
   if (normalizedCommands.length > 0) writeJson(paths.commands, normalizedCommands);
   if (result.feed || result.items || result.artworks || result.broadcasts) {
     writeFeedState(normalizeFeedPayload(result));

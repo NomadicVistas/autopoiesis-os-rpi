@@ -1,5 +1,77 @@
 # Progress
 
+## 2026-06-08 - Owner preference cascade to devices
+
+Date: 2026-06-08
+
+Milestone: LEAD / INTEGRATION — owner preference cascade contract and implementation
+
+Changed files:
+
+- `local-ui/server.js`
+- `scripts/mock-hosted-api/server.js`
+- `scripts/owner-preference-cascade-check.sh`
+- `scripts/online-admin-contract-check.sh` (curator role from prior run)
+- `docs/progress.md`
+- `/data/.openclaw/workspace/autopoiesis-os-program/ROLLING-LOG.md`
+
+Implemented:
+
+- Added `OWNER_CASCADE_FIELDS` constant — 13 preference fields that cascade from owner profile to all owned devices: streamCategories, activeArtists, allowImages, allowVideos, allowSoundWorks, allowGenerativeWorks, soundEnabled, autoplay, videoAutoplay, soundAutoplay, cacheLikedArtworks, cacheRecentArtworks, offlineFallbackMode.
+- Device-level preference fields (brightness, volume, nightMode, nightModeStart, nightModeEnd, imageDuration, displayMode) are explicitly excluded from cascade — they are per-device physical settings.
+- Added `applyOwnerCascade(localPrefs, ownerPrefs)` — merges owner-level preferences into local preferences, only touching cascade-eligible fields. Returns `{ preferences, cascadedFields[], applied: boolean }`. Handles null/undefined/empty owner prefs gracefully.
+- Updated `applyRemoteSettingsPayload()` — when the hosted API response includes `ownerPreferences`, the function merges owner cascade fields into preferences after applying remote settings. Three paths:
+  1. **Remote settings + owner prefs**: Remote settings are applied first, then owner cascade overrides cascade-eligible fields on top.
+  2. **Owner prefs only** (no remote settings): Only owner cascade is applied, preserving local `updatedAt`.
+  3. **Conflict + owner prefs**: Even when remote settings are stale (local is newer), owner cascade still applies — owner intent takes precedence over device state.
+- Updated heartbeat handler — when the heartbeat response includes `ownerPreferences` but no `settings`, the owner cascade is now independently applied via `heartbeat_owner_cascade` source. Previously, owner preferences in heartbeat responses were silently ignored.
+- Added `ownerCascadeFields` and `ownerCascadeAt` to the device record — tracks which preference fields were last cascaded from the owner and when.
+- Updated mock hosted API `handleGetSettings()` — now includes `ownerPreferences` and `ownerPreferencesUpdatedAt` in the settings response when the device has an owner with cascade overrides.
+- Updated mock hosted API heartbeat response — includes `ownerPreferences` when the device has an owner with cascade overrides.
+- Added `POST /mock/set-owner-preferences/:userId` test helper — sets or updates owner-level preference overrides for a specific user, stored in an `ownerPreferences` map.
+- Added `ownerPreferences` in-memory map to mock API — keyed by userId, stores preference overrides that cascade to all owned devices.
+- Added the "curator" role to the allowed roles set in `scripts/online-admin-contract-check.sh` (carried from prior run).
+- Added `scripts/owner-preference-cascade-check.sh` — a 12-step isolated gate proving:
+  1. Syntax validation (local-ui, mock-api, self)
+  2. OWNER_CASCADE_FIELDS static contract (13 content fields, 7 excluded device fields)
+  3. applyOwnerCascade unit tests (7 tests: empty, override, multi-field, device-preserve, null, false-value, empty-array)
+  4. Mock API and local UI startup with registered and paired device
+  5. Settings sync without owner preferences: no cascade applied
+  6. Owner preferences cascade via settings sync: 4 fields overridden (streamCategories, activeArtists, allowVideos, cacheLikedArtworks), device-level fields preserved (brightness, volume, nightMode, imageDuration), device tracks cascaded fields
+  7. Owner preferences cascade via heartbeat: settings overridden, cascade tracked on device
+  8. Owner cascade applies even during settings conflict: conflict=true, cascade=true
+  9. Mock API serves ownerPreferences in GET settings response with ownerPreferencesUpdatedAt
+  10. Owner preferences CRUD: update via set-owner-preferences, verify before/after
+  11. Unowned device receives no owner preferences
+  12. Regression: settings sync contract intact with cascade fields present
+
+Why this matters:
+
+The project had per-device settings but no mechanism for owner-level preferences to cascade to all owned devices. When an owner updated their profile preferences (active artists, stream categories, content type toggles), those changes had no path to reach their devices. Each device maintained isolated settings, requiring per-device manual updates for any owner-level preference change. This is the key integration between the online profile system, the device settings sync, the content feed system, and the admin fleet management dashboard. The cascade system bridges all four: owner updates preferences in their profile → hosted API stores owner preferences → device settings sync and heartbeat both deliver owner preferences → local UI merges cascade-eligible fields while preserving device-specific settings → feed composition and cache behavior reflect owner intent across the entire fleet. The cascade applies even during settings conflicts (local device is newer) because owner intent takes precedence. This unblocks the hosted backend's profile-to-fleet preference propagation, the admin dashboard's fleet-wide preference management, and the feed system's owner-influenced content targeting.
+
+Verification:
+
+- `scripts/owner-preference-cascade-check.sh` passed all 12 steps.
+- `scripts/settings-sync-check.sh` passed (no regression).
+- `scripts/hosted-mock-bridge-check.sh` passed (no regression).
+- `scripts/broadcast-command-check.sh` passed (no regression).
+- `scripts/heartbeat-commands-check.sh` passed (no regression).
+- `scripts/feed-model-contract-check.sh` passed (no regression).
+- `scripts/security-smoke.sh` passed.
+- `node --check local-ui/server.js` passed.
+- `node --check scripts/mock-hosted-api/server.js` passed.
+- `bash -n install.sh update.sh uninstall-dev-tools.sh factory-reset.sh scripts/*.sh` passed.
+- `git diff --check` passed.
+
+Next step:
+
+- Wire the hosted backend to read owner preferences from the user profile and serve them in the device settings and heartbeat responses.
+- Add owner preference cascade to the admin dashboard, allowing fleet-wide preference updates from the admin panel.
+- Add cascade-aware feed composition: when owner preferences change streamCategories or activeArtists, trigger a feed re-sync to reflect the new preferences.
+- Test cascade across multiple devices owned by the same user to verify fleet-wide propagation.
+
+---
+
 ## 2026-06-08 - Standalone CLI diagnostics tool for Pi appliance
 
 Date: 2026-06-08
