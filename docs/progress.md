@@ -1,5 +1,49 @@
 # Progress
 
+## 2026-06-08 - AOS migration runner
+
+Date: 2026-06-08
+
+Milestone: API / DATABASE / SYNC - database initialization and migration runner
+
+Changed files:
+
+- `scripts/run-migrations.sh`
+- `scripts/run-migrations-check.sh`
+- `docs/progress.md`
+- `docs/agent-notes/pulse.md`
+- `/data/.openclaw/workspace/autopoiesis-os-program/ROLLING-LOG.md`
+
+Implemented:
+
+- Added `scripts/run-migrations.sh`, a database migration runner that applies AOS schema migrations to a SQLite (dev) or PostgreSQL (prod) database.
+- **SQLite mode** (default): applies the SQLite-compatible validation schema from `scripts/aos-schema-sqlite-validation.sql`, creating all 14 required `aos_` tables plus the `aos_schema_migrations` tracking table in a single operation.
+- **PostgreSQL mode** (stub): structured for future implementation — discovers `.sql` files in the migrations directory, applies them in sorted order inside transactions, and tracks applied migrations.
+- Tracks applied migrations in `aos_schema_migrations` (id + applied_at), ensuring idempotent re-runs skip already-applied schemas.
+- Automatically runs `scripts/aos-schema-contract-check.sh` against the database after new migrations are applied, failing early if the resulting schema doesn't meet the contract.
+- Records both the SQLite validation schema id and the canonical PostgreSQL migration file ids in the tracking table, so the runner serves as both a dev bootstrap tool and a migration audit trail.
+- Supports `--dry-run` (reports what would be applied without creating or modifying any database file), `--no-validate` (skips the post-migration schema contract check), `--verbose`, and `--engine sqlite|postgres`.
+- Auto-creates the database directory if it doesn't exist.
+- Added `scripts/run-migrations-check.sh`, a 12-step isolated gate proving: script syntax, help output, fresh database creation (all 15 tables), tracking table structure, automatic schema contract validation, idempotent re-run, dry-run mode (no database created), missing directory error, --no-validate flag, invalid engine rejection, database directory auto-creation, and PostgreSQL migration id tracking.
+
+Why this matters:
+
+The project has a complete database schema (PostgreSQL migration file + SQLite validation schema), a comprehensive schema contract checker, and a migration contract gate — but no code that actually creates the database. Every contract checker, every hosted API route, every test fixture requires a database to exist first. The migration runner is the foundational tool that bridges this gap: one command creates the complete AOS schema, validates it against the contract, and tracks what was applied. It enables the hosted backend to boot against a real database, enables CI to create fresh databases per test run, and enables developers to bootstrap a local environment with `scripts/run-migrations.sh --db data/aos.db`. The PostgreSQL stub ensures the architecture scales to production when the hosted backend is built.
+
+Verification:
+
+- `scripts/run-migrations-check.sh` passed all 12 steps.
+- `scripts/security-smoke.sh` passed.
+- `node --check local-ui/server.js` passed.
+- `bash -n install.sh update.sh uninstall-dev-tools.sh factory-reset.sh scripts/*.sh` passed.
+- `git diff --check` passed.
+
+Next step:
+
+- Implement the PostgreSQL engine path using `psql` or a Node.js pg client for production hosted backend.
+- Build the hosted API Express router that reads from the migrated database.
+- Wire the migration runner into CI so contract checkers run against a freshly migrated database.
+
 ## 2026-06-08 - Kiosk frame cross-fade transitions
 
 Date: 2026-06-08

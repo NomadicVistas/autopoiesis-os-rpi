@@ -1,5 +1,14 @@
 # Pulse Agent Notes
 
+## 2026-06-08 - AOS migration runner
+
+Date/time: 2026-06-08 04:25 UTC / 2026-06-08 06:25 Europe/Berlin
+Agent: Pulse
+Context: API / DATABASE / SYNC cron pass. The project has a complete database schema (PostgreSQL + SQLite), migration files, and contract checkers — but no tool that actually creates the database. Every hosted API route, every contract fixture, every CI test requires a database to exist first. This is the foundational missing piece.
+What changed: Added `scripts/run-migrations.sh` — a database migration runner that applies AOS schema to SQLite (dev) or PostgreSQL (prod) databases. SQLite mode applies the SQLite-compatible validation schema creating all 14 `aos_` tables plus the `aos_schema_migrations` tracking table. Tracks applied migrations for idempotent re-runs. Auto-validates against the schema contract checker after applying. Supports --dry-run, --no-validate, --verbose, --engine sqlite|postgres. PostgreSQL mode is stubbed for future implementation. Added `scripts/run-migrations-check.sh` — 12-step validation gate.
+What needs review: The PostgreSQL engine path is stubbed. When the hosted backend is built, implement the PostgreSQL mode using `psql` or a Node.js pg client. The SQLite mode uses the flattened validation schema rather than applying individual PostgreSQL migrations (which use TIMESTAMPTZ/NOW() syntax).
+Next recommended action: Build the hosted API Express router that reads from the migrated database. Wire the migration runner into CI so contract checkers run against a freshly bootstrapped database.
+
 ## 2026-06-08 - Kiosk frame cross-fade transitions
 
 Date/time: 2026-06-08 03:56 UTC / 2026-06-08 05:56 Europe/Berlin
