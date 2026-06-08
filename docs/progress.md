@@ -1,5 +1,78 @@
 # Progress
 
+## 2026-06-08 - Hosted API database query layer (hosted-api/db.js)
+
+Date: 2026-06-08
+
+Milestone: API / DATABASE / SYNC — hosted API database query layer
+
+Changed files:
+
+- `hosted-api/db.js` (new)
+- `scripts/hosted-api-db-check.sh` (new)
+- `package.json` (better-sqlite3 dependency)
+- `docs/progress.md`
+- `/data/.openclaw/workspace/autopoiesis-os-program/ROLLING-LOG.md`
+
+Implemented:
+
+- Added `hosted-api/db.js`, a database query layer that maps the hosted API's behavioral contracts to SQL operations against the 14 `aos_` tables. This is the foundational bridge between the mock API's in-memory logic and a real database-backed API.
+- **Device registration**: `registerDevice()` creates `aos_frame_devices` + `aos_frame_pairing_codes` rows. Re-registration preserves the device API key while generating a fresh pairing code (old codes superseded and cleaned up).
+- **Device authentication**: `authenticateDevice()` validates `(device_id, device_api_key)` pairs against `aos_frame_devices`. Returns null for wrong key, non-existent device, or missing params.
+- **Pairing lifecycle**: `claimPairingCode()` validates pairing code hash, checks expiry, marks code as claimed, and updates device owner. `getPairingStatus()` returns pending/completed/none state.
+- **Settings with conflict resolution**: `pushSettings()` implements latest-updatedAt conflict resolution — newer writes are merged, stale writes are rejected with `{ conflict: true, reason: "stale_write" }` and the authoritative settings. `getSettings()` includes owner cascade preferences when the device has an owner with `aos_frame_user_preferences` overrides.
+- **Heartbeat ingestion**: `ingestHeartbeat()` inserts into `aos_heartbeats`, updates device status in `aos_frame_devices`, upserts events into `aos_device_events` by `(device_id, event_key)`, and upserts broadcast deliveries into `aos_broadcast_deliveries` by `(broadcast_id, device_id)`. Returns `eventAck` and `deliveryAck` matching the mock API contract.
+- **Command lifecycle**: `queueCommand()` creates `aos_device_commands` rows. `getPendingCommands()` returns queued/sent commands. `acknowledgeCommand()` transitions status and records ack timestamps.
+- **Releases**: `createRelease()` with upsert semantics (same version+channel updates rather than fails). `getLatestRelease()` returns the most recent published release for a channel.
+- **Subscriptions**: `upsertSubscription()` creates or updates `aos_subscriptions` rows. `getSubscription()` reads by user_id.
+- **User preferences**: `setUserPreferences()` / `getUserPreferences()` manage `aos_frame_user_preferences` for owner-level cascade.
+- **Artwork likes**: `likeArtwork()` (INSERT OR IGNORE for idempotency), `unlikeArtwork()`, `getLikedArtworks()` against `aos_artwork_likes`.
+- **Device events**: `getDeviceEvents()` returns events in reverse chronological order with upsert correctness verified.
+- **Broadcast deliveries**: `getBroadcastDeliveries()` with optional filters (deviceId, status, broadcastId).
+- All methods use better-sqlite3 for synchronous SQLite access with WAL mode. The module is engine-pluggable for future PostgreSQL support.
+- Added `better-sqlite3` as a project dependency.
+- Added `scripts/hosted-api-db-check.sh`, a 15-step 45-check isolated validation gate proving:
+  1. Syntax validation and module loading (27 methods)
+  2. Database bootstrap via migration runner (15 tables)
+  3. Device registration (new + re-registration with key preservation)
+  4. Device authentication (correct key, wrong key, non-existent, null params)
+  5. Pairing lifecycle (pre-pair status, claim by code, post-pair status, re-claim rejection, wrong code rejection, non-existent device)
+  6. Settings conflict resolution (initial read, newer write, stale write rejection, preserved after conflict)
+  7. Owner preferences cascade (set prefs, cascade in device settings, unowned device isolation)
+  8. Heartbeat ingestion (events with eventAck, device status update, broadcast delivery upsert, empty heartbeat)
+  9. Command lifecycle (queue, poll pending, acknowledge, get command, non-existent command)
+  10. Device events query (reverse chronological, upsert by event_key)
+  11. Release creation and query (null when none, draft not latest, published as latest)
+  12. Subscription CRUD (create, update plan/status, read back)
+  13. Artwork likes (like, idempotent like, unlike)
+  14. Schema contract check passes after all operations
+  15. Full lifecycle integration: register → pair → authenticate → settings → command → heartbeat → verify
+
+Why this matters:
+
+The project had a comprehensive mock API (1312 lines, in-memory Maps) and a complete database schema (14 `aos_` tables), but no code bridging the two. When the hosted backend is built, every mock API handler must be translated into SQL queries against the `aos_` tables. Without this layer, each route would need hand-written SQL with no shared query patterns, no conflict resolution logic, no event upsert semantics, and no owner cascade. The database query layer provides the canonical implementation of every API data operation: registration creates device + pairing rows, authentication validates key pairs, pairing claims validate hashes and update ownership, settings reads merge owner preferences, settings writes resolve timestamp conflicts, heartbeats ingest events and deliveries with upsert semantics, commands queue/poll/acknowledge through status transitions, and releases handle version+channel uniqueness. The 45-check validation gate proves every operation works correctly against a freshly migrated SQLite database. When the hosted Express server is built, each route handler calls one or two `AosDb` methods instead of writing raw SQL — the query layer is the hosted API's data access foundation.
+
+Verification:
+
+- `scripts/hosted-api-db-check.sh` passed all 45 checks (15 steps).
+- `scripts/device-lifecycle-check.sh` passed all 18 steps (no regression).
+- `scripts/hosted-mock-bridge-check.sh` passed all 6 contract gates (no regression).
+- `scripts/security-smoke.sh` passed.
+- `node --check hosted-api/db.js` passed.
+- `node --check local-ui/server.js` passed.
+- `node --check scripts/mock-hosted-api/server.js` passed.
+- `bash -n install.sh update.sh uninstall-dev-tools.sh factory-reset.sh scripts/*.sh` passed.
+- `git diff --check` passed.
+
+Next step:
+
+- Build the hosted API Express server scaffold (`hosted-api/server.js`) that uses `AosDb` for all data operations.
+- Wire each route handler to call the corresponding `AosDb` method instead of using in-memory Maps.
+- Run the hosted contract suite against the database-backed server to prove contract parity with the mock API.
+- Implement the PostgreSQL engine path using a pluggable query builder or pg client.
+
+---
+
 ## 2026-06-08 - Wi-Fi scan deduplication, signal quality, and touch-friendly rendering
 
 Date: 2026-06-08

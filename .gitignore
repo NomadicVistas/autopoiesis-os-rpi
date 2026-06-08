@@ -52,3 +52,5 @@ vite.config.ts.timestamp-*
 # Local UI generated files
 local-ui/.cache/
 local-ui/dist/
+node_modules/
+package-lock.json

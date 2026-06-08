@@ -1,5 +1,14 @@
 # Pulse Agent Notes
 
+## 2026-06-08 - Hosted API database query layer (hosted-api/db.js)
+
+Date/time: 2026-06-08 11:12 UTC / 2026-06-08 13:12 Europe/Berlin
+Agent: Pulse
+Context: API / DATABASE / SYNC cron pass. The project had a comprehensive mock API (1312 lines, in-memory Maps) and a complete database schema (14 aos_ tables), but no code bridging the two. Every hosted API route would need hand-written SQL. The query layer is the canonical implementation of every API data operation.
+What changed: Created hosted-api/db.js — a 600-line Node.js module implementing 27 methods that map API behavioral contracts to SQL operations against the aos_ tables. Covers: device registration (with re-registration key preservation), authentication, pairing lifecycle (hash validation, expiry, claim, status), settings with latest-updatedAt conflict resolution, owner cascade preferences in settings reads, heartbeat ingestion (event upsert, broadcast delivery upsert, device status update), command lifecycle (queue, poll, acknowledge), releases (upsert by version+channel), subscriptions, user preferences, artwork likes, and broadcast delivery queries. Uses better-sqlite3 with WAL mode. Added scripts/hosted-api-db-check.sh — a 15-step 45-check validation gate proving all operations work correctly against a freshly migrated SQLite database, including a full lifecycle integration test.
+What needs review: The module uses better-sqlite3 (synchronous API) which is ideal for SQLite dev but needs a PostgreSQL engine adapter for production. The createRelease upsert-by-version+channel semantics are correct for the current schema but should be reviewed when the release management workflow is finalized. The query layer does NOT include transaction wrapping for multi-step operations — when building the Express server, route handlers should use db.db.transaction() for atomic multi-table writes.
+Next recommended action: Build hosted-api/server.js Express scaffold that uses AosDb. Run the hosted contract suite against the database-backed server to prove contract parity with the mock API. Then implement the PostgreSQL engine path.
+
 ## 2026-06-08 - Wi-Fi scan deduplication and touch-friendly rendering
 
 Date/time: 2026-06-08 10:49 UTC / 2026-06-08 12:49 Europe/Berlin

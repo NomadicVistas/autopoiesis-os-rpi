@@ -1,0 +1,994 @@
+/**
+ * AOS Frames — Database Query Layer
+ *
+ * Maps the hosted API's behavioral contracts to SQL operations against the
+ * aos_ tables. Uses better-sqlite3 for SQLite (dev) with a pluggable engine
+ * interface for future PostgreSQL support.
+ *
+ * Usage:
+ *   const AosDb = require("./hosted-api/db");
+ *   const db = new AosDb("./data/aos.db");
+ *   const device = db.registerDevice({ deviceId: "abc", softwareVersion: "0.1.0" });
+ */
+
+"use strict";
+
+const path = require("path");
+const crypto = require("crypto");
+const fs = require("fs");
+
+// ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
+
+function now() {
+  return new Date().toISOString();
+}
+
+function uid(prefix) {
+  return prefix + "_" + crypto.randomBytes(12).toString("hex");
+}
+
+function generateDeviceKey() {
+  return "mk_dev_" + crypto.randomBytes(16).toString("hex");
+}
+
+function generatePairingCode() {
+  return (
+    Math.random().toString(36).slice(2, 6).toUpperCase() +
+    "-" +
+    Math.floor(1000 + Math.random() * 9000)
+  );
+}
+
+function hashPairingCode(code) {
+  return crypto.createHash("sha256").update(code).digest("hex");
+}
+
+function jsonParse(val, fallback) {
+  if (val == null) return fallback;
+  if (typeof val === "object") return val;
+  try { return JSON.parse(val); }
+  catch { return fallback; }
+}
+
+function jsonStringify(val) {
+  if (val == null) return "{}";
+  return JSON.stringify(val);
+}
+
+// ---------------------------------------------------------------------------
+// AosDb class
+// ---------------------------------------------------------------------------
+
+class AosDb {
+  /**
+   * @param {string} dbPath  Path to SQLite database file
+   * @param {object} [opts]
+   * @param {boolean} [opts.readonly=false]
+   * @param {object} [opts.sqlite3]  Override sqlite3 module (for testing)
+   */
+  constructor(dbPath, opts = {}) {
+    if (!dbPath) throw new Error("AosDb: dbPath required");
+    this.dbPath = dbPath;
+    this.readonly = !!opts.readonly;
+
+    const sqlite3 = opts.sqlite3 || this._loadBetterSqlite3();
+    this.db = new sqlite3(dbPath, { readonly: this.readonly });
+
+    // WAL mode for better concurrent read performance
+    if (!this.readonly) {
+      this.db.pragma("journal_mode = WAL");
+      this.db.pragma("foreign_keys = ON");
+    }
+  }
+
+  _loadBetterSqlite3() {
+    // Try project-local, then global
+    const candidates = [
+      path.join(__dirname, "..", "node_modules", "better-sqlite3"),
+      path.join(__dirname, "..", "..", "node_modules", "better-sqlite3"),
+    ];
+    for (const p of candidates) {
+      try { return require(p); } catch {} // eslint-disable-line no-empty
+    }
+    try { return require("better-sqlite3"); } catch {} // eslint-disable-line no-empty
+    throw new Error(
+      "AosDb requires better-sqlite3. Install with: npm install better-sqlite3"
+    );
+  }
+
+  close() {
+    if (this.db) {
+      this.db.close();
+      this.db = null;
+    }
+  }
+
+  // ── Utility ──────────────────────────────────────────────────────────────
+
+  /**
+   * Returns true if the database has the aos_ tables.
+   */
+  isInitialized() {
+    const row = this.db.prepare(
+      "SELECT count(*) AS cnt FROM sqlite_schema WHERE type='table' AND name LIKE 'aos_%'"
+    ).get();
+    return row.cnt >= 10;
+  }
+
+  /**
+   * Returns list of aos_ table names in the database.
+   */
+  listTables() {
+    return this.db.prepare(
+      "SELECT name FROM sqlite_schema WHERE type='table' AND name LIKE 'aos_%' ORDER BY name"
+    ).all().map(r => r.name);
+  }
+
+  // ── Device Registration ──────────────────────────────────────────────────
+
+  /**
+   * Register a new device or re-register an existing one.
+   * On re-registration, generates a fresh pairing code.
+   *
+   * @param {object} params
+   * @param {string} params.deviceId
+   * @param {string} [params.deviceName]
+   * @param {string} [params.deviceType]
+   * @param {string} [params.softwareVersion]
+   * @param {object} [params.metadata]
+   * @returns {{ deviceId, deviceApiKey, paired, pairingCode, expiresAt }}
+   */
+  registerDevice(params) {
+    const { deviceId } = params;
+    if (!deviceId) throw new Error("registerDevice: deviceId required");
+
+    const pairingCode = generatePairingCode();
+    const pairingCodeHash = hashPairingCode(pairingCode);
+    const expiresAt = new Date(Date.now() + 15 * 60 * 1000).toISOString();
+    const pairingId = uid("pair");
+
+    // Check if device already exists
+    const existing = this.db.prepare(
+      "SELECT device_id, device_api_key, paired FROM aos_frame_devices WHERE device_id = ?"
+    ).get(deviceId);
+
+    let deviceApiKey;
+
+    if (existing) {
+      // Re-registration: keep existing key, refresh pairing code
+      deviceApiKey = existing.device_api_key;
+
+      this.db.prepare(
+        `UPDATE aos_frame_devices
+         SET software_version = ?, metadata_json = ?, updated_at = ?
+         WHERE device_id = ?`
+      ).run(
+        params.softwareVersion || "0.0.0",
+        jsonStringify(params.metadata),
+        now(),
+        deviceId
+      );
+
+      // Supersede old pairing code and create new one
+      this.db.prepare(
+        "UPDATE aos_frame_pairing_codes SET status = 'superseded' WHERE device_id = ? AND status = 'active'"
+      ).run(deviceId);
+
+      // Delete all pairing codes for this device to free the unique index,
+      // then insert the fresh one. Old codes are already superseded/expired/claimed
+      // so they have no remaining value.
+      this.db.prepare(
+        "DELETE FROM aos_frame_pairing_codes WHERE device_id = ? AND status != 'claimed'"
+      ).run(deviceId);
+
+      this.db.prepare(
+        `INSERT INTO aos_frame_pairing_codes (id, device_id, pairing_code_hash, pairing_code, expires_at, status)
+         VALUES (?, ?, ?, ?, ?, 'active')`
+      ).run(pairingId, deviceId, pairingCodeHash, pairingCode, expiresAt);
+    } else {
+      // New device
+      deviceApiKey = generateDeviceKey();
+
+      this.db.prepare(
+        `INSERT INTO aos_frame_devices
+          (device_id, device_api_key, device_name, device_type, software_version,
+           paired, metadata_json)
+         VALUES (?, ?, ?, ?, ?, 0, ?)`
+      ).run(
+        deviceId,
+        deviceApiKey,
+        params.deviceName || "Autopoiesis Frame",
+        params.deviceType || "raspberry_pi",
+        params.softwareVersion || "0.0.0",
+        jsonStringify(params.metadata)
+      );
+
+      this.db.prepare(
+        `INSERT INTO aos_frame_pairing_codes (id, device_id, pairing_code_hash, pairing_code, expires_at, status)
+         VALUES (?, ?, ?, ?, ?, 'active')`
+      ).run(pairingId, deviceId, pairingCodeHash, pairingCode, expiresAt);
+
+      // Create default settings row
+      this.db.prepare(
+        "INSERT INTO aos_frame_device_settings (device_id, settings_json) VALUES (?, '{}')"
+      ).run(deviceId);
+    }
+
+    return {
+      deviceId,
+      deviceApiKey,
+      paired: existing ? !!existing.paired : false,
+      pairingCode,
+      expiresAt,
+    };
+  }
+
+  // ── Device Authentication ────────────────────────────────────────────────
+
+  /**
+   * Authenticate a device by API key. Returns device row or null.
+   *
+   * @param {string} deviceId
+   * @param {string} deviceApiKey
+   * @returns {object|null} Device record (columns as camelCase via _mapDevice)
+   */
+  authenticateDevice(deviceId, deviceApiKey) {
+    if (!deviceId || !deviceApiKey) return null;
+    const row = this.db.prepare(
+      "SELECT * FROM aos_frame_devices WHERE device_id = ? AND device_api_key = ?"
+    ).get(deviceId, deviceApiKey);
+    return row ? this._mapDevice(row) : null;
+  }
+
+  /**
+   * Get device by ID (no auth check).
+   * @param {string} deviceId
+   * @returns {object|null}
+   */
+  getDevice(deviceId) {
+    const row = this.db.prepare(
+      "SELECT * FROM aos_frame_devices WHERE device_id = ?"
+    ).get(deviceId);
+    return row ? this._mapDevice(row) : null;
+  }
+
+  // ── Pairing ──────────────────────────────────────────────────────────────
+
+  /**
+   * Get pairing status for a device.
+   *
+   * @param {string} deviceId
+   * @returns {{ ok, paired, ownerUserId, pairing? }}
+   */
+  getPairingStatus(deviceId) {
+    const device = this.db.prepare(
+      "SELECT device_id, paired, owner_user_id FROM aos_frame_devices WHERE device_id = ?"
+    ).get(deviceId);
+    if (!device) return { ok: false, error: "Device not found" };
+
+    if (device.paired) {
+      return {
+        ok: true,
+        paired: true,
+        ownerUserId: device.owner_user_id,
+        pairing: { status: "completed" },
+      };
+    }
+
+    const code = this.db.prepare(
+      "SELECT pairing_code, expires_at, status FROM aos_frame_pairing_codes WHERE device_id = ? AND status = 'active' ORDER BY created_at DESC LIMIT 1"
+    ).get(deviceId);
+
+    return {
+      ok: true,
+      paired: false,
+      ownerUserId: null,
+      pairing: code
+        ? {
+            pairingCode: code.pairing_code,
+            expiresAt: code.expires_at,
+            status: code.status === "active" && new Date(code.expires_at) > new Date() ? "pending" : "expired",
+          }
+        : { status: "none" },
+    };
+  }
+
+  /**
+   * Claim (pair) a device by pairing code.
+   *
+   * @param {string} pairingCode
+   * @param {string} ownerUserId
+   * @returns {{ ok, deviceId?, error? }}
+   */
+  claimPairingCode(pairingCode, ownerUserId) {
+    if (!pairingCode || !ownerUserId) {
+      return { ok: false, error: "pairingCode and ownerUserId required" };
+    }
+
+    const codeHash = hashPairingCode(pairingCode);
+    const codeRow = this.db.prepare(
+      "SELECT id, device_id, expires_at, status FROM aos_frame_pairing_codes WHERE pairing_code_hash = ? AND status = 'active'"
+    ).get(codeHash);
+
+    if (!codeRow) {
+      return { ok: false, error: "Invalid or expired pairing code" };
+    }
+
+    if (new Date(codeRow.expires_at) <= new Date()) {
+      this.db.prepare(
+        "UPDATE aos_frame_pairing_codes SET status = 'expired' WHERE id = ?"
+      ).run(codeRow.id);
+      return { ok: false, error: "Pairing code expired" };
+    }
+
+    // Mark code as claimed
+    this.db.prepare(
+      "UPDATE aos_frame_pairing_codes SET status = 'claimed', claimed_by_user_id = ?, claimed_at = ? WHERE id = ?"
+    ).run(ownerUserId, now(), codeRow.id);
+
+    // Update device
+    this.db.prepare(
+      `UPDATE aos_frame_devices
+       SET paired = 1, owner_user_id = ?, updated_at = ?
+       WHERE device_id = ?`
+    ).run(ownerUserId, now(), codeRow.device_id);
+
+    return { ok: true, deviceId: codeRow.device_id, paired: true, ownerUserId };
+  }
+
+  // ── Settings ─────────────────────────────────────────────────────────────
+
+  /**
+   * Read device settings.
+   *
+   * @param {string} deviceId
+   * @returns {{ ok, settings, updatedAt, ownerPreferences?, ownerPreferencesUpdatedAt? }}
+   */
+  getSettings(deviceId) {
+    const row = this.db.prepare(
+      "SELECT settings_json, updated_at FROM aos_frame_device_settings WHERE device_id = ?"
+    ).get(deviceId);
+    if (!row) return { ok: false, error: "Device settings not found" };
+
+    const result = {
+      ok: true,
+      settings: jsonParse(row.settings_json, {}),
+      updatedAt: row.updated_at,
+    };
+
+    // Attach owner preferences if device has owner with overrides
+    const device = this.db.prepare(
+      "SELECT owner_user_id FROM aos_frame_devices WHERE device_id = ?"
+    ).get(deviceId);
+    if (device && device.owner_user_id) {
+      const prefs = this.db.prepare(
+        "SELECT preferences_json, updated_at FROM aos_frame_user_preferences WHERE user_id = ?"
+      ).get(device.owner_user_id);
+      if (prefs && prefs.preferences_json && prefs.preferences_json !== "{}") {
+        result.ownerPreferences = jsonParse(prefs.preferences_json, {});
+        result.ownerPreferencesUpdatedAt = prefs.updated_at;
+      }
+    }
+
+    return result;
+  }
+
+  /**
+   * Push (write) device settings with updatedAt conflict resolution.
+   *
+   * @param {string} deviceId
+   * @param {object} settings
+   * @param {string} incomingUpdatedAt
+   * @returns {{ ok, settings?, updatedAt?, conflict?, reason? }}
+   */
+  pushSettings(deviceId, settings, incomingUpdatedAt) {
+    const current = this.db.prepare(
+      "SELECT settings_json, updated_at FROM aos_frame_device_settings WHERE device_id = ?"
+    ).get(deviceId);
+    if (!current) return { ok: false, error: "Device settings not found" };
+
+    const incoming = incomingUpdatedAt || now();
+    const existing = current.updated_at;
+
+    if (existing && incoming < existing) {
+      // Stale write: reject with conflict
+      return {
+        ok: false,
+        error: "settings conflict",
+        reason: "stale_write",
+        conflict: true,
+        settings: jsonParse(current.settings_json, {}),
+        updatedAt: existing,
+      };
+    }
+
+    // Newer or equal: merge and write
+    const merged = { ...jsonParse(current.settings_json, {}), ...settings, updatedAt: incoming };
+    this.db.prepare(
+      "UPDATE aos_frame_device_settings SET settings_json = ?, updated_at = ? WHERE device_id = ?"
+    ).run(jsonStringify(merged), incoming, deviceId);
+
+    return {
+      ok: true,
+      settings: merged,
+      updatedAt: incoming,
+    };
+  }
+
+  // ── User Preferences ─────────────────────────────────────────────────────
+
+  /**
+   * Get user preferences.
+   * @param {string} userId
+   * @returns {{ preferences, updatedAt }}
+   */
+  getUserPreferences(userId) {
+    const row = this.db.prepare(
+      "SELECT preferences_json, updated_at FROM aos_frame_user_preferences WHERE user_id = ?"
+    ).get(userId);
+    if (!row) return { preferences: {}, updatedAt: null };
+    return { preferences: jsonParse(row.preferences_json, {}), updatedAt: row.updated_at };
+  }
+
+  /**
+   * Set user preferences (owner-level cascade).
+   * @param {string} userId
+   * @param {object} preferences
+   * @returns {{ ok, preferences, updatedAt }}
+   */
+  setUserPreferences(userId, preferences) {
+    const ts = now();
+    const json = jsonStringify(preferences);
+    const existing = this.db.prepare(
+      "SELECT user_id FROM aos_frame_user_preferences WHERE user_id = ?"
+    ).get(userId);
+    if (existing) {
+      this.db.prepare(
+        "UPDATE aos_frame_user_preferences SET preferences_json = ?, updated_at = ? WHERE user_id = ?"
+      ).run(json, ts, userId);
+    } else {
+      this.db.prepare(
+        "INSERT INTO aos_frame_user_preferences (user_id, preferences_json, updated_at) VALUES (?, ?, ?)"
+      ).run(userId, json, ts);
+    }
+    return { ok: true, preferences, updatedAt: ts };
+  }
+
+  // ── Heartbeat ────────────────────────────────────────────────────────────
+
+  /**
+   * Ingest a heartbeat from a device.
+   *
+   * @param {string} deviceId
+   * @param {object} payload
+   * @param {string} [payload.softwareVersion]
+   * @param {object} [payload.systemMetrics]
+   * @param {Array}  [payload.events]
+   * @param {object} [payload.broadcastDeliveries]
+   * @returns {{ ok, heartbeatAt, eventAck?, deliveryAck? }}
+   */
+  ingestHeartbeat(deviceId, payload) {
+    const ts = now();
+
+    // Insert heartbeat record
+    this.db.prepare(
+      "INSERT INTO aos_heartbeats (id, device_id, payload_json) VALUES (?, ?, ?)"
+    ).run(uid("hb"), deviceId, jsonStringify(payload));
+
+    // Update device status
+    const metrics = payload.systemMetrics || {};
+    this.db.prepare(
+      `UPDATE aos_frame_devices
+       SET last_heartbeat_at = ?,
+           software_version = COALESCE(?, software_version),
+           current_mode = COALESCE(?, current_mode),
+           current_artwork_id = COALESCE(?, current_artwork_id),
+           network_online = ?,
+           network_type = COALESCE(?, network_type),
+           storage_status_json = ?,
+           updated_at = ?
+       WHERE device_id = ?`
+    ).run(
+      ts,
+      payload.softwareVersion || null,
+      payload.currentMode || null,
+      payload.currentArtworkId || null,
+      metrics.networkOnline != null ? (metrics.networkOnline ? 1 : 0) : 0,
+      metrics.networkType || null,
+      jsonStringify(metrics.storageStatus),
+      ts,
+      deviceId
+    );
+
+    // Event ingestion
+    let eventAck = null;
+    if (payload.events && payload.events.length > 0) {
+      const upsertEvent = this.db.prepare(
+        `INSERT INTO aos_device_events (id, device_id, event_key, source, event_type, status, observed_at, event_json)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+         ON CONFLICT (device_id, event_key) DO UPDATE SET
+           status = excluded.status,
+           event_json = excluded.event_json,
+           updated_at = datetime('now')`
+      );
+
+      let lastObserved = null;
+      let lastKey = null;
+      for (const evt of payload.events) {
+        const key = evt.eventKey || uid("evt");
+        upsertEvent.run(
+          uid("evt"),
+          deviceId,
+          key,
+          evt.source || "heartbeat",
+          evt.eventType || "unknown",
+          evt.status || "observed",
+          evt.observedAt || ts,
+          jsonStringify(evt)
+        );
+        lastObserved = evt.observedAt || ts;
+        lastKey = key;
+      }
+
+      eventAck = {
+        accepted: true,
+        acceptedCount: payload.events.length,
+        acceptedThroughObservedAt: lastObserved,
+        acceptedThroughEventKey: lastKey,
+        cursor: {
+          status: "accepted",
+          acceptedAt: ts,
+          acceptedThroughObservedAt: lastObserved,
+          acceptedThroughEventKey: lastKey,
+        },
+      };
+    }
+
+    // Broadcast delivery ingestion
+    let deliveryAck = null;
+    const deliveries = payload.broadcastDeliveries && payload.broadcastDeliveries.deliveries;
+    if (deliveries && deliveries.length > 0) {
+      const upsertDelivery = this.db.prepare(
+        `INSERT INTO aos_broadcast_deliveries
+          (id, broadcast_id, device_id, command_id, user_id, status,
+           delivered_at, displayed_at, dismissed_at, acknowledged_at, completed_at, error)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+         ON CONFLICT (broadcast_id, device_id) DO UPDATE SET
+           status = excluded.status,
+           delivered_at = COALESCE(excluded.delivered_at, delivered_at),
+           displayed_at = COALESCE(excluded.displayed_at, displayed_at),
+           dismissed_at = COALESCE(excluded.dismissed_at, dismissed_at),
+           acknowledged_at = COALESCE(excluded.acknowledged_at, acknowledged_at),
+           completed_at = COALESCE(excluded.completed_at, completed_at),
+           updated_at = datetime('now')`
+      );
+
+      const device = this.db.prepare(
+        "SELECT owner_user_id FROM aos_frame_devices WHERE device_id = ?"
+      ).get(deviceId);
+
+      for (const d of deliveries) {
+        upsertDelivery.run(
+          uid("del"),
+          d.broadcastId,
+          deviceId,
+          d.commandId || null,
+          device ? device.owner_user_id : null,
+          d.status || "received",
+          d.receivedAt || d.deliveredAt || null,
+          d.shownAt || d.displayedAt || null,
+          d.dismissedAt || null,
+          d.acknowledgedAt || null,
+          d.completedAt || null,
+          d.error || null
+        );
+      }
+
+      deliveryAck = {
+        accepted: true,
+        acceptedCount: deliveries.length,
+      };
+    }
+
+    return {
+      ok: true,
+      heartbeatAt: ts,
+      eventAck,
+      deliveryAck,
+    };
+  }
+
+  /**
+   * Get latest heartbeat for a device.
+   * @param {string} deviceId
+   * @returns {object|null}
+   */
+  getLatestHeartbeat(deviceId) {
+    const row = this.db.prepare(
+      "SELECT * FROM aos_heartbeats WHERE device_id = ? ORDER BY created_at DESC LIMIT 1"
+    ).get(deviceId);
+    if (!row) return null;
+    return {
+      id: row.id,
+      deviceId: row.device_id,
+      payload: jsonParse(row.payload_json, {}),
+      createdAt: row.created_at,
+    };
+  }
+
+  // ── Device Commands ──────────────────────────────────────────────────────
+
+  /**
+   * Queue a command for a device.
+   *
+   * @param {string} deviceId
+   * @param {string} commandType
+   * @param {object} [payload]
+   * @param {string} [risk='medium']
+   * @returns {{ ok, command }}
+   */
+  queueCommand(deviceId, commandType, payload = {}, risk = "medium") {
+    const id = uid("cmd");
+    const ts = now();
+    this.db.prepare(
+      `INSERT INTO aos_device_commands
+        (id, device_id, command_type, payload_json, status, created_at, updated_at)
+       VALUES (?, ?, ?, ?, 'queued', ?, ?)`
+    ).run(id, deviceId, commandType, jsonStringify(payload), ts, ts);
+
+    return {
+      ok: true,
+      command: {
+        commandId: id,
+        commandType,
+        type: commandType,
+        status: "queued",
+        risk,
+        payload,
+        createdAt: ts,
+        updatedAt: ts,
+      },
+    };
+  }
+
+  /**
+   * Get pending commands for a device.
+   *
+   * @param {string} deviceId
+   * @returns {Array}
+   */
+  getPendingCommands(deviceId) {
+    const rows = this.db.prepare(
+      `SELECT * FROM aos_device_commands
+       WHERE device_id = ? AND status IN ('queued', 'sent')
+       ORDER BY created_at ASC`
+    ).all(deviceId);
+
+    return rows.map(r => ({
+      commandId: r.id,
+      commandType: r.command_type,
+      type: r.command_type,
+      status: r.status,
+      payload: jsonParse(r.payload_json, {}),
+      createdAt: r.created_at,
+      updatedAt: r.updated_at,
+    }));
+  }
+
+  /**
+   * Acknowledge a command.
+   *
+   * @param {string} deviceId
+   * @param {string} commandId
+   * @param {string} ackStatus
+   * @returns {{ ok, commandId, status, error? }}
+   */
+  acknowledgeCommand(deviceId, commandId, ackStatus = "acknowledged") {
+    const cmd = this.db.prepare(
+      "SELECT id, status FROM aos_device_commands WHERE id = ? AND device_id = ?"
+    ).get(commandId, deviceId);
+    if (!cmd) return { ok: false, error: "Command not found" };
+
+    const ts = now();
+    this.db.prepare(
+      `UPDATE aos_device_commands
+       SET status = ?, last_ack_status = ?, last_ack_at = ?, acknowledged_at = ?, updated_at = ?
+       WHERE id = ?`
+    ).run(ackStatus, ackStatus, ts, ts, ts, commandId);
+
+    return { ok: true, commandId, status: ackStatus, updatedAt: ts };
+  }
+
+  /**
+   * Get command by ID.
+   * @param {string} commandId
+   * @returns {object|null}
+   */
+  getCommand(commandId) {
+    const row = this.db.prepare(
+      "SELECT * FROM aos_device_commands WHERE id = ?"
+    ).get(commandId);
+    if (!row) return null;
+    return {
+      commandId: row.id,
+      commandType: row.command_type,
+      deviceId: row.device_id,
+      status: row.status,
+      payload: jsonParse(row.payload_json, {}),
+      createdAt: row.created_at,
+      updatedAt: row.updated_at,
+    };
+  }
+
+  // ── Device Events ────────────────────────────────────────────────────────
+
+  /**
+   * Get events for a device.
+   *
+   * @param {string} deviceId
+   * @param {number} [limit=50]
+   * @returns {Array}
+   */
+  getDeviceEvents(deviceId, limit = 50) {
+    const rows = this.db.prepare(
+      "SELECT * FROM aos_device_events WHERE device_id = ? ORDER BY observed_at DESC LIMIT ?"
+    ).all(deviceId, limit);
+    return rows.map(r => ({
+      id: r.id,
+      eventKey: r.event_key,
+      source: r.source,
+      eventType: r.event_type,
+      status: r.status,
+      observedAt: r.observed_at,
+      event: jsonParse(r.event_json, {}),
+      ingestedAt: r.ingested_at,
+    }));
+  }
+
+  // ── Broadcast Deliveries ─────────────────────────────────────────────────
+
+  /**
+   * Get broadcast deliveries, optionally filtered.
+   *
+   * @param {object} [filters]
+   * @param {string} [filters.deviceId]
+   * @param {string} [filters.status]
+   * @param {string} [filters.broadcastId]
+   * @returns {Array}
+   */
+  getBroadcastDeliveries(filters = {}) {
+    let sql = "SELECT * FROM aos_broadcast_deliveries WHERE 1=1";
+    const params = [];
+    if (filters.deviceId) { sql += " AND device_id = ?"; params.push(filters.deviceId); }
+    if (filters.status) { sql += " AND status = ?"; params.push(filters.status); }
+    if (filters.broadcastId) { sql += " AND broadcast_id = ?"; params.push(filters.broadcastId); }
+    sql += " ORDER BY created_at DESC";
+
+    const rows = this.db.prepare(sql).all(...params);
+    return rows.map(r => ({
+      id: r.id,
+      broadcastId: r.broadcast_id,
+      deviceId: r.device_id,
+      commandId: r.command_id,
+      userId: r.user_id,
+      status: r.status,
+      deliveredAt: r.delivered_at,
+      displayedAt: r.displayed_at,
+      dismissedAt: r.dismissed_at,
+      acknowledgedAt: r.acknowledged_at,
+      completedAt: r.completed_at,
+      error: r.error,
+      createdAt: r.created_at,
+      updatedAt: r.updated_at,
+    }));
+  }
+
+  // ── Releases ─────────────────────────────────────────────────────────────
+
+  /**
+   * Get latest release for a channel.
+   *
+   * @param {string} channel
+   * @returns {object|null}
+   */
+  getLatestRelease(channel = "stable") {
+    const row = this.db.prepare(
+      "SELECT * FROM aos_releases WHERE channel = ? AND status = 'published' ORDER BY published_at DESC LIMIT 1"
+    ).get(channel);
+    if (!row) return null;
+    return {
+      id: row.id,
+      version: row.version,
+      channel: row.channel,
+      artifactUrl: row.artifact_url,
+      checksum: row.checksum,
+      notes: row.notes,
+      changelogUrl: row.changelog_url,
+      rollbackNotes: row.rollback_notes,
+      minimumVersion: row.minimum_version,
+      publishedAt: row.published_at,
+    };
+  }
+
+  /**
+   * Create a release.
+   * @param {object} params
+   * @returns {{ ok, release }}
+   */
+  createRelease(params) {
+    const id = uid("rel");
+    const ts = now();
+    const channel = params.channel || "stable";
+
+    // Check for existing release with same version+channel (unique constraint)
+    const existing = this.db.prepare(
+      "SELECT id FROM aos_releases WHERE version = ? AND channel = ?"
+    ).get(params.version, channel);
+
+    if (existing) {
+      // Update existing release
+      this.db.prepare(
+        `UPDATE aos_releases
+         SET status = ?, artifact_url = ?, checksum = ?, notes = ?, changelog_url = ?,
+             rollback_notes = ?, minimum_version = ?, rollout_percent = ?,
+             published_at = ?
+         WHERE id = ?`
+      ).run(
+        params.status || "draft",
+        params.artifactUrl || null,
+        params.checksum || null,
+        params.notes || null,
+        params.changelogUrl || null,
+        params.rollbackNotes || null,
+        params.minimumVersion || null,
+        params.rolloutPercent != null ? params.rolloutPercent : 100.0,
+        params.status === "published" ? ts : null,
+        existing.id
+      );
+      return { ok: true, release: { id: existing.id, ...params, updatedAt: ts } };
+    }
+
+    this.db.prepare(
+      `INSERT INTO aos_releases
+        (id, version, channel, status, artifact_url, checksum, notes, changelog_url,
+         rollback_notes, minimum_version, rollout_percent, created_by, published_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+    ).run(
+      id,
+      params.version,
+      channel,
+      params.status || "draft",
+      params.artifactUrl || null,
+      params.checksum || null,
+      params.notes || null,
+      params.changelogUrl || null,
+      params.rollbackNotes || null,
+      params.minimumVersion || null,
+      params.rolloutPercent != null ? params.rolloutPercent : 100.0,
+      params.createdBy || "system",
+      params.status === "published" ? ts : null
+    );
+    return { ok: true, release: { id, ...params, createdAt: ts } };
+  }
+
+  // ── Subscriptions ────────────────────────────────────────────────────────
+
+  /**
+   * Get subscription for a user.
+   * @param {string} userId
+   * @returns {object|null}
+   */
+  getSubscription(userId) {
+    const row = this.db.prepare(
+      "SELECT * FROM aos_subscriptions WHERE user_id = ?"
+    ).get(userId);
+    if (!row) return null;
+    return {
+      id: row.id,
+      userId: row.user_id,
+      plan: row.plan,
+      status: row.status,
+      provider: row.provider,
+      createdAt: row.created_at,
+      updatedAt: row.updated_at,
+    };
+  }
+
+  /**
+   * Create or update a subscription.
+   * @param {string} userId
+   * @param {object} params
+   * @returns {{ ok, subscription }}
+   */
+  upsertSubscription(userId, params) {
+    const ts = now();
+    const existing = this.db.prepare(
+      "SELECT id FROM aos_subscriptions WHERE user_id = ?"
+    ).get(userId);
+
+    if (existing) {
+      this.db.prepare(
+        `UPDATE aos_subscriptions
+         SET plan = ?, status = ?, provider = ?, updated_at = ?
+         WHERE user_id = ?`
+      ).run(params.plan || "free", params.status || "inactive", params.provider || "manual", ts, userId);
+    } else {
+      this.db.prepare(
+        `INSERT INTO aos_subscriptions (id, user_id, plan, status, provider)
+         VALUES (?, ?, ?, ?, ?)`
+      ).run(uid("sub"), userId, params.plan || "free", params.status || "inactive", params.provider || "manual");
+    }
+
+    return { ok: true, subscription: this.getSubscription(userId) };
+  }
+
+  // ── Artwork Likes ────────────────────────────────────────────────────────
+
+  /**
+   * Like an artwork.
+   * @param {string} userId
+   * @param {string} artworkId
+   * @returns {{ ok, liked }}
+   */
+  likeArtwork(userId, artworkId) {
+    this.db.prepare(
+      "INSERT OR IGNORE INTO aos_artwork_likes (user_id, artwork_id) VALUES (?, ?)"
+    ).run(userId, artworkId);
+    return { ok: true, liked: true, userId, artworkId };
+  }
+
+  /**
+   * Unlike an artwork.
+   * @param {string} userId
+   * @param {string} artworkId
+   * @returns {{ ok, liked }}
+   */
+  unlikeArtwork(userId, artworkId) {
+    this.db.prepare(
+      "DELETE FROM aos_artwork_likes WHERE user_id = ? AND artwork_id = ?"
+    ).run(userId, artworkId);
+    return { ok: true, liked: false, userId, artworkId };
+  }
+
+  /**
+   * Get liked artworks for a user.
+   * @param {string} userId
+   * @returns {Array<string>} artwork IDs
+   */
+  getLikedArtworks(userId) {
+    const rows = this.db.prepare(
+      "SELECT artwork_id FROM aos_artwork_likes WHERE user_id = ? ORDER BY created_at DESC"
+    ).all(userId);
+    return rows.map(r => r.artwork_id);
+  }
+
+  // ── Internal helpers ─────────────────────────────────────────────────────
+
+  _mapDevice(row) {
+    return {
+      deviceId: row.device_id,
+      deviceApiKey: row.device_api_key,
+      ownerUserId: row.owner_user_id,
+      deviceName: row.device_name,
+      deviceType: row.device_type,
+      softwareVersion: row.software_version,
+      updateChannel: row.update_channel,
+      paired: !!row.paired,
+      remoteEnabled: !!row.remote_enabled,
+      subscriptionStatus: row.subscription_status,
+      lastHeartbeatAt: row.last_heartbeat_at,
+      currentMode: row.current_mode,
+      currentArtworkId: row.current_artwork_id,
+      networkOnline: !!row.network_online,
+      networkType: row.network_type,
+      storageStatus: jsonParse(row.storage_status_json, {}),
+      metadata: jsonParse(row.metadata_json, {}),
+      createdAt: row.created_at,
+      updatedAt: row.updated_at,
+    };
+  }
+}
+
+module.exports = AosDb;
