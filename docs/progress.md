@@ -1,5 +1,56 @@
 # Progress
 
+## 2026-06-09 - streamCategories preference wired through to stream composition
+
+Date: 2026-06-09
+
+Milestone: BROADCAST / FEED — streamCategories preference closes the content type personalization loop
+
+Changed files:
+
+- `hosted-api/db.js` (getStreamContent accepts streamCategories, filters by category)
+- `hosted-api/server.js` (handleStream extracts streamCategories from owner preferences)
+- `scripts/stream-categories-filter-check.sh` (new: 11-step 25-check validation gate)
+- `docs/progress.md`
+- `docs/agent-notes/stream-categories-filter-note.md` (new)
+- `/data/.openclaw/workspace/autopoiesis-os-program/ROLLING-LOG.md`
+
+Implemented:
+
+- **streamCategories parameter in getStreamContent()**: Added `streamCategories` parameter to the stream composition method in `hosted-api/db.js`. When provided as a non-empty array of category strings (e.g. `["artwork", "blog"]`), the method filters published content to only include items whose `_broadcastTypeToCategory()` result matches one of the specified categories. Categories map: artwork/image/video/audio/generative → `artwork`, curatorial/exhibition → `curatorial`, blog_post/blog → `blog`, news/announcement → `news`, broadcast_message/broadcast/system_notice → `broadcast`.
+
+- **Emergency/critical bypass**: Emergency (priority 500) and critical (priority 400) items always pass through the category filter regardless of the user's category preference. This ensures that urgent admin broadcasts (e.g. service announcements, security alerts) are never hidden by a user's content type filter.
+
+- **Graceful degradation**: When `streamCategories` is `null`, `undefined`, or an empty array, no category filtering is applied — all published, non-expired content types are returned. This is the default for unpaired devices (no owner, no preferences) and users who haven't set their category preference.
+
+- **handleStream wiring**: Updated `handleStream()` in `hosted-api/server.js` to extract `streamCategories` from the device owner's user preferences (`aos_frame_user_preferences`) and pass it through to `getStreamContent()`. The variable is declared at function scope to ensure it's always available (defaults to `null` for unpaired devices).
+
+- **Validation gate**: Added `scripts/stream-categories-filter-check.sh` — an 11-step 25-check isolated validation proving: syntax validation, static contract (7 patterns: category filter, categorySet, _broadcastTypeToCategory usage, emergency bypass, server wiring, streamCategories extraction, parameter passing), server bootstrap with fresh database, mixed content seeding (8 broadcasts: 3 artwork, 2 blog, 1 curatorial, 1 news, 1 emergency), device registration + pairing + subscription, baseline stream (all types present), artwork-only filter (blog/news excluded, artwork present), emergency bypass (emergency item visible despite filter), mixed filter [artwork, blog] (artwork+blog present, news excluded), empty categories array (all content returned), unpaired device handling, and regression (settings, admin bundle).
+
+Why this matters:
+
+The `streamCategories` preference field has existed in user preferences since the initial schema — it's one of the core preference fields exposed in Profile > Frames. But until now, it was stored and returned in API responses without actually affecting stream composition. Every device received all content types regardless of what the user selected. This is the second major personalization filter (after liked-artist boosting) that closes the loop between user intent and feed content. A user who only wants to see artwork on their Frame now gets only artwork (plus emergency broadcasts). A user who wants artwork + blog gets both but not news. The content type filter composes with the existing targeting filter (device/owner/tier), priority ordering, delivery dedup, and artist boosting — all running in sequence within `getStreamContent()`.
+
+Verification:
+
+- `scripts/stream-categories-filter-check.sh` passed all 25 checks (11 steps).
+- `scripts/feed-stream-composition-check.sh` passed all 39 checks (12 steps) — no regression.
+- `scripts/liked-artist-stream-weighting-check.sh` passed all 33 checks (11 steps) — no regression.
+- `node --check hosted-api/server.js` passed.
+- `node --check hosted-api/db.js` passed.
+- `node --check local-ui/server.js` passed.
+- `bash -n install.sh update.sh uninstall-dev-tools.sh factory-reset.sh` passed.
+- `bash -n scripts/*.sh` passed.
+
+Next step:
+
+- Add `streamCategories` to the device-side feed sync pipeline so the Pi can send the preference as a query parameter.
+- Wire streamCategories into the Profile > Frames UI as a selectable content type picker.
+- Test the full preference → filter → display cycle on a physical Pi.
+- Add per-category content counts to admin broadcast stats.
+
+---
+
 ## 2026-06-09 - Diagnostics feed-sync, heartbeat delivery, release state, and offline readiness checks
 
 Date: 2026-06-09

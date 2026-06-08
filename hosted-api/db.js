@@ -1161,11 +1161,12 @@ class AosDb {
    * @param {string} [context.ownerUserId]
    * @param {string} [context.subscriptionTier]
    * @param {string[]} [context.activeArtists]
+   * @param {string[]|null} [context.streamCategories] - Preferred categories (null = all). Values: artwork, curatorial, blog, news, broadcast
    * @param {number} [context.limit=30]
    * @returns {Array<object>}
    */
   getStreamContent(context = {}) {
-    const { deviceId, ownerUserId, subscriptionTier, activeArtists = [] } = context;
+    const { deviceId, ownerUserId, subscriptionTier, activeArtists = [], streamCategories = null } = context;
     const limit = context.limit || 30;
     const nowISO = now();
 
@@ -1235,8 +1236,21 @@ class AosDb {
       }
     });
 
+    // Filter by user's preferred stream categories (null/empty = all categories)
+    let categoryFiltered = filtered;
+    if (streamCategories && Array.isArray(streamCategories) && streamCategories.length > 0) {
+      const categorySet = new Set(streamCategories.map(c => String(c).toLowerCase()));
+      // Emergency/critical items bypass category filter
+      categoryFiltered = filtered.filter(row => {
+        const rank = _priorityRank(row.priority);
+        if (rank >= 400) return true; // always include emergency/critical
+        const category = _broadcastTypeToCategory(row.type);
+        return categorySet.has(category.toLowerCase());
+      });
+    }
+
     // Map rows to stream items with source attribution and delivery dedup
-    const items = filtered.filter(row => {
+    const items = categoryFiltered.filter(row => {
       // Exclude already-displayed items (unless they are emergency/critical priority)
       if (displayedSet.has(row.id)) {
         const rank = _priorityRank(row.priority);

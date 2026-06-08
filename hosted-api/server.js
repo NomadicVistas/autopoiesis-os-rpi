@@ -32,6 +32,10 @@
  *   POST /frames/admin/subscriptions/:userId/cancel – Admin: cancel subscription
  *   POST /frames/admin/devices/:id/actions         – Admin: queue remote action
  *   PATCH /frames/admin/devices/:id                – Admin: update device properties
+ *   GET  /frames/admin/users                       – Admin: list users
+ *   GET  /frames/admin/users/:userId               – Admin: get user detail
+ *   GET  /frames/admin/users/:userId/preferences   – Admin: get user preferences
+ *   PATCH /frames/admin/users/:userId/preferences  – Admin: update user preferences
  */
 
 "use strict";
@@ -580,6 +584,7 @@ function handleStream(db, deviceId, auth) {
   // Resolve owner context for targeting and polling
   let ownerTier = null;
   let activeArtists = [];
+  let streamCategories = null; // null = all categories (no filter)
   let polling = { intervalSeconds: 300, idleSeconds: 900 };
 
   if (record.ownerUserId) {
@@ -593,11 +598,25 @@ function handleStream(db, deviceId, auth) {
       }
     }
 
-    // Resolve owner preferences for artist boosting
+    // Resolve owner preferences for artist boosting and category filtering
     const ownerPrefs = db.getUserPreferences(record.ownerUserId);
     if (ownerPrefs && ownerPrefs.preferences) {
       if (ownerPrefs.preferences.activeArtists && ownerPrefs.preferences.activeArtists.length > 0) {
         activeArtists = ownerPrefs.preferences.activeArtists;
+      }
+      if (Array.isArray(ownerPrefs.preferences.streamCategories) && ownerPrefs.preferences.streamCategories.length > 0) {
+        streamCategories = ownerPrefs.preferences.streamCategories;
+      }
+    }
+
+    // Enrich with artists from liked artworks (implicit preference signal)
+    const likedArtistIds = db.getLikedArtistIds(record.ownerUserId);
+    if (likedArtistIds.length > 0) {
+      const existingSet = new Set(activeArtists.map(a => String(a).toLowerCase()));
+      for (const id of likedArtistIds) {
+        if (!existingSet.has(String(id).toLowerCase())) {
+          activeArtists.push(id);
+        }
       }
     }
   }
@@ -608,6 +627,7 @@ function handleStream(db, deviceId, auth) {
     ownerUserId: record.ownerUserId || null,
     subscriptionTier: ownerTier,
     activeArtists,
+    streamCategories,
     limit: 30
   });
 
@@ -1073,6 +1093,294 @@ function handleAdminBroadcastStats(db) {
   }
 }
 
+// ── Admin User Management Handlers ─────────────────────────────────────────
+
+/**
+ * GET /frames/admin/users
+ *
+ * List all users with their device count, subscription status, and entitlements.
+ * Supports pagination (limit/offset) and filtering by subscription status/plan.
+ *
+ * @param {AosDb} db
+ * @param {object} [filters]
+ * @returns {{ status: number, body: object }}
+ */
+function handleAdminListUsers(db, filters = {}) {
+  const { limit = 50, offset = 0, subscriptionStatus, subscriptionPlan } = filters;
+
+  // Derive users from device owners + subscriptions
+  const ownerIds = db.listOwnerUserIds();
+  const subs = db.listSubscriptions({ limit: 1000 });
+  const subMap = new Map(subs.items.map(s => [s.userId, s]));
+  const allUserIds = new Set([...ownerIds, ...subs.items.map(s => s.userId)]);
+
+  const users = [];
+  for (const userId of allUserIds) {
+    const sub = subMap.get(userId);
+
+    // Apply filters
+    if (subscriptionStatus && (!sub || sub.status !== subscriptionStatus)) continue;
+    if (subscriptionPlan && (!sub || sub.plan !== subscriptionPlan)) continue;
+
+    const deviceCount = db.countDevicesByOwner(userId);
+    const entitlements = computeEntitlements(sub, deviceCount);
+    users.push({
+      userId,
+      deviceCount,
+      subscription: sub ? {
+        subscriptionId: sub.subscriptionId,
+        status: sub.status,
+        plan: sub.plan,
+        tier: sub.tier,
+        currentPeriodEnd: sub.currentPeriodEnd,
+        cancelAtPeriodEnd: sub.cancelAtPeriodEnd
+      } : null,
+      entitlements
+    });
+  }
+
+  const total = users.length;
+  const paged = users.slice(offset, offset + limit);
+
+  return {
+    status: 200,
+    body: {
+      ok: true,
+      kind: "autopoiesis_frames_admin_user_list",
+      users: { items: paged, total, page: Math.floor(offset / limit) + 1, pageSize: limit }
+    }
+  };
+}
+
+/**
+ * GET /frames/admin/users/:userId
+ *
+ * Get a single user's full profile: devices, subscription, preferences,
+ * liked artworks, entitlements, and activity summary.
+ *
+ * @param {AosDb} db
+ * @param {string} userId
+ * @returns {{ status: number, body: object }}
+ */
+function handleAdminGetUser(db, userId) {
+  // Verify the user exists (has devices or a subscription)
+  const deviceCount = db.countDevicesByOwner(userId);
+  const sub = db.getSubscription(userId);
+
+  if (deviceCount === 0 && !sub) {
+    return { status: 404, body: { ok: false, error: "User not found: " + userId } };
+  }
+
+  const entitlements = computeEntitlements(sub, deviceCount);
+
+  // Devices owned by this user
+  const deviceList = db.listDevices({ ownerUserId: userId, pairedOnly: true, limit: 100 });
+  const devices = deviceList.items.map(d => {
+    const ownerSub = sub ? { plan: sub.plan, status: sub.status } : null;
+    return {
+      deviceId: d.deviceId,
+      deviceName: d.deviceName,
+      deviceType: d.deviceType,
+      softwareVersion: d.softwareVersion,
+      updateChannel: d.updateChannel,
+      paired: d.paired,
+      online: d.lastHeartbeatAt
+        ? (Date.now() - new Date(d.lastHeartbeatAt).getTime()) < 300000
+        : false,
+      remoteEnabled: d.remoteEnabled,
+      disabled: !!d.disabled,
+      lastHeartbeatAt: d.lastHeartbeatAt,
+      currentMode: d.currentMode || "display",
+      releaseStatus: d.releaseStatus || 'idle',
+      actionAvailability: buildActionAvailability(d, "admin", ownerSub)
+    };
+  });
+
+  // User preferences
+  const rawPrefs = db.getUserPreferences(userId);
+  const preferences = (rawPrefs && rawPrefs.preferences && Object.keys(rawPrefs.preferences).length > 0)
+    ? rawPrefs.preferences
+    : null;
+
+  // Liked artworks
+  const likedIds = db.getLikedArtworks(userId);
+
+  // Subscription detail
+  const subscription = sub ? {
+    subscriptionId: sub.subscriptionId,
+    status: sub.status,
+    plan: sub.plan,
+    tier: sub.tier,
+    provider: sub.provider,
+    currentPeriodEnd: sub.currentPeriodEnd,
+    cancelAtPeriodEnd: sub.cancelAtPeriodEnd,
+    createdAt: sub.createdAt,
+    updatedAt: sub.updatedAt
+  } : null;
+
+  return {
+    status: 200,
+    body: {
+      ok: true,
+      kind: "autopoiesis_frames_admin_user_detail",
+      generatedAt: now(),
+      user: {
+        userId,
+        deviceCount,
+        devices,
+        subscription,
+        entitlements,
+        preferences: preferences || {
+          activeArtists: [],
+          streamCategories: ["artwork", "curatorial", "blog"],
+          allowImages: true,
+          allowVideos: true,
+          allowSoundWorks: false,
+          allowGenerativeWorks: true,
+          autoplay: true,
+          videoAutoplay: false,
+          soundAutoplay: false,
+          soundEnabled: false,
+          cacheLikedArtworks: true,
+          cacheRecentArtworks: true,
+          offlineFallbackMode: "cached"
+        },
+        likedArtworks: likedIds.map(artworkId => ({ artworkId })),
+        likedArtworkCount: likedIds.length
+      }
+    }
+  };
+}
+
+/**
+ * GET /frames/admin/users/:userId/preferences
+ *
+ * Get a user's preferences for the admin dashboard.
+ *
+ * @param {AosDb} db
+ * @param {string} userId
+ * @returns {{ status: number, body: object }}
+ */
+function handleAdminGetUserPreferences(db, userId) {
+  const rawPrefs = db.getUserPreferences(userId);
+  if (!rawPrefs || !rawPrefs.preferences || Object.keys(rawPrefs.preferences).length === 0) {
+    // Return defaults for users without explicit preferences
+    return {
+      status: 200,
+      body: {
+        ok: true,
+        userId,
+        preferences: {
+          activeArtists: [],
+          streamCategories: ["artwork", "curatorial", "blog"],
+          allowImages: true,
+          allowVideos: true,
+          allowSoundWorks: false,
+          allowGenerativeWorks: true,
+          autoplay: true,
+          videoAutoplay: false,
+          soundAutoplay: false,
+          soundEnabled: false,
+          cacheLikedArtworks: true,
+          cacheRecentArtworks: true,
+          offlineFallbackMode: "cached"
+        },
+        updatedAt: null
+      }
+    };
+  }
+  return {
+    status: 200,
+    body: {
+      ok: true,
+      userId,
+      preferences: rawPrefs.preferences,
+      updatedAt: rawPrefs.updatedAt
+    }
+  };
+}
+
+/**
+ * PATCH /frames/admin/users/:userId/preferences
+ *
+ * Update a user's preferences. Supports partial updates (merges with existing).
+ * Validates known preference fields and rejects unknown keys.
+ *
+ * @param {AosDb} db
+ * @param {string} userId
+ * @param {object} body
+ * @returns {{ status: number, body: object }}
+ */
+function handleAdminUpdateUserPreferences(db, userId, body) {
+  const VALID_KEYS = new Set([
+    "activeArtists",
+    "streamCategories",
+    "allowImages",
+    "allowVideos",
+    "allowSoundWorks",
+    "allowGenerativeWorks",
+    "autoplay",
+    "videoAutoplay",
+    "soundAutoplay",
+    "soundEnabled",
+    "cacheLikedArtworks",
+    "cacheRecentArtworks",
+    "offlineFallbackMode"
+  ]);
+
+  // Validate keys
+  const unknownKeys = Object.keys(body).filter(k => !VALID_KEYS.has(k));
+  if (unknownKeys.length > 0) {
+    return { status: 400, body: { ok: false, error: "Unknown preference keys: " + unknownKeys.join(", "), validKeys: [...VALID_KEYS] } };
+  }
+
+  if (Object.keys(body).length === 0) {
+    return { status: 400, body: { ok: false, error: "No preferences to update. Send at least one preference key." } };
+  }
+
+  // Validate specific fields
+  if (body.activeArtists !== undefined && !Array.isArray(body.activeArtists)) {
+    return { status: 400, body: { ok: false, error: "activeArtists must be an array" } };
+  }
+  if (body.streamCategories !== undefined && !Array.isArray(body.streamCategories)) {
+    return { status: 400, body: { ok: false, error: "streamCategories must be an array" } };
+  }
+  if (body.offlineFallbackMode !== undefined && !["cached", "black", "message"].includes(body.offlineFallbackMode)) {
+    return { status: 400, body: { ok: false, error: "offlineFallbackMode must be one of: cached, black, message" } };
+  }
+
+  // Merge with existing preferences
+  const rawPrefs = db.getUserPreferences(userId);
+  const existing = (rawPrefs && rawPrefs.preferences) ? rawPrefs.preferences : {
+    activeArtists: [],
+    streamCategories: ["artwork", "curatorial", "blog"],
+    allowImages: true,
+    allowVideos: true,
+    allowSoundWorks: false,
+    allowGenerativeWorks: true,
+    autoplay: true,
+    videoAutoplay: false,
+    soundAutoplay: false,
+    soundEnabled: false,
+    cacheLikedArtworks: true,
+    cacheRecentArtworks: true,
+    offlineFallbackMode: "cached"
+  };
+  const merged = { ...existing, ...body };
+
+  const result = db.setUserPreferences(userId, merged);
+  return {
+    status: 200,
+    body: {
+      ok: true,
+      updated: true,
+      userId,
+      preferences: result.preferences,
+      updatedAt: result.updatedAt
+    }
+  };
+}
+
 // ── Online admin bundle ─────────────────────────────────────────────────────
 
 /**
@@ -1435,6 +1743,45 @@ async function handle(db, req, res) {
     if (!adminAuth.ok) return sendJson(res, adminAuth.status, { ok: false, error: adminAuth.error });
     const body = JSON.parse((await readBody(req)) || "{}");
     return sendResult(res, handleAdminUpdateDevice(db, adminDevUpdateMatch[1], body));
+  }
+
+  // ── Admin user management endpoints ────────────────────────────────────
+
+  // GET /frames/admin/users/:userId/preferences — Get user preferences
+  const adminUserPrefMatch = pathname.match(/^\/frames\/admin\/users\/([^/]+)\/preferences$/);
+  if (method === "GET" && adminUserPrefMatch) {
+    const adminAuth = authenticateAdmin(req);
+    if (!adminAuth.ok) return sendJson(res, adminAuth.status, { ok: false, error: adminAuth.error });
+    return sendResult(res, handleAdminGetUserPreferences(db, adminUserPrefMatch[1]));
+  }
+
+  // PATCH /frames/admin/users/:userId/preferences — Update user preferences
+  if (method === "PATCH" && adminUserPrefMatch) {
+    const adminAuth = authenticateAdmin(req);
+    if (!adminAuth.ok) return sendJson(res, adminAuth.status, { ok: false, error: adminAuth.error });
+    const body = JSON.parse((await readBody(req)) || "{}");
+    return sendResult(res, handleAdminUpdateUserPreferences(db, adminUserPrefMatch[1], body));
+  }
+
+  // GET /frames/admin/users/:userId — Get user detail
+  const adminUserMatch = pathname.match(/^\/frames\/admin\/users\/([^/]+)$/);
+  if (method === "GET" && adminUserMatch) {
+    const adminAuth = authenticateAdmin(req);
+    if (!adminAuth.ok) return sendJson(res, adminAuth.status, { ok: false, error: adminAuth.error });
+    return sendResult(res, handleAdminGetUser(db, adminUserMatch[1]));
+  }
+
+  // GET /frames/admin/users — List users
+  if (method === "GET" && pathname === "/frames/admin/users") {
+    const adminAuth = authenticateAdmin(req);
+    if (!adminAuth.ok) return sendJson(res, adminAuth.status, { ok: false, error: adminAuth.error });
+    const url = new URL(req.url, "http://localhost");
+    const filters = {};
+    if (url.searchParams.get("limit")) filters.limit = parseInt(url.searchParams.get("limit"), 10);
+    if (url.searchParams.get("offset")) filters.offset = parseInt(url.searchParams.get("offset"), 10);
+    if (url.searchParams.get("subscriptionStatus")) filters.subscriptionStatus = url.searchParams.get("subscriptionStatus");
+    if (url.searchParams.get("subscriptionPlan")) filters.subscriptionPlan = url.searchParams.get("subscriptionPlan");
+    return sendResult(res, handleAdminListUsers(db, filters));
   }
 
   // ── Admin content management endpoints ─────────────────────────────────
