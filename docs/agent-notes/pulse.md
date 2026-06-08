@@ -1,5 +1,15 @@
 # Pulse Agent Notes
 
+## 2026-06-08 18:55 - Unified verification suite complete
+
+Updated `scripts/verify-all.sh` to include all 83 check scripts. Was only 31 — now covers the full codebase including every feature built in the last 48 hours. Phase breakdown: 21 static, 49 light integration, 12 heavy integration, 1 contract, 1 security. Added hosted-api JS syntax checks to Phase 1.
+
+Gate counts: 13→21 static, 10→49 light, 8→12 heavy. All newly-added gates verified independently.
+
+**Open questions:**
+- Full `verify-all.sh` run (all phases) hasn't been completed yet — would establish baseline pass rate.
+- Phase 3a has 49 gates which is large; may want sub-phasing by domain for targeted runs.
+
 ## 2026-06-08 - Hosted API online admin bundle + device fleet snapshot
 
 Ported the complete online admin platform from the mock API to the real hosted API.

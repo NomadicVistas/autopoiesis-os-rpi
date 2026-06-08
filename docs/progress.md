@@ -1,5 +1,60 @@
 # Progress
 
+## 2026-06-08 - Unified verification suite: all 83 check scripts registered
+
+Date: 2026-06-08
+
+Milestone: RPI APPLIANCE — unified verification suite covers full codebase
+
+Changed files:
+
+- `scripts/verify-all.sh`
+- `docs/progress.md`
+- `docs/agent-notes/pulse.md`
+- `/data/.openclaw/workspace/autopoiesis-os-program/ROLLING-LOG.md`
+
+Implemented:
+
+- Updated `scripts/verify-all.sh` to include all 83 check scripts in the repository. Previously only 31 check scripts were registered — the other 52 were invisible to the unified test runner. Any regression in hosted API, admin bundle, stream composition, kiosk polling, Wi-Fi enrichment, device-state actions, heartbeat persistence, content management, or any of the other recent features would go undetected by `verify-all.sh`.
+
+- **Phase 2 (Static)**: grew from 13 → 21 gates. Added 8 contract/schema static analysis scripts: `aos-schema-contract-check.sh`, `broadcast-contract-check.sh`, `changelog-check.sh`, `feed-model-contract-check.sh`, `release-manifest-check.sh`, `release-rollout-contract-check.sh`, `rollout-acceptance-check.sh`, `systemd-timers-check.sh`.
+
+- **Phase 3a (Integration light)**: grew from 10 → 49 gates. Added 39 mock-API and single-server integration scripts covering: broadcast delivery, command lifecycle, device auth, pairing, feed/stream composition, heartbeat persistence, kiosk polling, Wi-Fi enrichment, diagnostics, cache, settings, admin capabilities, online admin entitlements/device-state/subscription lifecycle, and hosted API DB layer.
+
+- **Phase 3b (Integration heavy)**: grew from 8 → 12 gates. Added 4 multi-server hosted API gates: `hosted-api-server-check.sh` (74 checks), `hosted-api-local-ui-bridge-check.sh` (94 checks), `hosted-api-admin-bundle-check.sh` (121 checks), `admin-content-management-check.sh` (131 checks). Skipped by `--quick` flag.
+
+- **Phase 1 (Syntax)**: added `node --check hosted-api/server.js` and `node --check hosted-api/db.js` alongside the existing local-ui and mock-hosted-api checks.
+
+- Organized all gate arrays with section comments for navigability (broadcast/delivery, command lifecycle, device/auth, feed/stream, heartbeat, kiosk/display, network/hardware, diagnostics, cache/storage, settings/admin, online admin, hosted API).
+
+- Verified: syntax check on verify-all.sh passes, `--list` output shows correct counts (128 syntax + 21 static + 49 light + 12 heavy + 1 contract + 1 security), hosted-api-db-check (45 checks), kiosk-feed-polling-check (34 checks), wifi-network-enrichment-check (46 checks), and security-smoke all pass.
+
+Why this matters:
+
+The verify-all.sh is the CI gate — the script any cron run or developer runs to confirm nothing is broken. With only 31 of 83 check scripts registered, it was blind to regressions in 60% of the test suite. Every major feature added in the last 48 hours (hosted API admin bundle, heartbeat persistence, stream composition engine, kiosk feed polling, Wi-Fi enrichment, device-state actions, admin content management) had dedicated check scripts but none were in the unified runner. This change ensures every check script in the repository runs during verification, catching regressions across the full stack. The `--quick` flag still allows skipping the 12 heavy gates for rapid iteration.
+
+Verification:
+
+- `bash -n scripts/verify-all.sh` passed.
+- `node --check local-ui/server.js` passed.
+- `node --check hosted-api/server.js` passed.
+- `node --check hosted-api/db.js` passed.
+- `bash -n install.sh update.sh uninstall-dev-tools.sh factory-reset.sh` passed.
+- `bash -n scripts/*.sh` passed (all scripts).
+- `scripts/security-smoke.sh` passed (no regression).
+- `scripts/hosted-api-db-check.sh` passed (45 checks, 15 steps).
+- `scripts/kiosk-feed-polling-check.sh` passed (34 checks, 7 steps).
+- `scripts/wifi-network-enrichment-check.sh` passed (46 checks, 12 steps).
+- `scripts/verify-all.sh --list` confirms correct catalog (128+21+49+12+1+1 gates).
+
+Next step:
+
+- Run full `scripts/verify-all.sh` (all phases) to establish baseline pass rate.
+- Add `hosted-api/server.js` hosted API syntax to pre-commit hooks if applicable.
+- Consider splitting Phase 3a into sub-phases by domain for faster targeted verification.
+
+---
+
 ## 2026-06-08 - Hosted API online admin bundle + device fleet snapshot
 
 Date: 2026-06-08

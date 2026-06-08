@@ -39,6 +39,8 @@ done
 
 SYNTAX_GATES=(
   "node --check local-ui/server.js"
+  "node --check hosted-api/server.js"
+  "node --check hosted-api/db.js"
   "node --check scripts/mock-hosted-api/server.js"
   "bash -n install.sh"
   "bash -n update.sh"
@@ -52,6 +54,7 @@ for f in scripts/*.sh; do
 done
 
 STATIC_GATES=(
+  # ── Build / installer static gates ──
   "scripts/check-release-update-check.sh"
   "scripts/configure-kiosk-os-check.sh"
   "scripts/frame-crossfade-check.sh"
@@ -65,30 +68,98 @@ STATIC_GATES=(
   "scripts/systemd-units-install-check.sh"
   "scripts/touchscreen-check.sh"
   "scripts/watchdog-check.sh"
+  # ── Schema / contract static gates ──
+  "scripts/aos-schema-contract-check.sh"
+  "scripts/broadcast-contract-check.sh"
+  "scripts/changelog-check.sh"
+  "scripts/feed-model-contract-check.sh"
+  "scripts/release-manifest-check.sh"
+  "scripts/release-rollout-contract-check.sh"
+  "scripts/rollout-acceptance-check.sh"
+  "scripts/systemd-timers-check.sh"
 )
 
 INTEGRATION_LIGHT_GATES=(
+  # ── Broadcast / delivery ──
   "scripts/broadcast-command-check.sh"
   "scripts/broadcast-delivery-status-check.sh"
+  "scripts/broadcast-deliveries-heartbeat-check.sh"
+  "scripts/broadcast-delivery-ingestion-check.sh"
+  # ── Command lifecycle ──
+  "scripts/command-ack-contract-check.sh"
   "scripts/command-ack-retry-check.sh"
+  "scripts/command-poll-contract-check.sh"
+  "scripts/command-state-contract-check.sh"
+  # ── Device / auth / pairing ──
+  "scripts/device-auth-contract-check.sh"
+  "scripts/pairing-contract-check.sh"
+  "scripts/profile-ownership-contract-check.sh"
+  "scripts/owner-preference-cascade-check.sh"
+  # ── Feed / stream ──
   "scripts/feed-cursor-check.sh"
   "scripts/feed-display-dwell-check.sh"
   "scripts/feed-targeting-check.sh"
-  "scripts/hardware-profile-fixture-check.sh"
+  "scripts/feed-stream-composition-check.sh"
+  "scripts/stream-contract-check.sh"
+  "scripts/stream-playback-check.sh"
+  # ── Heartbeat / persistence ──
   "scripts/heartbeat-commands-check.sh"
+  "scripts/heartbeat-contract-check.sh"
+  "scripts/heartbeat-persistence-check.sh"
+  # ── Kiosk / display ──
+  "scripts/kiosk-check.sh"
+  "scripts/kiosk-feed-polling-check.sh"
+  "scripts/frame-state-check.sh"
   "scripts/night-mode-check.sh"
   "scripts/night-mode-timer-check.sh"
+  # ── Network / Wi-Fi / hardware ──
+  "scripts/hardware-profile-check.sh"
+  "scripts/hardware-profile-fixture-check.sh"
+  "scripts/network-check.sh"
+  "scripts/wifi-network-enrichment-check.sh"
+  "scripts/wifi-scan-dedup-check.sh"
+  # ── Diagnostics / health / readiness ──
+  "scripts/diagnostics-check.sh"
+  "scripts/health-check.sh"
+  "scripts/readiness-check.sh"
+  "scripts/support-bundle-check.sh"
+  # ── Cache / storage / runtime ──
+  "scripts/cache-contract-check.sh"
+  "scripts/runtime-storage-check.sh"
+  "scripts/events-export-check.sh"
+  "scripts/clock-check.sh"
+  # ── Settings / admin capabilities ──
+  "scripts/settings-contract-check.sh"
+  "scripts/admin-capabilities-check.sh"
+  "scripts/admin-device-snapshot-check.sh"
+  "scripts/prepare-release-check.sh"
+  # ── Online admin (mock API based) ──
+  "scripts/online-admin-contract-check.sh"
+  "scripts/online-admin-entitlements-check.sh"
+  "scripts/online-admin-device-state-actions-check.sh"
+  "scripts/online-admin-subscription-lifecycle-check.sh"
+  # ── Hosted API DB layer (single server) ──
+  "scripts/hosted-api-db-check.sh"
+  "scripts/hosted-contract-suite-check.sh"
 )
 
 INTEGRATION_HEAVY_GATES=(
+  # ── Full device lifecycle ──
   "scripts/device-lifecycle-check.sh"
-  "scripts/hosted-mock-bridge-check.sh"
   "scripts/events-ingestion-check.sh"
   "scripts/factory-reset-check.sh"
   "scripts/feed-offline-fallback-check.sh"
+  "scripts/settings-sync-check.sh"
+  # ── Mock API bridge (multi-server) ──
+  "scripts/hosted-mock-bridge-check.sh"
   "scripts/online-admin-mock-bridge-check.sh"
   "scripts/online-admin-fleet-isolation-check.sh"
-  "scripts/settings-sync-check.sh"
+  # ── Hosted API (real DB, multi-server) ──
+  "scripts/hosted-api-server-check.sh"
+  "scripts/hosted-api-local-ui-bridge-check.sh"
+  "scripts/hosted-api-admin-bundle-check.sh"
+  # ── Admin content management (multi-server, heavy CRUD) ──
+  "scripts/admin-content-management-check.sh"
 )
 
 CONTRACT_GATES=(
