@@ -130,6 +130,7 @@ check_app_tree() {
     scripts/update-from-github.sh
     scripts/watchdog.sh
     scripts/configure-kiosk-os.sh
+    scripts/feed-sync.sh
     scripts/remote-install-check.sh
   )
 

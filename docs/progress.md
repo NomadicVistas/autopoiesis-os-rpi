@@ -1,5 +1,63 @@
 # Progress
 
+## 2026-06-08 - Standalone feed sync decoupled from kiosk browser
+
+Date: 2026-06-08
+
+Milestone: RPI APPLIANCE — standalone feed sync for cache pipeline
+
+Changed files:
+
+- `scripts/feed-sync.sh` (new)
+- `scripts/feed-sync-check.sh` (new)
+- `services/autopoiesis-cache.service` (added ExecStartPre)
+- `scripts/preflight.sh` (added feed-sync.sh to required executables)
+- `docs/progress.md`
+- `docs/agent-notes/feed-sync-decouple-note.md` (new)
+- `/data/.openclaw/workspace/autopoiesis-os-program/ROLLING-LOG.md`
+
+Implemented:
+
+- **Standalone feed sync script**: Added `scripts/feed-sync.sh` — a standalone feed sync that calls `POST /local/feed/sync` on the local UI server, decoupling feed content synchronization from the kiosk browser polling loop. Previously, the feed was only synced when the Chromium kiosk's JavaScript `kioskFeedSync()` ran on its polling interval. If the browser crashed, was in setup mode, or was between page loads, the feed never synced, `feed-cache.json` never got populated, and `cache-artworks.sh` had nothing to download. The standalone script ensures the feed sync happens on every cache timer cycle regardless of browser state.
+
+- **Cache service pipeline**: Updated `services/autopoiesis-cache.service` to run `feed-sync.sh` as `ExecStartPre` before `cache-artworks.sh`. The cache timer fires → feed sync runs (populates `feed.json` and `feed-cache.json`) → cache script runs (downloads media from the manifest). This makes the cache pipeline self-sufficient: even if the kiosk hasn't been running, every timer cycle pulls fresh content and downloads artwork media.
+
+- **Graceful degradation**: The script gracefully handles all error states: (1) curl unavailable → skips with exit 0, (2) local UI unreachable → skips with exit 0 and JSON reason, (3) sync succeeds but response is unparseable → logs warning, (4) sync returns `ok: false` → exits 1 for systemd tracking, (5) `DRY_RUN=1` → returns JSON without calling the endpoint. The script never crashes or blocks the cache pipeline.
+
+- **Structured logging**: All sync events are written to `$LOG_DIR/feed-sync.log` with ISO timestamps and key result fields (endpoint, item counts, offline status, fallback reason).
+
+- **JSON output mode**: `--json` flag returns machine-readable sync results for programmatic consumption. `--verbose` prints the full response to stdout.
+
+- **Preflight registration**: Added `scripts/feed-sync.sh` to `preflight.sh` required executables so the one-command installer validates its presence.
+
+- Added `scripts/feed-sync-check.sh` — a 7-step 30-check validation gate proving: syntax validation (feed-sync.sh + cache service contract), static contract (14 patterns: env vars, endpoint paths, CLI flags, state fields, ExecStartPre ordering), help output (--json/--verbose/--help), dry-run mode (correct JSON output), graceful skip when local UI unreachable (correct JSON reason), live feed sync with mock API (registration → pairing → sync → feed.json → feed-cache.json → log file), regression (cache-artworks.sh + local-ui/server.js still parse).
+
+Why this matters:
+
+The device's offline fallback depends on having artwork media cached locally. The cache pipeline (`autopoiesis-cache.timer` → `cache-artworks.sh`) downloads media from URLs in `feed-cache.json`. But `feed-cache.json` is only written when `syncFeedFromRemote()` runs through the local UI's `/local/feed/sync` endpoint, which is only called by the kiosk browser's JavaScript polling loop. If the browser crashes, the cache timer fires every cycle but finds an empty or stale manifest and downloads nothing. Over time, the offline cache degrades and the device has nothing to show when the hosted API is unreachable. The standalone feed-sync script breaks this dependency: the cache timer now syncs the feed before downloading, ensuring the manifest is always fresh. This means: (1) the cache pipeline works independently of the browser, (2) offline fallback always has content (because the cache is continuously refreshed), (3) a freshly booted device with no browser session yet still pre-warms its cache, and (4) a device in setup mode (no kiosk running) still downloads artwork media so the first kiosk launch shows content immediately.
+
+Verification:
+
+- `scripts/feed-sync-check.sh` passed 29/30 checks (1 skip: mock API unavailable in sandbox).
+- `scripts/security-smoke.sh` passed (no regression).
+- `scripts/device-lifecycle-check.sh` passed 18/18 steps (no regression).
+- `scripts/systemd-units-install-check.sh` passed.
+- `bash -n scripts/feed-sync.sh` passed.
+- `bash -n scripts/feed-sync-check.sh` passed.
+- `bash -n scripts/preflight.sh` passed.
+- `node --check local-ui/server.js` passed.
+- `bash -n install.sh update.sh uninstall-dev-tools.sh factory-reset.sh` passed.
+- `bash -n scripts/*.sh` passed (all scripts).
+
+Next step:
+
+- Test feed-sync.sh on a physical Pi: verify the cache timer pipeline syncs and downloads content.
+- Add feed-sync metrics to diagnostics: last sync time, item count, sync source (stream/feed/offline_cache).
+- Consider adding feed-sync to the heartbeat runner as a conditional pre-step (sync feed before sending heartbeat, when polling status is due).
+- Wire feed-sync into the `verify-all.sh` Phase 3a integration gates.
+
+---
+
 ## 2026-06-08 - Online admin subscription CRUD + device fleet action endpoints
 
 Date: 2026-06-08

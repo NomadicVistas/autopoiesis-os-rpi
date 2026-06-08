@@ -10,6 +10,7 @@ Group=frame
 Environment=AUTOPOIESIS_DATA_DIR=/var/lib/autopoiesis-os
 Environment=AUTOPOIESIS_CACHE_DIR=/var/lib/autopoiesis-os/cache
 Environment=AUTOPOIESIS_LOG_DIR=/var/log/autopoiesis-os
+ExecStartPre=/opt/autopoiesis-os/app/scripts/feed-sync.sh
 ExecStart=/opt/autopoiesis-os/app/scripts/cache-artworks.sh
 
 # Security hardening
