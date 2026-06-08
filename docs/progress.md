@@ -1,5 +1,48 @@
 # Progress
 
+## 2026-06-08 - Heartbeat commands contract normalization
+
+Date: 2026-06-08
+
+Milestone: LEAD / INTEGRATION - heartbeat command contract normalization
+
+Changed files:
+
+- `local-ui/server.js`
+- `scripts/heartbeat-commands-check.sh`
+- `docs/progress.md`
+- `docs/agent-notes/pulse.md`
+- `/data/.openclaw/workspace/autopoiesis-os-program/ROLLING-LOG.md`
+
+Implemented:
+
+- Added `normalizeCommandsPayload(commands)` — normalizes the hosted API heartbeat response `commands` field, which may arrive as either a flat array `[...]` or wrapped in `{ items: [...] }`, into a flat array. Returns `[]` for null, undefined, non-object, or missing `items` key.
+- Updated `sendHeartbeat()` — calls `normalizeCommandsPayload(result.commands)` immediately after the API response, stores the normalized flat array via `writeJson(paths.commands, normalizedCommands)`, and returns `{ ...result, commands: normalizedCommands }` so that `processCommands()` receives a flat array via `heartbeat.commands`.
+- This resolves a silent command-drop bug: the mock hosted API's heartbeat response returns `commands: { items: [...] }` when commands are pending. `mergeCommandQueues()` expects `Array.isArray(remoteCommands)` to be true, so the wrapped form was silently skipped — all commands from heartbeat were dropped on the floor. Broadcasts, admin commands, restart commands, update commands: none were delivered through the heartbeat path.
+- Added `scripts/heartbeat-commands-check.sh`, a 10-step isolated gate proving: syntax validation, normalizeCommandsPayload edge cases (7/7: null, undefined, empty array, string, number, empty object, wrong-key object), wrapped command unwrapping (4/4: flat array, {items} with 3 and 5 elements, empty {items}), mergeCommandQueues with normalized commands (4/4: merge, flat, empty, remote-override), mock API {items} wrap confirmation, sendHeartbeat normalization wiring (3/3: call normalize, write normalized, return normalized), processCommands integration, hosted mock bridge regression, security smoke, and git diff check.
+
+Why this matters:
+
+The hosted API's heartbeat endpoint returns commands in a wrapped `{ items: [...] }` shape (matching the paged-collection convention used elsewhere in the API). The local UI's `sendHeartbeat()` wrote the raw `result.commands` to the commands file, and `processCommands()` passed `heartbeat.commands` to `mergeCommandQueues()`, which expects a flat array. `Array.isArray({ items: [...] })` is `false`, so every command from the heartbeat path was silently dropped. This meant broadcasts queued by admin, device restart commands, settings sync commands, and any other command delivered via the heartbeat polling path never reached the device. The `normalizeCommandsPayload` function bridges the contract mismatch: regardless of whether the hosted API returns a flat array or a wrapped collection, the local UI now always processes commands as a flat array. This unblocks the entire command delivery pipeline.
+
+Verification:
+
+- `scripts/heartbeat-commands-check.sh` passed all 10 steps.
+- `scripts/hosted-mock-bridge-check.sh` passed all 6 contract gates (no regression).
+- `scripts/device-lifecycle-check.sh` passed all 18 steps (no regression).
+- `scripts/broadcast-command-check.sh` passed (no regression).
+- `scripts/feed-display-dwell-check.sh` passed all 12 steps (no regression).
+- `scripts/security-smoke.sh` passed.
+- `node --check local-ui/server.js` passed.
+- `node --check scripts/mock-hosted-api/server.js` passed.
+- `bash -n install.sh update.sh uninstall-dev-tools.sh factory-reset.sh scripts/*.sh` passed.
+- `git diff --check` passed.
+
+Next step:
+
+- On the Pi, verify that commands queued through the hosted API admin dashboard are picked up by the heartbeat and executed by the device. Test with show_broadcast, restart_device, and sync_settings command types.
+- Wire the delivery status summary into the heartbeat event export so the hosted API can track broadcast delivery per device in `aos_broadcast_deliveries`.
+
 ## 2026-06-08 - Broadcast delivery receipt and delivery status summary
 
 Date: 2026-06-08

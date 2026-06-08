@@ -1,5 +1,15 @@
 # Pulse Agent Notes
 
+## 2026-06-08 - Heartbeat commands contract normalization
+
+Date/time: 2026-06-08 03:30 UTC / 2026-06-08 05:30 Europe/Berlin
+Agent: Pulse
+Context: LEAD / INTEGRATION cron pass. The hosted API heartbeat returns `commands: { items: [...] }` for pending commands. The local UI's `mergeCommandQueues()` expects `Array.isArray()` to be true. The wrapped form was silently skipped — all commands from the heartbeat path (broadcasts, admin commands, restarts, settings sync) were dropped.
+What changed: Added `normalizeCommandsPayload(commands)` to handle both flat array `[...]` and wrapped `{ items: [...] }` forms, returning a flat array in all cases. Updated `sendHeartbeat()` to normalize before storage (`writeJson`) and before return (`commands: normalizedCommands`). The fix is defensive — the real hosted API may return either form, and the local UI now handles both correctly. Added `scripts/heartbeat-commands-check.sh` — 10-step gate proving: edge cases (7/7), unwrapping (4/4), merge (4/4), API shape, wiring (3/3), integration, regression.
+What needs review: The `normalizeCommandsPayload` function is a defensive shim. If the real hosted backend returns commands as a flat array (not wrapped), the function passes through unchanged. If the backend wraps in `{ items }`, it unwraps. Either way, the downstream code always gets a flat array. The mock API still returns the wrapped form — this is intentional to match the paged-collection convention used elsewhere.
+Contract issue resolved: The `commands.items` vs flat array mismatch mentioned in the previous broadcast delivery entry is now fixed. The mock API's `{ items: [...] }` commands are normalized by `sendHeartbeat()` before reaching `mergeCommandQueues()`.
+Next recommended action: Wire delivery status summary into heartbeat event export for `aos_broadcast_deliveries` tracking. On the Pi, verify commands queued through the admin dashboard are delivered and executed.
+
 ## 2026-06-08 - Broadcast delivery receipt and delivery status summary
 
 Date/time: 2026-06-08 04:35 UTC / 2026-06-08 06:35 Europe/Berlin

@@ -484,6 +484,13 @@ function ackRetry(command, phase, statusValue, extra = {}, error = null) {
   };
 }
 
+function normalizeCommandsPayload(commands) {
+  if (!commands) return [];
+  if (Array.isArray(commands)) return commands;
+  if (commands.items && Array.isArray(commands.items)) return commands.items;
+  return [];
+}
+
 function mergeCommandQueues(remoteCommands = [], localCommands = []) {
   const byId = new Map();
   for (const command of Array.isArray(localCommands) ? localCommands : []) {
@@ -5497,13 +5504,14 @@ async function sendHeartbeat() {
         : ackResult.reason || "skipped"
     });
   }
+  const normalizedCommands = normalizeCommandsPayload(result.commands);
   if (result.settings) applyRemoteSettingsPayload(result, "heartbeat");
-  if (result.commands) writeJson(paths.commands, result.commands);
+  if (normalizedCommands.length > 0) writeJson(paths.commands, normalizedCommands);
   if (result.feed || result.items || result.artworks || result.broadcasts) {
     writeFeedState(normalizeFeedPayload(result));
   }
   writeJson(paths.device, { ...readJson(paths.device, {}), lastHeartbeatAt: new Date().toISOString() });
-  return { ...result, localFeedSync };
+  return { ...result, commands: normalizedCommands, localFeedSync };
 }
 
 async function checkRelease() {
