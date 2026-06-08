@@ -1,5 +1,58 @@
 # Progress
 
+## 2026-06-08 - Release state heartbeat pipeline + network field fix
+
+Date: 2026-06-08
+
+Milestone: API / DATABASE / SYNC — release-state.json wired into heartbeat pipeline for admin dashboard visibility
+
+Changed files:
+
+- `hosted-api/db.js` (release state columns in ingestHeartbeat, _mapDevice; networkOnline/networkType from payload)
+- `hosted-api/server.js` (releaseState passthrough in handleHeartbeat, admin bundle + snapshot exposure)
+- `local-ui/server.js` (read release-state.json in sendHeartbeat)
+- `migrations/20260607000001_initial_aos_frames.sql` (5 release columns)
+- `scripts/aos-schema-sqlite-validation.sql` (5 release columns)
+- `scripts/release-state-heartbeat-check.mjs` (new: 73-check validation gate)
+- `scripts/release-state-heartbeat-check.sh` (new: wrapper)
+- `docs/progress.md`
+- `/data/.openclaw/workspace/autopoiesis-os-program/ROLLING-LOG.md`
+
+Implemented:
+
+- Added 5 release tracking columns to `aos_frame_devices`: `release_status` (TEXT, default 'idle'), `release_target_version` (TEXT), `release_channel` (TEXT), `release_updated_at` (TIMESTAMPTZ), `release_error` (TEXT).
+- Updated `ingestHeartbeat()` in `hosted-api/db.js` to extract `payload.releaseState` and persist status, target version, channel, updated-at timestamp, and error into the new columns. Replaced the stale `systemMetrics.networkOnline` / `systemMetrics.networkType` path with direct `payload.networkOnline` / `payload.networkType` — the old `systemMetrics` wrapper was removed from the local UI's heartbeat payload in a prior change but db.js was still reading from it, causing network fields to always be null.
+- Updated `_mapDevice()` to expose all 5 release fields on device records.
+- Updated `handleHeartbeat()` in `hosted-api/server.js` to pass `body.releaseState` through to the DB layer.
+- Exposed release state in admin bundle fleet devices (`releaseStatus`, `releaseTargetVersion`, `releaseError`) and device admin snapshot (all 5 fields).
+- Updated `sendHeartbeat()` in `local-ui/server.js` to read `$DATA_DIR/release-state.json` and include it as `releaseState` in the heartbeat payload.
+- Added `scripts/release-state-heartbeat-check.mjs` — an 11-step 73-check isolated validation gate proving: syntax and schema contract (27 static checks), schema bootstrap with release columns, server startup + device lifecycle, heartbeat without releaseState → default idle + networkOnline=true, heartbeat with releaseState in_progress (status, target, channel persisted), heartbeat with failed release + error (error captured, target preserved), heartbeat with completed release (error cleared, version updated), admin device snapshot includes release state (all 5 fields), admin bundle fleet devices include release state, network-online fix (second device with networkOnline=false + networkType=ethernet), regression (settings, stream, release, health endpoints).
+
+Why this matters:
+
+The progress.md next-step from the production-safe update lifecycle explicitly called for wiring `release-state.json` into the hosted API heartbeat payload so the admin dashboard sees update status in real time. Previously, the device's `update-from-release.sh` wrote detailed release state (in_progress, completed, failed, with target version, channel, timestamp, and error) to `$DATA_DIR/release-state.json`, but this data was invisible to the hosted API and admin dashboard. The heartbeat payload had no release state field. On the server side, `ingestHeartbeat()` was reading network fields from a `systemMetrics` wrapper that no longer existed in the local UI's heartbeat payload, causing `network_online` and `network_type` to always be null in the database. This change closes both gaps: the device's release state flows through the heartbeat to the database, and network fields are read from the correct top-level payload fields. The admin dashboard can now display real-time update status (in progress, failed with error, completed) and accurate network information for every device in the fleet.
+
+Verification:
+
+- `scripts/release-state-heartbeat-check.sh` passed all 73 checks (11 steps).
+- `scripts/hosted-api-local-ui-bridge-check.sh` passed all 94 checks (19 steps, no regression).
+- `scripts/heartbeat-persistence-check.sh` passed all 33 checks (10 steps, no regression).
+- `scripts/security-smoke.sh` passed (no regression).
+- `node --check local-ui/server.js` passed.
+- `node --check hosted-api/server.js` passed.
+- `node --check hosted-api/db.js` passed.
+- `bash -n install.sh update.sh uninstall-dev-tools.sh factory-reset.sh` passed.
+- `bash -n scripts/*.sh` passed.
+
+Next step:
+
+- Wire `release-log.json` events into the hosted API `aos_device_events` table via heartbeat ingestion.
+- Add release state timeline to admin device detail view.
+- Test the full update lifecycle on a physical Pi: trigger update, verify release state transitions appear in admin dashboard.
+- Add release-state-aware alerts: flag devices stuck in `in_progress` for >30 minutes or `failed` without recent retry.
+
+---
+
 ## 2026-06-08 - Production-safe update lifecycle: graceful service stop, pre-flight checks, state tracking
 
 Date: 2026-06-08
