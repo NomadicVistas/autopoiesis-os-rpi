@@ -1,5 +1,71 @@
 # Progress
 
+## 2026-06-08 - Hosted broadcast delivery ingestion round-trip
+
+Date: 2026-06-08
+
+Milestone: API / DATABASE / SYNC - broadcast delivery ingestion from heartbeat to admin query
+
+Changed files:
+
+- `scripts/mock-hosted-api/server.js`
+- `scripts/broadcast-delivery-ingestion-check.sh`
+- `docs/progress.md`
+- `docs/agent-notes/pulse.md`
+- `/data/.openclaw/workspace/autopoiesis-os-program/ROLLING-LOG.md`
+
+Also committed in-flight changes from prior run:
+
+- `local-ui/server.js` (broadcastDeliveriesPayload, endpoint, diagnostics/support-bundle wiring)
+- `scripts/heartbeat.sh` (enriched system metrics: memory, CPU, uptime, service status)
+- `scripts/broadcast-deliveries-heartbeat-check.sh` (12-step gate for device-side broadcast delivery tracking)
+
+Implemented:
+
+- Added `broadcastDeliveries` array to mock API device records, ingested from device heartbeat `broadcastDeliveries.deliveries` payloads.
+- Updated `handleHeartbeat` to accept `broadcastDeliveries` from the heartbeat body, upserting delivery records by `broadcastId` (new records inserted, existing records updated with latest status/timestamps). Returns `deliveryAck` with accepted count and total.
+- Added `handleAdminBroadcastDeliveries(query)` — admin endpoint listing all broadcast delivery records across all devices with optional filters: `deviceId`, `status`, `ownerUserId`. Returns summary counts, unique broadcast/device counts, and full delivery details with owner attribution.
+- Added `handleAdminBroadcastDeliveryDetail(broadcastId)` — admin endpoint showing delivery status for a specific broadcast across all devices, including device name and owner attribution.
+- Wired two new routes: `GET /frames/admin/broadcast-deliveries` (list with filters) and `GET /frames/admin/broadcast-deliveries/:broadcastId` (per-broadcast detail).
+- Added `scripts/broadcast-delivery-ingestion-check.sh`, a 14-step isolated gate proving:
+  1. Syntax validation (mock API, server.js, self)
+  2. Function and route wiring present in mock API
+  3. Mock API startup
+  4. Two-device registration and pairing with different owners
+  5. Device A heartbeat with 2 broadcast deliveries → deliveryAck accepted
+  6. Device B heartbeat with 1 broadcast delivery → deliveryAck accepted
+  7. Admin list all: 3 deliveries, 2 unique broadcasts, 2 unique devices, correct owner attribution
+  8. Admin per-broadcast detail: bcast-001 shows 2 devices
+  9. Upsert: bcast-002 transitions from received → dismissed, no duplicate rows
+  10. Admin filter by status: dismissed=1, shown=2
+  11. Admin filter by owner: owner_a=2, owner_b=1
+  12. Empty state: device with no deliveries returns 0
+  13. Schema field mapping to `aos_broadcast_deliveries` columns verified
+  14. Heartbeat without deliveries returns no `deliveryAck`
+
+Why this matters:
+
+The device-side broadcast delivery tracking (committed in the in-flight batch) now sends `broadcastDeliveries` in every heartbeat POST. But the hosted API had no code to receive, store, or query this data. Without ingestion, the delivery data was sent but silently dropped by the server. The mock API now completes the full round-trip: device sends delivery status → hosted API ingests with upsert semantics → admin dashboard queries aggregated delivery data per broadcast, per device, per owner, and per status. The field mapping is verified against the `aos_broadcast_deliveries` database schema, so when the real hosted backend is built, the ingestion and query logic maps directly to durable table rows.
+
+Verification:
+
+- `scripts/broadcast-delivery-ingestion-check.sh` passed all 14 steps.
+- `scripts/broadcast-deliveries-heartbeat-check.sh` passed all 12 steps (no regression).
+- `scripts/hosted-mock-bridge-check.sh` passed all 6 contract gates (no regression).
+- `scripts/device-lifecycle-check.sh` passed all 18 steps (no regression).
+- `scripts/online-admin-mock-bridge-check.sh` passed all 12 steps (no regression).
+- `scripts/security-smoke.sh` passed.
+- `node --check local-ui/server.js` passed.
+- `node --check scripts/mock-hosted-api/server.js` passed.
+- `bash -n install.sh update.sh uninstall-dev-tools.sh factory-reset.sh scripts/*.sh` passed.
+- `git diff --check` passed.
+
+Next step:
+
+- Wire broadcast delivery ingestion into the hosted backend's real heartbeat handler, mapping `deliveryAck` to durable `aos_broadcast_deliveries` upsert queries.
+- Add broadcast delivery summary to the online admin bundle so the admin dashboard shows delivery effectiveness per broadcast.
+- Surface per-broadcast delivery breakdown in the admin Frames UI.
+
 ## 2026-06-08 - Admin subscription lifecycle gate
 
 Date: 2026-06-08

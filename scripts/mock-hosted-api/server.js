@@ -22,6 +22,8 @@
  *   GET  /frames/device/:id/release                 – Release check
  *   POST /frames/artworks/:id/like                  – Like artwork
  *   GET  /frames/device/:id/admin-snapshot          – Admin device snapshot
+ *   GET  /frames/admin/broadcast-deliveries         – Admin: list all broadcast deliveries
+ *   GET  /frames/admin/broadcast-deliveries/:id     – Admin: per-broadcast delivery detail
  *   GET  /mock/online-admin-bundle                   – Online admin bundle (contract)
  *   POST /mock/add-user                              – Test helper: add admin user+subscription
  *   POST /mock/transition-subscription/:userId        – Test helper: transition subscription status
@@ -120,7 +122,8 @@ function createDeviceRecord(deviceId, body) {
     events: [],
     eventIngestionCursor: null,
     likedArtworks: [],
-    release: null
+    release: null,
+    broadcastDeliveries: [] // Ingested from device heartbeat
   };
   devices.set(deviceId, record);
   return record;
@@ -292,6 +295,48 @@ function handleHeartbeat(deviceId, body, req) {
     };
   }
 
+  // Broadcast delivery ingestion
+  let deliveryAck = null;
+  if (body.broadcastDeliveries && body.broadcastDeliveries.deliveries) {
+    const incoming = body.broadcastDeliveries.deliveries;
+    for (const d of incoming) {
+      const existing = record.broadcastDeliveries.find(
+        (e) => e.broadcastId === d.broadcastId
+      );
+      if (existing) {
+        // Upsert: update status and timestamps, keep the most recent state
+        existing.status = d.status;
+        if (d.receivedAt) existing.receivedAt = d.receivedAt;
+        if (d.shownAt) existing.shownAt = d.shownAt;
+        if (d.dismissedAt) existing.dismissedAt = d.dismissedAt;
+        if (d.expiredAt) existing.expiredAt = d.expiredAt;
+        if (d.skippedAt) existing.skippedAt = d.skippedAt;
+        if (d.eventCount != null) existing.eventCount = d.eventCount;
+        existing.updatedAt = now();
+      } else {
+        record.broadcastDeliveries.push({
+          broadcastId: d.broadcastId,
+          deviceId,
+          commandId: d.commandId || null,
+          status: d.status,
+          receivedAt: d.receivedAt || null,
+          shownAt: d.shownAt || null,
+          dismissedAt: d.dismissedAt || null,
+          expiredAt: d.expiredAt || null,
+          skippedAt: d.skippedAt || null,
+          eventCount: d.eventCount || 1,
+          createdAt: now(),
+          updatedAt: now()
+        });
+      }
+    }
+    deliveryAck = {
+      accepted: true,
+      acceptedCount: incoming.length,
+      totalDeliveries: record.broadcastDeliveries.length
+    };
+  }
+
   // Return pending commands (non-terminal)
   const pendingCommands = record.commands.filter(
     (c) => c.status === "queued" || c.status === "sent"
@@ -302,6 +347,7 @@ function handleHeartbeat(deviceId, body, req) {
     ok: true,
     heartbeatAt: now(),
     eventAck,
+    deliveryAck,
     commands: pendingCommands.length > 0 ? { items: pendingCommands } : undefined,
     settings: undefined,
     feed: undefined
@@ -490,6 +536,74 @@ function handleMockState() {
       adminUsers: Object.fromEntries(adminUsers),
       adminSubscribers: Object.fromEntries(adminSubscribers),
       adminSubscriptions: Object.fromEntries(adminSubscriptions)
+    }
+  };
+}
+
+/**
+ * GET /frames/admin/broadcast-deliveries
+ * Admin endpoint: list all broadcast delivery records across all devices.
+ * Query params: deviceId (optional filter), status (optional filter).
+ * Maps to hosted backend querying aos_broadcast_deliveries.
+ */
+function handleAdminBroadcastDeliveries(query) {
+  let allDeliveries = [];
+  for (const [deviceId, record] of devices) {
+    for (const d of (record.broadcastDeliveries || [])) {
+      allDeliveries.push({ ...d, ownerUserId: record.ownerUserId });
+    }
+  }
+
+  // Optional filters
+  if (query.get("deviceId")) {
+    allDeliveries = allDeliveries.filter(d => d.deviceId === query.get("deviceId"));
+  }
+  if (query.get("status")) {
+    allDeliveries = allDeliveries.filter(d => d.status === query.get("status"));
+  }
+  if (query.get("ownerUserId")) {
+    allDeliveries = allDeliveries.filter(d => d.ownerUserId === query.get("ownerUserId"));
+  }
+
+  // Summary counts
+  const statusCounts = {};
+  for (const d of allDeliveries) {
+    statusCounts[d.status] = (statusCounts[d.status] || 0) + 1;
+  }
+
+  return {
+    status: 200,
+    body: {
+      ok: true,
+      totalDeliveries: allDeliveries.length,
+      uniqueBroadcasts: [...new Set(allDeliveries.map(d => d.broadcastId))].length,
+      uniqueDevices: [...new Set(allDeliveries.map(d => d.deviceId))].length,
+      statusCounts,
+      deliveries: allDeliveries
+    }
+  };
+}
+
+/**
+ * GET /frames/admin/broadcast-deliveries/:broadcastId
+ * Admin endpoint: delivery status for a specific broadcast across all devices.
+ */
+function handleAdminBroadcastDeliveryDetail(broadcastId) {
+  const deliveries = [];
+  for (const [deviceId, record] of devices) {
+    const match = (record.broadcastDeliveries || []).find(d => d.broadcastId === broadcastId);
+    if (match) {
+      deliveries.push({ ...match, ownerUserId: record.ownerUserId, deviceName: record.deviceName });
+    }
+  }
+  return {
+    status: 200,
+    body: {
+      ok: true,
+      broadcastId,
+      totalDevices: deliveries.length,
+      statusCounts: deliveries.reduce((acc, d) => { acc[d.status] = (acc[d.status] || 0) + 1; return acc; }, {}),
+      deliveries
     }
   };
 }
@@ -976,6 +1090,20 @@ async function handle(req, res) {
   if (method === "POST" && subTransitionMatch) {
     const body = JSON.parse((await readBody(req)) || "{}");
     return sendJson(res, ...Object.values(handleMockTransitionSubscription(subTransitionMatch[1], body)));
+  }
+
+  // ── Admin broadcast delivery endpoints ────────────────────────────────────
+
+  // GET /frames/admin/broadcast-deliveries (list all)
+  if (method === "GET" && pathname === "/frames/admin/broadcast-deliveries") {
+    const adminUrl = new URL(req.url, "http://localhost");
+    return sendJson(res, ...Object.values(handleAdminBroadcastDeliveries(adminUrl.searchParams)));
+  }
+
+  // GET /frames/admin/broadcast-deliveries/:broadcastId (per-broadcast detail)
+  const adminBdDetailMatch = pathname.match(/^\/frames\/admin\/broadcast-deliveries\/([^/]+)$/);
+  if (method === "GET" && adminBdDetailMatch) {
+    return sendJson(res, ...Object.values(handleAdminBroadcastDeliveryDetail(adminBdDetailMatch[1])));
   }
 
   // ── Frames API endpoints ────────────────────────────────────────────────

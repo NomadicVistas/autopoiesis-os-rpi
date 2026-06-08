@@ -1,5 +1,14 @@
 # Pulse Agent Notes
 
+## 2026-06-08 - Hosted broadcast delivery ingestion round-trip
+
+Date/time: 2026-06-08 07:03 UTC / 2026-06-08 09:03 Europe/Berlin
+Agent: Pulse
+Context: API / DATABASE / SYNC cron pass. Device was sending broadcastDeliveries in heartbeat but hosted API had no ingestion code.
+What changed: Added broadcast delivery ingestion to mock API heartbeat handler (upsert by broadcastId), two admin query endpoints (list all with filters + per-broadcast detail), and a 14-step gate proving full round-trip. Also committed in-flight work from prior run: broadcastDeliveriesPayload() in local UI, enriched heartbeat.sh metrics, and a 12-step device-side gate.
+What needs review: The hosted backend needs to implement the same ingestion in the real heartbeat handler, mapping to `aos_broadcast_deliveries` upsert queries. The admin endpoints should be replicated as read-only queries against the durable table.
+Next recommended action: Wire broadcast delivery summary into the online-admin bundle and admin dashboard, then validate against staging with real `aos_broadcast_deliveries` rows.
+
 ## 2026-06-08 - Admin subscription lifecycle gate
 
 Date/time: 2026-06-08 05:06 UTC / 2026-06-08 07:06 Europe/Berlin
