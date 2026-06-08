@@ -1482,10 +1482,11 @@ function normalizeFeedItem(raw, source, index = 0) {
   if (!raw || typeof raw !== "object") return null;
   const id = raw.id || raw.feedItemId || raw.feed_item_id || raw.artworkId || raw.broadcastId || raw.broadcast_id;
   if (!id) return null;
-  const type = raw.type || (source === "broadcast" ? "broadcast_message" : "artwork_image");
+  const effectiveSource = raw.source || source;
+  const type = raw.type || (effectiveSource === "broadcast" ? "broadcast_message" : "artwork_image");
   return {
     id: String(id),
-    source,
+    source: effectiveSource,
     type,
     title: raw.title || raw.name || null,
     artist: raw.artist || raw.artistName || raw.artist_name || null,

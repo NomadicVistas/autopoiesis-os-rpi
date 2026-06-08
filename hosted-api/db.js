@@ -1142,6 +1142,18 @@ class AosDb {
     const limit = context.limit || 30;
     const nowISO = now();
 
+    // Build set of already-displayed broadcast IDs for this device (dedup)
+    const displayedSet = new Set();
+    if (deviceId) {
+      try {
+        const displayed = this.db.prepare(
+          `SELECT broadcast_id FROM aos_broadcast_deliveries
+           WHERE device_id = ? AND status IN ('displayed', 'completed', 'acknowledged')`
+        ).all(deviceId);
+        for (const row of displayed) displayedSet.add(row.broadcast_id);
+      } catch (_) { /* table may not exist in fresh bootstrap */ }
+    }
+
     // Fetch all published, non-expired broadcasts
     const rows = this.db.prepare(
       `SELECT * FROM aos_broadcasts
@@ -1196,12 +1208,21 @@ class AosDb {
       }
     });
 
-    // Map rows to stream items
-    const items = filtered.slice(0, limit).map(row => {
+    // Map rows to stream items with source attribution and delivery dedup
+    const items = filtered.filter(row => {
+      // Exclude already-displayed items (unless they are emergency/critical priority)
+      if (displayedSet.has(row.id)) {
+        const rank = _priorityRank(row.priority);
+        return rank >= 400; // keep emergency (500) and critical (400)
+      }
+      return true;
+    }).slice(0, limit).map(row => {
+      const category = _broadcastTypeToCategory(row.type);
       const item = {
         id: row.id,
+        source: category === 'broadcast' ? 'admin' : 'admin',
         type: row.type || 'content',
-        category: _broadcastTypeToCategory(row.type),
+        category,
         title: row.title,
         priority: row.priority || 'normal',
         cacheEligible: !!row.cache_allowed,

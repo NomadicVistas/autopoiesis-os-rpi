@@ -1,5 +1,60 @@
 # Progress
 
+## 2026-06-08 - Broadcast feed delivery lifecycle: source attribution, delivery dedup, end-to-end tracking
+
+Date: 2026-06-08
+
+Milestone: BROADCAST / FEED — source attribution in stream composition, delivery deduplication, and end-to-end lifecycle
+
+Changed files:
+
+- `hosted-api/db.js` (source field on stream items, displayedSet dedup query in getStreamContent)
+- `local-ui/server.js` (normalizeFeedItem respects raw.source, effectiveSource)
+- `scripts/broadcast-feed-delivery-lifecycle-check.sh` (new: 10-step 32-check validation gate)
+- `docs/progress.md`
+- `docs/agent-notes/broadcast-feed-delivery-note.md` (new)
+- `/data/.openclaw/workspace/autopoiesis-os-program/ROLLING-LOG.md`
+
+Implemented:
+
+- **Source attribution in stream composition**: Added `source: "admin"` field to all items returned by `getStreamContent()` in `hosted-api/db.js`. Previously, stream items from `aos_broadcasts` had no source field. When the device normalized these items via `normalizeFeedPayload()`, everything from the `items` array got `source = "feed"` — including broadcast-type content (system notices, broadcast messages, announcements). This broke the delivery tracking pipeline: `broadcastDeliveriesPayload()` in local-ui only picks up items where `source === "broadcast"`, `source === "admin"`, or `source === "command"`. Stream-delivered broadcast content was never reported back via heartbeat, making the entire delivery lifecycle invisible to the hosted API.
+
+- **normalizeFeedItem source passthrough**: Updated `normalizeFeedItem()` in `local-ui/server.js` to use `raw.source || source` — checking the item's own source field first, falling back to the array-level source parameter. This means items from the stream endpoint with `source: "admin"` keep that attribution through normalization, instead of being overwritten with `"feed"`. The `effectiveSource` variable is also used for the type fallback: `effectiveSource === "broadcast"` correctly maps to `"broadcast_message"` type.
+
+- **Delivery deduplication in getStreamContent**: Added a dedup query to `getStreamContent()` that checks `aos_broadcast_deliveries` for the requesting device. Items that have already been displayed (status in `displayed`, `completed`, `acknowledged`) are excluded from future stream responses, with one exception: `emergency` and `critical` priority items always pass through regardless of display history. This prevents devices from re-receiving the same broadcast items on every stream poll, making the personalized content feed genuinely fresh. The dedup is gated by `deviceId` — when no device context is provided, no dedup occurs (fresh devices see everything).
+
+- **End-to-end delivery lifecycle**: With source attribution fixed, the full lifecycle now works: (1) Admin creates content via CRUD → `aos_broadcasts`, (2) `getStreamContent()` returns items with `source: "admin"`, (3) device normalizes items preserving `source`, (4) device tracks display events (`broadcast_shown`, `broadcast_dismissed`), (5) `broadcastDeliveriesPayload()` picks up items with `source === "admin"`, (6) heartbeat sends delivery status to hosted API, (7) `ingestHeartbeat()` persists to `aos_broadcast_deliveries`, (8) next stream call excludes already-displayed items via dedup. This closes the broadcast delivery feedback loop.
+
+- Added `scripts/broadcast-feed-delivery-lifecycle-check.sh` — a 10-step 32-check validation gate proving: syntax validation, static contract (source field, displayedSet, effectiveSource), server bootstrap, device registration + pairing, content seeding (artwork, broadcast_message, blog, emergency), stream source attribution (all items have `source: "admin"`, categories include broadcast + artwork), delivery via heartbeat (broadcast + artwork displayed events persisted in `aos_broadcast_deliveries`), delivery dedup (displayed items excluded except emergency), fresh device sees all items (no dedup without prior deliveries).
+
+Why this matters:
+
+The stream composition engine was returning content items without source attribution. On the device side, `normalizeFeedItem()` assigned `source = "feed"` to everything from the stream `items` array. This meant broadcast-type content (announcements, system notices, admin messages) was never tracked through the delivery lifecycle — `broadcastDeliveriesPayload()` filtered it out, the heartbeat never reported display status, and the hosted API never recorded deliveries. The admin dashboard would show zero delivery data for all content served through the stream endpoint. Additionally, devices would re-receive the same content on every poll cycle (every 3–15 minutes), since there was no mechanism to exclude already-displayed items. With this change: (1) every stream item carries its origin, (2) the device correctly reports display status for all admin-sourced content, (3) the hosted API persists deliveries and uses them to deduplicate future stream responses, and (4) emergency/critical items always bypass dedup to ensure urgent messages are never suppressed.
+
+Verification:
+
+- `scripts/broadcast-feed-delivery-lifecycle-check.sh` passed all 32 checks (10 steps).
+- `scripts/hosted-api-db-check.sh` passed all 45 checks (15 steps, no regression).
+- `scripts/hosted-api-server-check.sh` passed 73/74 checks (12 steps; 3 pre-existing static contract pattern mismatches unchanged).
+- `scripts/heartbeat-persistence-check.sh` passed all 33 checks (10 steps, no regression).
+- `scripts/admin-content-management-check.sh` passed all 131 checks (15 steps, no regression).
+- `scripts/security-smoke.sh` passed (no regression).
+- `node --check hosted-api/db.js` passed.
+- `node --check hosted-api/server.js` passed.
+- `node --check local-ui/server.js` passed.
+- `bash -n install.sh update.sh uninstall-dev-tools.sh factory-reset.sh` passed.
+- `bash -n scripts/*.sh` passed.
+
+Next step:
+
+- Wire the dedup visibility into the admin dashboard: show "already displayed on device X" status.
+- Add cache-informed dedup: exclude items whose media is fully cached (device has them offline) in favor of fresh content.
+- Test the full delivery lifecycle on a physical Pi: create broadcast, verify device shows it, verify delivery status in admin.
+- Add delivery effectiveness metrics: display rate, dismissal rate, time-to-display.
+
+---
+
+
 ## 2026-06-08 - Database migration tracking and incremental runner
 
 Date: 2026-06-08
