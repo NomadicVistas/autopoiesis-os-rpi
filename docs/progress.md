@@ -1,5 +1,60 @@
 # Progress
 
+## 2026-06-09 - User-initiated device pairing endpoint (POST /frames/me/pair)
+
+Date: 2026-06-09
+
+Milestone: PROFILE / PAIRING — user-facing device pairing closes the pairing loop
+
+Changed files:
+
+- `hosted-api/server.js` (handleMePairDevice handler, POST /frames/me/pair route, handleRegister deviceName/deviceType passthrough, API doc header)
+- `scripts/user-pair-endpoint-check.sh` (new: 15-step 212-check validation gate)
+- `scripts/user-profile-me-check.sh` (updated deviceName/deviceType expectations for handleRegister passthrough)
+- `docs/progress.md`
+- `docs/agent-notes/user-pair-endpoint-note.md` (new)
+- `/data/.openclaw/workspace/autopoiesis-os-program/ROLLING-LOG.md`
+
+Implemented:
+
+- **POST /frames/me/pair — User-initiated device pairing**: New endpoint that accepts `{ pairingCode }` in the request body, validates the code format, checks user entitlements (subscription status + device limit), and calls `db.claimPairingCode()` to pair the device. Returns full device details + updated entitlements on success. The `claimPairingCode()` method existed in db.js since the initial schema but was never wired to any API endpoint — there was no way for a user to pair their device from the Profile > Frames page.
+
+- **Entitlement gating**: Three-gate check before pairing: (1) subscription must be active/trial (not expired/cancelled/past_due), (2) device limit must not be reached (trial=1, basic=3, premium=10, enterprise=unlimited), (3) pairing code must be valid and not expired. Each gate returns a specific error with reason code and relevant context (subscription details, entitlement counts).
+
+- **Error handling**: Invalid code → 404 with `code_not_found`, expired code → 410 with `code_expired`, device limit → 403 with `device_limit_reached`, degraded subscription → 403 with `subscription_degraded`, missing/wrong format → 400, auth failures → 401/403.
+
+- **handleRegister deviceName/deviceType passthrough**: Fixed `handleRegister()` to pass `body.deviceName` and `body.deviceType` through to `registerDevice()`. Previously, the registration endpoint ignored these fields from the Pi registration request — devices were always created with defaults ("Autopoiesis Frame", "raspberry_pi") regardless of what the Pi sent.
+
+- Added `scripts/user-pair-endpoint-check.sh` — a 15-step 212-check validation gate proving: syntax validation, static contract (12 patterns), server bootstrap, device registration + pairing code generation, successful pairing (10 checks: ok, kind, deviceId, deviceName, deviceType, paired, ownerUserId, entitlements maxDevices/devicesRemaining/currentDeviceCount), paired device visible in /frames/me/devices, pairing code not reusable (3 checks), invalid pairing code rejection, expired pairing code rejection via DB time manipulation, device limit enforcement (trial→basic plan, 3-device max, 4th fails with limit details), subscription degraded blocking (expired subscription → 403 with degraded details), auth gates (no token → 401, wrong token → 403, admin pass-through, Bearer token support), input validation (missing code, empty code, lowercase, special chars, too short), CORS preflight (204), and regression (health, admin bundle, device settings).
+
+Why this matters:
+
+The `claimPairingCode()` database method existed since the initial schema but was never called from any API endpoint. The entire pairing flow had a dead end: device registers and gets a pairing code, but there was no API for a user to claim that code from the Profile > Frames page. The only way to pair devices was through direct database manipulation (test scripts) or admin snapshot endpoints. This change closes the pairing loop: Pi boots → registers → shows pairing code on touchscreen → user opens Profile > Frames on their phone/browser → enters code → device paired → content streams. This is the critical integration point between the device-side work (registration, pairing code display) and the online platform (Profile > Frames, user management). It unblocks: (1) the Profile > Frames frontend pairing UI, (2) physical Pi testing of the full register→pair→stream cycle, and (3) the MVP 0.1 acceptance criterion "User pairs device online under Profile > Frames".
+
+Verification:
+
+- `scripts/user-pair-endpoint-check.sh` passed all 212 checks (15 steps).
+- `scripts/user-profile-me-check.sh` passed all 99 checks (updated for handleRegister passthrough).
+- `scripts/cors-preflight-check.sh` passed all 45 checks (no regression).
+- `scripts/admin-auth-check.sh` passed all 38 checks (no regression).
+- `scripts/hosted-api-security-smoke.sh` passed all 41 checks (no regression).
+- `scripts/admin-fleet-devices-check.sh` passed all 63 checks (no regression).
+- `scripts/admin-command-audit-fleet-queue-check.sh` passed all 75 checks (no regression).
+- `node --check hosted-api/server.js` passed.
+- `node --check hosted-api/db.js` passed.
+- `node --check local-ui/server.js` passed.
+- `bash -n install.sh update.sh uninstall-dev-tools.sh factory-reset.sh` passed.
+- `bash -n scripts/*.sh` passed.
+
+Next step:
+
+- Wire POST /frames/me/pair into the Profile > Frames frontend UI (pairing code input field).
+- Add pairing code display to the Pi local UI (show on-screen during setup).
+- Test the full register → display code → enter code → paired cycle on a physical Pi.
+- Consider pairing code regeneration (user can request new code if expired).
+
+---
+
 ## 2026-06-09 - User-facing Profile API endpoints (/frames/me/*)
 
 Date: 2026-06-09

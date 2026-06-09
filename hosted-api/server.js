@@ -43,6 +43,7 @@
  *   GET  /frames/me/devices                         – User: paired devices
  *   GET  /frames/me/preferences                     – User: read preferences
  *   PATCH /frames/me/preferences                    – User: update preferences
+ *   POST /frames/me/pair                             – User: pair a device by pairing code
  *   GET  /frames/me/liked-artworks                  – User: liked artworks
  *   GET  /frames/me/subscription                    – User: subscription + entitlements
  */
@@ -486,6 +487,8 @@ function handleRegister(db, body) {
   const deviceId = body.deviceId || ("aos_" + crypto.randomBytes(8).toString("hex"));
   const result = db.registerDevice({
     deviceId,
+    deviceName: body.deviceName || "Autopoiesis Frame",
+    deviceType: body.deviceType || "raspberry_pi",
     softwareVersion: body.softwareVersion || "0.1.0",
     metadata: body.metadata || {}
   });
@@ -2179,6 +2182,115 @@ function handleMeSubscription(db, userId) {
   };
 }
 
+/**
+ * POST /frames/me/pair — User-initiated device pairing
+ *
+ * Accepts { pairingCode } in the request body. Validates the pairing code,
+ * checks entitlements (maxDevices limit, subscription status), and claims
+ * the device for the authenticated user.
+ *
+ * Returns the paired device details on success.
+ *
+ * Entitlement gating:
+ *   - Degraded subscription (expired, cancelled, past_due) → 403
+ *   - Device limit reached → 403
+ *   - Trial users: 1 device max
+ *   - Basic: 3 devices, Premium: 10, Enterprise: unlimited
+ *
+ * Auth: user token or admin token (with ?userId=...)
+ */
+function handleMePairDevice(db, userId, body) {
+  if (!userId) return { status: 400, body: { ok: false, error: "userId required (pass ?userId=... for admin access)" } };
+
+  // Validate pairing code presence
+  const { pairingCode } = body;
+  if (!pairingCode) {
+    return { status: 400, body: { ok: false, error: "pairingCode is required" } };
+  }
+
+  // Validate pairing code format (e.g. "ABCD-1234" or alphanumeric 4-12 chars)
+  if (typeof pairingCode !== "string" || !/^[A-Z0-9-]{4,16}$/.test(pairingCode)) {
+    return { status: 400, body: { ok: false, error: "Invalid pairing code format" } };
+  }
+
+  // Check entitlements before attempting to pair
+  const deviceCount = db.countDevicesByOwner(userId);
+  const sub = db.getSubscription(userId);
+  const entitlements = computeEntitlements(sub, deviceCount);
+
+  if (!entitlements.canAddDevice) {
+    const isDegraded = sub && DEGRADED_STATUSES.has(sub.status);
+    if (isDegraded) {
+      return {
+        status: 403,
+        body: {
+          ok: false,
+          error: "Subscription is not active",
+          reason: "subscription_degraded",
+          subscription: { plan: sub.plan, status: sub.status },
+          entitlements: {
+            maxDevices: entitlements.deviceLimit === null ? null : entitlements.deviceLimit,
+            devicesRemaining: entitlements.deviceSlotsRemaining,
+            currentDeviceCount: deviceCount
+          }
+        }
+      };
+    }
+    return {
+      status: 403,
+      body: {
+        ok: false,
+        error: "Device limit reached",
+        reason: "device_limit_reached",
+        entitlements: {
+          maxDevices: entitlements.deviceLimit === null ? null : entitlements.deviceLimit,
+          devicesRemaining: entitlements.deviceSlotsRemaining,
+          currentDeviceCount: deviceCount
+        }
+      }
+    };
+  }
+
+  // Attempt to claim the pairing code
+  const result = db.claimPairingCode(pairingCode, userId);
+  if (!result.ok) {
+    // Map DB errors to appropriate HTTP status
+    if (result.error === "Pairing code expired") {
+      return { status: 410, body: { ok: false, error: result.error, reason: "code_expired" } };
+    }
+    if (result.error === "Invalid or expired pairing code") {
+      return { status: 404, body: { ok: false, error: "Pairing code not found", reason: "code_not_found" } };
+    }
+    return { status: 400, body: { ok: false, error: result.error } };
+  }
+
+  // Fetch full device details for the response
+  const device = db.getDevice(result.deviceId);
+  return {
+    status: 200,
+    body: {
+      ok: true,
+      kind: "autopoiesis_frames_me_pair",
+      generatedAt: now(),
+      device: {
+        deviceId: device.deviceId,
+        deviceName: device.deviceName || "Autopoiesis Frame",
+        deviceType: device.deviceType || "raspberry_pi",
+        softwareVersion: device.softwareVersion,
+        updateChannel: device.updateChannel || "stable",
+        paired: true,
+        pairedAt: device.updatedAt,
+        ownerUserId: userId
+      },
+      entitlements: {
+        maxDevices: entitlements.deviceLimit === null ? null : entitlements.deviceLimit,
+        devicesRemaining: Math.max(0, (entitlements.deviceLimit === null ? Infinity : entitlements.deviceLimit) - (deviceCount + 1)),
+        currentDeviceCount: deviceCount + 1
+      }
+    }
+  };
+}
+
 async function handle(db, req, res) {
   const pathname = extractPath(req.url);
   const method = req.method;
@@ -2217,6 +2329,14 @@ async function handle(db, req, res) {
     if (!userAuth.ok) return sendJson(res, userAuth.status, { ok: false, error: userAuth.error });
     const body = JSON.parse((await readBody(req)) || "{}");
     return sendResult(res, handleMeUpdatePreferences(db, userAuth.userId, body));
+  }
+
+  // POST /frames/me/pair — User-initiated device pairing
+  if (method === "POST" && pathname === "/frames/me/pair") {
+    const userAuth = authenticateUser(req, db);
+    if (!userAuth.ok) return sendJson(res, userAuth.status, { ok: false, error: userAuth.error });
+    const body = JSON.parse((await readBody(req)) || "{}");
+    return sendResult(res, handleMePairDevice(db, userAuth.userId, body));
   }
 
   // GET /frames/me/liked-artworks — User's liked artworks
