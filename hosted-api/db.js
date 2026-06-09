@@ -568,27 +568,49 @@ class AosDb {
   }
 
   /**
-   * Set user preferences (owner-level cascade).
+   * Set user preferences (owner-level cascade) with updatedAt conflict resolution.
+   *
+   * Mirrors the conflict pattern in pushSettings(): if incomingUpdatedAt is
+   * older than the stored updated_at, the write is rejected as stale.
+   *
    * @param {string} userId
    * @param {object} preferences
-   * @returns {{ ok, preferences, updatedAt }}
+   * @param {string} [incomingUpdatedAt] - Client's last-seen updatedAt; stale writes are rejected.
+   * @returns {{ ok, preferences?, updatedAt?, conflict?, reason? }}
    */
-  setUserPreferences(userId, preferences) {
+  setUserPreferences(userId, preferences, incomingUpdatedAt) {
     const ts = now();
     const json = jsonStringify(preferences);
-    const existing = this.db.prepare(
-      "SELECT user_id FROM aos_frame_user_preferences WHERE user_id = ?"
+    const row = this.db.prepare(
+      "SELECT preferences_json, updated_at FROM aos_frame_user_preferences WHERE user_id = ?"
     ).get(userId);
-    if (existing) {
+
+    // Conflict check: reject stale writes when the existing row is newer
+    if (row && incomingUpdatedAt && row.updated_at && incomingUpdatedAt < row.updated_at) {
+      return {
+        ok: false,
+        error: "preferences conflict",
+        reason: "stale_write",
+        conflict: true,
+        preferences: jsonParse(row.preferences_json, {}),
+        updatedAt: row.updated_at,
+      };
+    }
+
+    if (row) {
+      // Merge incoming into existing, preserving fields not sent
+      const merged = { ...jsonParse(row.preferences_json, {}), ...preferences };
+      const mergedJson = jsonStringify(merged);
       this.db.prepare(
         "UPDATE aos_frame_user_preferences SET preferences_json = ?, updated_at = ? WHERE user_id = ?"
-      ).run(json, ts, userId);
+      ).run(mergedJson, ts, userId);
+      return { ok: true, preferences: merged, updatedAt: ts };
     } else {
       this.db.prepare(
         "INSERT INTO aos_frame_user_preferences (user_id, preferences_json, updated_at) VALUES (?, ?, ?)"
       ).run(userId, json, ts);
+      return { ok: true, preferences, updatedAt: ts };
     }
-    return { ok: true, preferences, updatedAt: ts };
   }
 
   // ── Heartbeat ────────────────────────────────────────────────────────────

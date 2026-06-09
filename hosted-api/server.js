@@ -1325,7 +1325,8 @@ function handleAdminUpdateUserPreferences(db, userId, body) {
     "soundEnabled",
     "cacheLikedArtworks",
     "cacheRecentArtworks",
-    "offlineFallbackMode"
+    "offlineFallbackMode",
+    "updatedAt"  // metadata — stripped before merge, used for conflict detection
   ]);
 
   // Validate keys
@@ -1334,7 +1335,8 @@ function handleAdminUpdateUserPreferences(db, userId, body) {
     return { status: 400, body: { ok: false, error: "Unknown preference keys: " + unknownKeys.join(", "), validKeys: [...VALID_KEYS] } };
   }
 
-  if (Object.keys(body).length === 0) {
+  const preferenceKeys = Object.keys(body).filter(k => k !== "updatedAt");
+  if (preferenceKeys.length === 0) {
     return { status: 400, body: { ok: false, error: "No preferences to update. Send at least one preference key." } };
   }
 
@@ -1349,26 +1351,29 @@ function handleAdminUpdateUserPreferences(db, userId, body) {
     return { status: 400, body: { ok: false, error: "offlineFallbackMode must be one of: cached, black, message" } };
   }
 
-  // Merge with existing preferences
-  const rawPrefs = db.getUserPreferences(userId);
-  const existing = (rawPrefs && rawPrefs.preferences) ? rawPrefs.preferences : {
-    activeArtists: [],
-    streamCategories: ["artwork", "curatorial", "blog"],
-    allowImages: true,
-    allowVideos: true,
-    allowSoundWorks: false,
-    allowGenerativeWorks: true,
-    autoplay: true,
-    videoAutoplay: false,
-    soundAutoplay: false,
-    soundEnabled: false,
-    cacheLikedArtworks: true,
-    cacheRecentArtworks: true,
-    offlineFallbackMode: "cached"
-  };
-  const merged = { ...existing, ...body };
+  // Extract client's last-seen updatedAt for conflict detection
+  const clientUpdatedAt = body.updatedAt || null;
 
-  const result = db.setUserPreferences(userId, merged);
+  // Build the preference patch (strip updatedAt — it's metadata, not a preference)
+  const patch = { ...body };
+  delete patch.updatedAt;
+
+  const result = db.setUserPreferences(userId, patch, clientUpdatedAt);
+
+  if (result.conflict) {
+    return {
+      status: 200,
+      body: {
+        ok: false,
+        error: "preferences conflict",
+        reason: "stale_write",
+        conflict: true,
+        preferences: result.preferences,
+        updatedAt: result.updatedAt
+      }
+    };
+  }
+
   return {
     status: 200,
     body: {

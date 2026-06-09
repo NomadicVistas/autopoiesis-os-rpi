@@ -1,5 +1,56 @@
 # Progress
 
+## 2026-06-09 - User preferences updatedAt conflict resolution
+
+Date: 2026-06-09
+
+Milestone: API / DATABASE / SYNC — updatedAt conflict resolution for user preferences mirrors device settings pattern
+
+Changed files:
+
+- `hosted-api/db.js` (setUserPreferences now accepts incomingUpdatedAt, rejects stale writes, merges existing fields)
+- `hosted-api/server.js` (handleAdminUpdateUserPreferences extracts updatedAt from body, strips it from patch, returns conflict response)
+- `scripts/preferences-conflict-resolution-check.sh` (new: 9-step 40-check validation gate)
+- `docs/progress.md`
+- `docs/agent-notes/preferences-conflict-resolution-note.md` (new)
+- `/data/.openclaw/workspace/autopoiesis-os-program/ROLLING-LOG.md`
+
+Implemented:
+
+- **updatedAt conflict resolution for setUserPreferences()**: The `setUserPreferences()` method in `db.js` now accepts an optional `incomingUpdatedAt` parameter. When provided and older than the stored `updated_at`, the write is rejected with `{ ok: false, conflict: true, reason: "stale_write" }` and the current row is returned unchanged. This mirrors the existing `pushSettings()` conflict pattern for device settings.
+
+- **Merge-before-overwrite**: The updated `setUserPreferences()` now reads the existing `preferences_json` row and merges incoming preferences over the existing values using `{ ...existing, ...incoming }`. Previously, the method did a full replace (no merge), which meant partial updates (e.g. sending only `{"autoplay": false}`) would lose all other preference fields. The merge ensures that updating one field preserves all others — matching the behavior that device settings `pushSettings()` already had.
+
+- **Server-side conflict handling**: Updated `handleAdminUpdateUserPreferences()` to extract `updatedAt` from the request body, strip it from the preference patch (it's metadata, not a preference key), and pass it through to `db.setUserPreferences()`. When the DB layer returns a conflict, the handler returns `{ ok: false, error: "preferences conflict", reason: "stale_write", conflict: true, preferences: <current>, updatedAt: <current> }` — consistent with the device settings conflict response shape.
+
+- **VALID_KEYS expansion**: Added `"updatedAt"` to the VALID_KEYS set (with a comment marking it as metadata) so that clients sending `updatedAt` alongside preference fields don't get a 400 "Unknown preference keys" error.
+
+- **Empty-patch guard fix**: Updated the empty-body check to filter out `updatedAt` before counting keys, so a request with only `{"updatedAt": "..."}` correctly returns 400 "No preferences to update" instead of passing through.
+
+- Added `scripts/preferences-conflict-resolution-check.sh` — a 9-step 40-check validation gate proving: syntax validation (2 files), static contract (9 patterns: signature, stale_write, conflict marker, merge, spread, clientUpdatedAt, delete patch, conflict response, VALID_KEYS), server bootstrap with fresh database, baseline preference write (5 fields stored correctly), newer write accepted (6 checks: ok, no conflict, values updated, merge preserved, timestamp advanced), stale write rejected (6 checks: ok=false, conflict=true, reason=stale_write, v2 values preserved, v1 untouched, updatedAt matches v2), write without updatedAt bypasses conflict check (4 checks: ok, no conflict, value applied, merge preserved), final read preserves all accepted rows (5 checks), and regression (health + admin bundle).
+
+Why this matters:
+
+User preferences cascade from the owner to all their paired devices via the `ownerPreferences` field in `GET /settings`. When two admins update the same user's preferences concurrently (e.g. the user changes a setting on their Profile > Frames page while the admin dashboard also pushes a change), the last write wins silently — potentially losing the user's change. The `setUserPreferences()` method had no conflict detection: it always overwrote the entire row, and it didn't merge partial updates, so sending `{"autoplay": false}` would wipe `streamCategories`, `allowImages`, and every other field. With this change: (1) clients send their last-seen `updatedAt` to guard against stale writes, (2) the server rejects writes that conflict with a newer row, (3) partial updates merge correctly without losing unrelated fields, and (4) the conflict response includes the current row so the client can rebase and retry. This completes the updatedAt conflict resolution story: both device settings (`pushSettings`) and user preferences (`setUserPreferences`) now have the same pattern, fulfilling the requirement documented in `backend-settings-contract-issue.md` for `userPreferences` conflict evidence.
+
+Verification:
+
+- `scripts/preferences-conflict-resolution-check.sh` passed all 40 checks (9 steps).
+- `node --check hosted-api/server.js` passed.
+- `node --check hosted-api/db.js` passed.
+- `node --check local-ui/server.js` passed.
+- `bash -n install.sh update.sh uninstall-dev-tools.sh factory-reset.sh` passed.
+- `bash -n scripts/*.sh` passed.
+
+Next step:
+
+- Wire the admin dashboard Profile > Frames UI to send `updatedAt` with preference updates.
+- Add the preferences conflict check to `scripts/hosted-contract-suite-check.sh` Phase 3.
+- Test the full settings cascade with conflict resolution on a physical Pi.
+- Add updatedAt-based conflict resolution to `handleAdminUpdateDevice()` for device property updates.
+
+---
+
 ## 2026-06-09 - CORS preflight handling for hosted API
 
 Date: 2026-06-09
