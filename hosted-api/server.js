@@ -1650,9 +1650,34 @@ function handleAdminDeviceSnapshot(db, deviceId) {
 
 // ── Request router ───────────────────────────────────────────────────────────
 
+// ── CORS helpers ────────────────────────────────────────────────────────────
+
+const CORS_HEADERS = {
+  "access-control-allow-origin": "*",
+  "access-control-allow-methods": "GET, POST, PATCH, PUT, DELETE, OPTIONS",
+  "access-control-allow-headers": "Content-Type, Authorization, x-admin-token, x-frame-device-key",
+  "access-control-max-age": "86400"
+};
+
+/**
+ * Send a CORS preflight response for OPTIONS requests.
+ * Browsers send OPTIONS before cross-origin requests with custom headers.
+ * Without this, any browser-based admin dashboard or Profile > Frames page
+ * at a different origin cannot call the hosted API.
+ */
+function sendCorsPreflight(res) {
+  res.writeHead(204, CORS_HEADERS);
+  res.end();
+}
+
 async function handle(db, req, res) {
   const pathname = extractPath(req.url);
   const method = req.method;
+
+  // CORS preflight — handle before any route matching
+  if (method === "OPTIONS") {
+    return sendCorsPreflight(res);
+  }
 
   // ── Admin broadcast delivery endpoints ────────────────────────────────
 

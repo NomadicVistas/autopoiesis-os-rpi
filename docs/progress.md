@@ -1,5 +1,55 @@
 # Progress
 
+## 2026-06-09 - CORS preflight handling for hosted API
+
+Date: 2026-06-09
+
+Milestone: LEAD / INTEGRATION — CORS preflight handling unblocks browser-based admin dashboard and Profile > Frames
+
+Changed files:
+
+- `hosted-api/server.js` (CORS_HEADERS constant, sendCorsPreflight function, OPTIONS handler in handle())
+- `scripts/cors-preflight-check.sh` (new: 7-step 45-check validation gate)
+- `docs/progress.md`
+- `docs/agent-notes/cors-preflight-note.md` (new)
+- `/data/.openclaw/workspace/autopoiesis-os-program/ROLLING-LOG.md`
+
+Implemented:
+
+- **CORS_HEADERS constant**: Added a `CORS_HEADERS` object defining the standard CORS response headers: `access-control-allow-origin: *`, `access-control-allow-methods: GET, POST, PATCH, PUT, DELETE, OPTIONS`, `access-control-allow-headers: Content-Type, Authorization, x-admin-token, x-frame-device-key`, and `access-control-max-age: 86400`. The allowed-headers list includes every custom header used by the hosted API's authentication system (device keys, admin tokens, Bearer authorization).
+
+- **sendCorsPreflight() function**: Added a dedicated function that sends a 204 No Content response with all CORS headers. Returns no body (per spec — preflight responses must not have a body).
+
+- **OPTIONS handler**: Added OPTIONS method handling at the top of the `handle()` function, before any route matching. Every OPTIONS request — regardless of path — returns the CORS preflight response. This means browsers can preflight any hosted API endpoint, including admin routes, device routes, and unknown routes. The handler returns before any authentication checks, ensuring preflight never fails due to missing credentials.
+
+- **Why this was a deployment blocker**: The hosted API already included `access-control-allow-origin: *` on all JSON responses via `sendJson()`. But browsers send a preflight OPTIONS request before cross-origin requests that use custom headers (like `x-admin-token`, `x-frame-device-key`, `Authorization`). Without an OPTIONS handler, the browser receives the 404 response from the catch-all route, sees no CORS headers on the preflight response, and blocks the actual request. This means ANY browser-based admin dashboard at a different origin (e.g. `admin.autopoiesis.art` → `api.autopoiesis.art`) or ANY Profile > Frames settings page served from the app frontend could not call the hosted API. The CORS preflight handler fixes this by responding correctly to OPTIONS requests, allowing the browser to proceed with the actual authenticated request.
+
+- Added `scripts/cors-preflight-check.sh` — a 7-step 45-check validation gate proving: syntax validation (7 files), static contract (16 patterns: CORS_HEADERS, sendCorsPreflight, OPTIONS handler, allowed methods, allowed headers, existing sendJson CORS), live server preflight (204 response, CORS headers, empty body, unknown routes, admin routes, device routes), CORS on actual requests (health GET, 404 responses, auth-required responses), full CORS flow (device registration → preflight → actual device settings → preflight → actual admin bundle), and no regression (settings, health, admin bundle, second device registration).
+
+Why this matters:
+
+The hosted API serves all device-facing and admin-facing endpoints. The admin dashboard, Profile > Frames settings page, and any future web-based management interface need to call this API from browser origins different from the API's origin. Without CORS preflight handling, every cross-origin request with custom headers is blocked by the browser's same-origin policy. This was a silent deployment blocker: the API works perfectly for direct calls (curl, Pi devices), but any browser-based UI fails. The fix is minimal (a constant, a function, and a 3-line handler) but unblocks the entire admin frontend layer.
+
+Verification:
+
+- `scripts/cors-preflight-check.sh` passed all 45 checks (7 steps).
+- `scripts/hosted-api-security-smoke.sh` passed all 41 checks (no regression).
+- `node --check hosted-api/server.js` passed.
+- `node --check hosted-api/db.js` passed.
+- `node --check local-ui/server.js` passed.
+- `bash -n install.sh update.sh uninstall-dev-tools.sh factory-reset.sh` passed.
+- `bash -n scripts/*.sh` passed.
+
+Next step:
+
+- Deploy CORS-enabled hosted API to staging.
+- Build admin dashboard frontend that calls hosted API from browser.
+- Consider restricting `access-control-allow-origin` to specific domains in production.
+- Add CORS headers to local-ui/server.js for any browser-based local management.
+- Test CORS with the Profile > Frames settings page.
+
+---
+
 ## 2026-06-09 - streamCategories preference wired through to stream composition
 
 Date: 2026-06-09
