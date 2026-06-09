@@ -900,6 +900,212 @@ class AosDb {
     };
   }
 
+  /**
+   * List all commands across the fleet with optional filters and pagination.
+   *
+   * @param {object} [opts]
+   * @param {string} [opts.deviceId]   – Filter by device ID.
+   * @param {string} [opts.status]     – Filter by status (queued, sent, acknowledged, completed, failed).
+   * @param {string} [opts.commandType] – Filter by command type.
+   * @param {number} [opts.limit]      – Max results (default 50, max 200).
+   * @param {number} [opts.offset]     – Offset for pagination.
+   * @returns {{ items: Array<object>, total: number }}
+   */
+  listAllCommands(opts = {}) {
+    const limit = Math.min(Math.max(1, opts.limit || 50), 200);
+    const offset = Math.max(0, opts.offset || 0);
+    const conditions = [];
+    const params = [];
+
+    if (opts.deviceId) {
+      conditions.push("device_id = ?");
+      params.push(opts.deviceId);
+    }
+    if (opts.status) {
+      conditions.push("status = ?");
+      params.push(opts.status);
+    }
+    if (opts.commandType) {
+      conditions.push("command_type = ?");
+      params.push(opts.commandType);
+    }
+
+    const where = conditions.length > 0 ? "WHERE " + conditions.join(" AND ") : "";
+
+    const countRow = this.db.prepare(
+      `SELECT COUNT(*) AS cnt FROM aos_device_commands ${where}`
+    ).get(...params);
+    const total = countRow ? countRow.cnt : 0;
+
+    const rows = this.db.prepare(
+      `SELECT * FROM aos_device_commands ${where} ORDER BY created_at DESC LIMIT ? OFFSET ?`
+    ).all(...params, limit, offset);
+
+    return {
+      items: rows.map(r => ({
+        commandId: r.id,
+        deviceId: r.device_id,
+        commandType: r.command_type,
+        type: r.command_type,
+        status: r.status,
+        payload: jsonParse(r.payload_json, {}),
+        deliveredAt: r.delivered_at,
+        acknowledgedAt: r.acknowledged_at,
+        completedAt: r.completed_at,
+        lastAckStatus: r.last_ack_status,
+        lastAckAt: r.last_ack_at,
+        error: r.error,
+        createdAt: r.created_at,
+        updatedAt: r.updated_at,
+      })),
+      total,
+      limit,
+      offset,
+    };
+  }
+
+  // ── Admin Command Audit ─────────────────────────────────────────────────
+
+  /**
+   * Log an admin-initiated command to the audit trail.
+   *
+   * @param {object} opts
+   * @param {string} opts.commandId    – The queued command ID.
+   * @param {string} opts.deviceId     – Target device ID.
+   * @param {string} opts.commandType  – Command type (e.g. restart_device).
+   * @param {string} opts.risk         – Risk level (low, medium, high, critical).
+   * @param {string} opts.actorId      – Who initiated the action (admin token hash or 'admin').
+   * @param {string} opts.actorRole    – Role (admin, owner, etc.).
+   * @param {string} [opts.reason]     – Optional reason for the action.
+   * @param {object} [opts.payloadSummary] – Summary of the command payload.
+   * @param {object} [opts.authorization]  – Authorization context (action availability at the time).
+   * @returns {{ ok: boolean, auditId: string }}
+   */
+  logCommandAudit(opts = {}) {
+    const auditId = uid("audit");
+    const ts = now();
+
+    this.db.prepare(
+      `INSERT INTO aos_admin_command_audits
+        (id, command_id, device_id, command_type, risk, actor_id, actor_role,
+         reason, payload_summary_json, authorization_json, status, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?, ?)`
+    ).run(
+      auditId,
+      opts.commandId,
+      opts.deviceId,
+      opts.commandType,
+      opts.risk || "medium",
+      opts.actorId || "admin",
+      opts.actorRole || "admin",
+      opts.reason || null,
+      jsonStringify(opts.payloadSummary || {}),
+      jsonStringify(opts.authorization || {}),
+      ts,
+      ts
+    );
+
+    return { ok: true, auditId };
+  }
+
+  /**
+   * Update the audit trail status when a command is acknowledged or completes.
+   *
+   * @param {string} commandId  – The command ID to update audit for.
+   * @param {string} status     – New status (acknowledged, completed, failed).
+   * @param {string} [error]    – Error message if failed.
+   * @returns {{ ok: boolean, updated: number }}
+   */
+  updateCommandAuditStatus(commandId, status, error = null) {
+    const ts = now();
+    const result = this.db.prepare(
+      `UPDATE aos_admin_command_audits
+       SET status = ?, error = ?, updated_at = ?
+       WHERE command_id = ?`
+    ).run(status, error, ts, commandId);
+
+    return { ok: true, updated: result.changes };
+  }
+
+  /**
+   * List command audit records with optional filters and pagination.
+   *
+   * @param {object} [opts]
+   * @param {string} [opts.deviceId]     – Filter by device ID.
+   * @param {string} [opts.commandType]  – Filter by command type.
+   * @param {string} [opts.status]       – Filter by audit status.
+   * @param {string} [opts.actorId]      – Filter by actor.
+   * @param {string} [opts.actorRole]    – Filter by actor role.
+   * @param {string} [opts.risk]         – Filter by risk level.
+   * @param {number} [opts.limit]        – Max results (default 50, max 200).
+   * @param {number} [opts.offset]       – Offset for pagination.
+   * @returns {{ items: Array<object>, total: number, limit: number, offset: number }}
+   */
+  listCommandAudits(opts = {}) {
+    const limit = Math.min(Math.max(1, opts.limit || 50), 200);
+    const offset = Math.max(0, opts.offset || 0);
+    const conditions = [];
+    const params = [];
+
+    if (opts.deviceId) {
+      conditions.push("device_id = ?");
+      params.push(opts.deviceId);
+    }
+    if (opts.commandType) {
+      conditions.push("command_type = ?");
+      params.push(opts.commandType);
+    }
+    if (opts.status) {
+      conditions.push("status = ?");
+      params.push(opts.status);
+    }
+    if (opts.actorId) {
+      conditions.push("actor_id = ?");
+      params.push(opts.actorId);
+    }
+    if (opts.actorRole) {
+      conditions.push("actor_role = ?");
+      params.push(opts.actorRole);
+    }
+    if (opts.risk) {
+      conditions.push("risk = ?");
+      params.push(opts.risk);
+    }
+
+    const where = conditions.length > 0 ? "WHERE " + conditions.join(" AND ") : "";
+
+    const countRow = this.db.prepare(
+      `SELECT COUNT(*) AS cnt FROM aos_admin_command_audits ${where}`
+    ).get(...params);
+    const total = countRow ? countRow.cnt : 0;
+
+    const rows = this.db.prepare(
+      `SELECT * FROM aos_admin_command_audits ${where} ORDER BY created_at DESC LIMIT ? OFFSET ?`
+    ).all(...params, limit, offset);
+
+    return {
+      items: rows.map(r => ({
+        auditId: r.id,
+        commandId: r.command_id,
+        deviceId: r.device_id,
+        commandType: r.command_type,
+        risk: r.risk,
+        actorId: r.actor_id,
+        actorRole: r.actor_role,
+        reason: r.reason,
+        payloadSummary: jsonParse(r.payload_summary_json, {}),
+        authorization: jsonParse(r.authorization_json, {}),
+        status: r.status,
+        error: r.error,
+        createdAt: r.created_at,
+        updatedAt: r.updated_at,
+      })),
+      total,
+      limit,
+      offset,
+    };
+  }
+
   // ── Device Events ────────────────────────────────────────────────────────
 
   /**

@@ -1,5 +1,65 @@
 # Progress
 
+## 2026-06-09 - Admin command audit logging + fleet-wide command queue
+
+Date: 2026-06-09
+
+Milestone: ONLINE ADMIN — command audit trail and fleet-wide command queue visibility
+
+Changed files:
+
+- `hosted-api/db.js` (4 new methods: logCommandAudit, updateCommandAuditStatus, listAllCommands, listCommandAudits)
+- `hosted-api/server.js` (audit wiring in handleAdminDeviceAction + handleCommandAck, 2 new handlers + routes)
+- `scripts/admin-command-audit-fleet-queue-check.sh` (new: 10-step 75-check validation gate)
+- `docs/progress.md`
+- `docs/agent-notes/admin-command-audit-note.md` (new)
+- `/data/.openclaw/workspace/autopoiesis-os-program/ROLLING-LOG.md`
+
+Implemented:
+
+- **logCommandAudit() database method**: Added to `hosted-api/db.js` — writes an audit record to `aos_admin_command_audits` when an admin queues a command. Records: commandId, deviceId, commandType, risk level, actorId, actorRole, optional reason, payload summary, and authorization context (action availability + deviceState at the time of the action). The `aos_admin_command_audits` table was already defined in the schema but had never been written to — this is the first code that populates it.
+
+- **updateCommandAuditStatus() database method**: Added to `hosted-api/db.js` — updates the audit record status when a device acknowledges a command. Tracks the lifecycle from `pending` → `acknowledged`/`completed`/`failed`, preserving error messages on failure.
+
+- **listAllCommands() database method**: Added to `hosted-api/db.js` — fleet-wide command listing with filters (deviceId, status, commandType) and pagination. Returns full command details including deliveredAt, acknowledgedAt, completedAt, lastAckStatus, and error. Previously, commands were only visible per-device via `getPendingCommands()` and the device snapshot.
+
+- **listCommandAudits() database method**: Added to `hosted-api/db.js` — audit trail listing with filters (deviceId, commandType, status, actorId, actorRole, risk) and pagination. Returns full audit record details including payloadSummary and authorization context.
+
+- **Audit wiring in handleAdminDeviceAction()**: Updated `handleAdminDeviceAction()` to call `db.logCommandAudit()` after successfully queuing a command. The audit call is wrapped in try/catch so audit logging failures never break the command queue. Fixed the commandId extraction to correctly navigate the `queueCommand()` return shape (`command.command.commandId`).
+
+- **Audit status update in handleCommandAck()**: Updated `handleCommandAck()` to call `db.updateCommandAuditStatus()` when a device acknowledges a command. This closes the audit lifecycle: admin queues command → audit created as `pending` → device acks → audit updated to `acknowledged`/`completed`/`failed`.
+
+- **GET /frames/admin/commands endpoint**: Fleet-wide command queue listing. Admin-only (requires x-admin-token). Supports query params: deviceId, status, commandType, limit, offset. Returns `{ ok, items, total, limit, offset }` with full command details.
+
+- **GET /frames/admin/command-audits endpoint**: Admin command audit trail listing. Admin-only. Supports query params: deviceId, commandType, status, actorId, actorRole, risk, limit, offset. Returns `{ ok, items, total, limit, offset }` with full audit record details.
+
+- Added `scripts/admin-command-audit-fleet-queue-check.sh` — a 10-step 75-check validation gate proving: syntax validation, static contract (12 patterns), server bootstrap, device registration + pairing + heartbeat (online), admin action triggers audit creation (9 checks: record exists, correct type/risk/actor/reason/status), fleet-wide command listing (7 checks: total, items, deviceId filter, status filter, commandType filter, pagination), audit trail listing (14 checks: total, 4 filters, 8 field presence checks), audit lifecycle via command acknowledgement (8 checks: ack updates status, failure captures error, filter by status), auth gates (4 checks: no token → 401, wrong token → 403 for both endpoints), and regression (settings, admin bundle, health, admin snapshot unaffected).
+
+Why this matters:
+
+The `aos_admin_command_audits` table existed in the schema since the initial database bootstrap but was never populated. Every admin-initiated device action (restart, update, disable, factory reset) was executed without any accountability record. The admin dashboard had no way to answer: who triggered this command? When? Why? What was the device state at the time? And fleet-wide, there was no endpoint to see all pending commands across all devices — commands were only visible per-device in the device snapshot. This change provides: (1) full audit trail for every admin command action with actor, reason, risk level, and authorization context, (2) lifecycle tracking from pending through acknowledgement/completion/failure, (3) fleet-wide command queue visibility for admin dashboard command management, and (4) queryable audit history for compliance and debugging. The admin dashboard can now render a "Command History" view showing all admin-initiated actions, their current status, and any error details — essential for fleet management at scale.
+
+Verification:
+
+- `scripts/admin-command-audit-fleet-queue-check.sh` passed all 75 checks (10 steps).
+- `scripts/admin-auth-check.sh` passed all 38 checks (no regression).
+- `scripts/hosted-api-security-smoke.sh` passed all 41 checks (no regression).
+- `node --check hosted-api/server.js` passed.
+- `node --check hosted-api/db.js` passed.
+- `node --check local-ui/server.js` passed.
+- `bash -n install.sh update.sh uninstall-dev-tools.sh factory-reset.sh` passed.
+- `bash -n scripts/*.sh` passed.
+
+Next step:
+
+- Wire the fleet commands and audit trail into the admin dashboard frontend.
+- Add admin bundle enrichment: include pending command count per device from the fleet view.
+- Consider adding audit log retention policy (auto-archive audits older than N days).
+- Add fleet bulk action support (queue the same command on multiple devices with one audit entry per device).
+- Test audit trail with multi-admin scenario (different actorId per admin).
+
+---
+
 ## 2026-06-09 - Systemd target for unified appliance lifecycle management
 
 Date: 2026-06-09

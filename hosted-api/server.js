@@ -35,7 +35,9 @@
  *   GET  /frames/admin/users                       – Admin: list users
  *   GET  /frames/admin/users/:userId               – Admin: get user detail
  *   GET  /frames/admin/users/:userId/preferences   – Admin: get user preferences
- *   PATCH /frames/admin/users/:userId/preferences  – Admin: update user preferences
+ *   PATCH /frames/admin/users/:userId/preferences   – Admin: update user preferences
+ *   GET  /frames/admin/commands                    – Admin: fleet-wide command queue
+ *   GET  /frames/admin/command-audits              – Admin: command audit trail
  */
 
 "use strict";
@@ -674,6 +676,13 @@ function handleCommandAck(db, deviceId, commandId, body, auth) {
     return { status: 404, body: { ok: false, error: "Command not found" } };
   }
 
+  // Update admin audit trail with acknowledgement status
+  try {
+    db.updateCommandAuditStatus(commandId, ackStatus, body.error || null);
+  } catch (auditErr) {
+    process.stderr.write("[audit] updateCommandAuditStatus failed: " + auditErr.message + "\n");
+  }
+
   return {
     status: 200,
     body: {
@@ -988,12 +997,35 @@ function handleAdminDeviceAction(db, deviceId, body) {
 
   const command = db.queueCommand(deviceId, commandType, payload, riskMap[commandType] || "medium");
 
+  // Record admin audit trail for this action
+  const commandId = command.command?.commandId || command.commandId || command.id;
+  try {
+    db.logCommandAudit({
+      commandId,
+      deviceId,
+      commandType,
+      risk: riskMap[commandType] || "medium",
+      actorId: "admin",          // TODO: real actor ID when multi-admin is supported
+      actorRole: "admin",
+      reason: body.reason || null,
+      payloadSummary: { action: body.action, payloadKeys: Object.keys(payload || {}) },
+      authorization: {
+        actionAvailability: actionAvail || null,
+        deviceState: availability.deviceState,
+      },
+    });
+  } catch (auditErr) {
+    // Audit logging failure must not break the command queue
+    process.stderr.write("[audit] logCommandAudit failed: " + auditErr.message + "\n");
+  }
+
   return {
     status: 200,
     body: {
       ok: true,
       queued: true,
-      commandId: command.commandId || command.id,
+      commandId,
+      auditId: commandId,       // audit is keyed on commandId for lookup
       action: body.action,
       commandType,
       risk: riskMap[commandType] || "medium",
@@ -1091,6 +1123,39 @@ function handleAdminBroadcastStats(db) {
   } catch (err) {
     return { status: 500, body: { ok: false, error: err.message } };
   }
+}
+
+/**
+ * GET /frames/admin/commands
+ * Fleet-wide command queue listing with filters.
+ */
+function handleAdminListCommands(db, filters = {}) {
+  const result = db.listAllCommands({
+    deviceId: filters.deviceId,
+    status: filters.status,
+    commandType: filters.commandType,
+    limit: filters.limit ? Number(filters.limit) : undefined,
+    offset: filters.offset ? Number(filters.offset) : undefined,
+  });
+  return { status: 200, body: { ok: true, ...result } };
+}
+
+/**
+ * GET /frames/admin/command-audits
+ * Admin command audit trail with filters.
+ */
+function handleAdminListCommandAudits(db, filters = {}) {
+  const result = db.listCommandAudits({
+    deviceId: filters.deviceId,
+    commandType: filters.commandType,
+    status: filters.status,
+    actorId: filters.actorId,
+    actorRole: filters.actorRole,
+    risk: filters.risk,
+    limit: filters.limit ? Number(filters.limit) : undefined,
+    offset: filters.offset ? Number(filters.offset) : undefined,
+  });
+  return { status: 200, body: { ok: true, ...result } };
 }
 
 // ── Admin User Management Handlers ─────────────────────────────────────────
@@ -1812,6 +1877,39 @@ async function handle(db, req, res) {
     if (url.searchParams.get("subscriptionStatus")) filters.subscriptionStatus = url.searchParams.get("subscriptionStatus");
     if (url.searchParams.get("subscriptionPlan")) filters.subscriptionPlan = url.searchParams.get("subscriptionPlan");
     return sendResult(res, handleAdminListUsers(db, filters));
+  }
+
+  // ── Admin fleet commands + audit trail ────────────────────────────────
+
+  // GET /frames/admin/commands — Fleet-wide command queue
+  if (method === "GET" && pathname === "/frames/admin/commands") {
+    const adminAuth = authenticateAdmin(req);
+    if (!adminAuth.ok) return sendJson(res, adminAuth.status, { ok: false, error: adminAuth.error });
+    const url = new URL(req.url, "http://localhost");
+    const filters = {};
+    if (url.searchParams.get("deviceId")) filters.deviceId = url.searchParams.get("deviceId");
+    if (url.searchParams.get("status")) filters.status = url.searchParams.get("status");
+    if (url.searchParams.get("commandType")) filters.commandType = url.searchParams.get("commandType");
+    if (url.searchParams.get("limit")) filters.limit = parseInt(url.searchParams.get("limit"), 10);
+    if (url.searchParams.get("offset")) filters.offset = parseInt(url.searchParams.get("offset"), 10);
+    return sendResult(res, handleAdminListCommands(db, filters));
+  }
+
+  // GET /frames/admin/command-audits — Admin command audit trail
+  if (method === "GET" && pathname === "/frames/admin/command-audits") {
+    const adminAuth = authenticateAdmin(req);
+    if (!adminAuth.ok) return sendJson(res, adminAuth.status, { ok: false, error: adminAuth.error });
+    const url = new URL(req.url, "http://localhost");
+    const filters = {};
+    if (url.searchParams.get("deviceId")) filters.deviceId = url.searchParams.get("deviceId");
+    if (url.searchParams.get("commandType")) filters.commandType = url.searchParams.get("commandType");
+    if (url.searchParams.get("status")) filters.status = url.searchParams.get("status");
+    if (url.searchParams.get("actorId")) filters.actorId = url.searchParams.get("actorId");
+    if (url.searchParams.get("actorRole")) filters.actorRole = url.searchParams.get("actorRole");
+    if (url.searchParams.get("risk")) filters.risk = url.searchParams.get("risk");
+    if (url.searchParams.get("limit")) filters.limit = parseInt(url.searchParams.get("limit"), 10);
+    if (url.searchParams.get("offset")) filters.offset = parseInt(url.searchParams.get("offset"), 10);
+    return sendResult(res, handleAdminListCommandAudits(db, filters));
   }
 
   // ── Admin content management endpoints ─────────────────────────────────
