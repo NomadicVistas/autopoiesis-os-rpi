@@ -111,6 +111,7 @@ check_app_tree() {
     timers/autopoiesis-cache.timer
     timers/autopoiesis-updater.timer
     timers/autopoiesis-watchdog.timer
+    timers/autopoiesis-night-mode.timer
   )
 
   local required_executables=(

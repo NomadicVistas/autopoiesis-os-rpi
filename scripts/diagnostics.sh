@@ -190,6 +190,28 @@ else
   check skip "cpu_temp" "Temperature not available"
 fi
 
+# ── appliance target ────────────────────────────────────────────────────────
+
+TARGET_STATUS="unknown"
+if [[ "$JSON" == "0" ]]; then echo ""; echo "Appliance"; echo "--------"; fi
+
+ts="$(svc_active autopoiesis.target)"
+TARGET_STATUS="$ts"
+case "$ts" in
+  active) check pass "appliance_target" "Autopoiesis appliance: active" "All services and timers under autopoiesis.target are running" ;;
+  inactive)
+    check fail "appliance_target" "Autopoiesis appliance: inactive" \
+      "Target unit stopped. Run: sudo systemctl start autopoiesis.target" ;;
+  failed)
+    check fail "appliance_target" "Autopoiesis appliance: failed" \
+      "One or more units in the target failed. Run: systemctl --failed" ;;
+  not_found)
+    check warn "appliance_target" "Autopoiesis appliance: target not installed" \
+      "autopoiesis.target may not be deployed yet on this device" ;;
+  *)
+    check warn "appliance_target" "Autopoiesis appliance: $ts" ;;
+esac
+
 # ── services ─────────────────────────────────────────────────────────────────
 
 if [[ "$JSON" == "0" ]]; then echo ""; echo "Services"; echo "--------"; fi
@@ -567,6 +589,7 @@ if [[ "$JSON" == "1" ]]; then
     echo "MEM_TOTAL=${MEM_TOTAL:-unknown}"
     echo "CPU_LOAD=${CPU_LOAD:-unknown}"
     echo "UPTIME=${UPTIME:-unknown}"
+    echo "TARGET_STATUS=${TARGET_STATUS:-unknown}"
     echo "NET_ONLINE=$NET_ONLINE"
     echo "NET_PRIMARY=${NET_PRIMARY:-none}"
     echo "DEVICE_ID=${DEVICE_ID:-unknown}"
@@ -622,6 +645,10 @@ const num = (v, fb = 0) => { const n = Number(v); return Number.isFinite(n) ? n 
 const r = {
   timestamp: new Date().toISOString().replace(/\.\d+Z$/, 'Z'),
   version: vars.VERSION || 'unknown',
+  appliance: {
+    targetActive: vars.TARGET_STATUS === 'active',
+    targetStatus: vars.TARGET_STATUS || 'unknown'
+  },
   system: {
     model: vars.PI_MODEL || 'unknown',
     temperature: str(vars.TEMP || 'unknown') + '\u00B0C',

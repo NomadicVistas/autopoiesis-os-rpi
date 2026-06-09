@@ -1,5 +1,60 @@
 # Progress
 
+## 2026-06-09 - Target composite status wired into diagnostics, heartbeat, preflight, and install hints
+
+Date: 2026-06-09
+
+Milestone: RPI APPLIANCE — autopoiesis.target composite status wired into all operational tooling
+
+Changed files:
+
+- `scripts/diagnostics.sh` (new "Appliance" section: target composite check + JSON output)
+- `scripts/heartbeat.sh` (night-mode service + autopoiesis.target in log line)
+- `scripts/preflight.sh` (added `timers/autopoiesis-night-mode.timer` to required files)
+- `install.sh` (start hint uses `autopoiesis.target`)
+- `remote-install.sh` (start/status hints use `autopoiesis.target`)
+- `docs/progress.md`
+- `docs/agent-notes/target-operational-wiring-note.md` (new)
+- `/data/.openclaw/workspace/autopoiesis-os-program/ROLLING-LOG.md`
+
+Implemented:
+
+- **Diagnostics target composite check**: Added "Appliance" section to diagnostics.sh that checks `systemctl is-active autopoiesis.target` before the individual services section. Active → pass, inactive → fail with remediation hint (`sudo systemctl start autopoiesis.target`), failed → fail with `systemctl --failed` hint, not_found → warn (target not deployed). The JSON output now includes an `appliance` top-level object: `{ targetActive: boolean, targetStatus: string }`. The `TARGET_STATUS` variable is passed through the temp-file bridge to the JSON builder. This is the single most important check for operators — one glance tells if the entire appliance lifecycle is healthy.
+
+- **Heartbeat night-mode + target status**: Added `SERVICE_NIGHT_MODE` (checks `autopoiesis-night-mode.service`) and `APPLIANCE_TARGET` (checks `autopoiesis.target`) to the heartbeat.sh service status checks. The heartbeat log line now includes `nightMode=` and `applianceTarget=` fields, giving log-based visibility into the complete service suite and the composite target status.
+
+- **Preflight night-mode timer**: Added `timers/autopoiesis-night-mode.timer` to the preflight.sh required files list. Previously, `services/autopoiesis-night-mode.service` was validated but `timers/autopoiesis-night-mode.timer` was not. This meant the installer would pass preflight even if the timer file was missing, but `install-systemd-units.sh` would fail to find it in the glob.
+
+- **Install/remote-install target lifecycle**: Updated `install.sh` next-step hint from `systemctl start autopoiesis-setup.service autopoiesis-kiosk.service` to `systemctl start autopoiesis.target`. Updated `remote-install.sh` start hint to `systemctl start autopoiesis.target` and status hint to `systemctl status autopoiesis.target`. With the target in place, operators no longer need to enumerate individual services.
+
+Why this matters:
+
+The `autopoiesis.target` systemd target was created to unify all 14 appliance units (8 services + 6 timers) under a single lifecycle. But no operational tool checked the target status. `diagnostics.sh` checked 8 individual services — operators had to mentally combine all results to determine if the appliance was healthy. `heartbeat.sh` was missing night-mode entirely. `preflight.sh` didn't validate the night-mode timer file. And both install scripts printed individual service names in their hints, defeating the purpose of the target. This change closes the loop: the target is now the primary health indicator, the heartbeat captures all 8 services plus the composite, preflight validates all timer files, and install hints use the target for lifecycle operations.
+
+Verification:
+
+- `scripts/diagnostics-check.sh` passed all 39 checks (no regression)
+- `scripts/systemd-security-check.sh` passed all 130 checks (no regression)
+- `scripts/factory-reset-check.sh` passed
+- `scripts/systemd-units-install-check.sh` passed
+- JSON output confirmed: `appliance: { targetActive: false, targetStatus: "not_found" }` (expected in sandbox)
+- Human-readable output confirmed: new "Appliance" section with target composite check
+- `node --check local-ui/server.js` passed
+- `node --check hosted-api/server.js` passed
+- `node --check hosted-api/db.js` passed
+- `bash -n install.sh update.sh uninstall-dev-tools.sh factory-reset.sh remote-install.sh` passed
+- `bash -n scripts/diagnostics.sh scripts/heartbeat.sh scripts/preflight.sh` passed
+- `bash -n scripts/*.sh` passed (all scripts)
+
+Next step:
+
+- Test on physical Pi: verify `appliance.targetStatus` reports `active` when target is running
+- Add `appliance_target` assertion to `diagnostics-check.sh` (needs mock systemctl)
+- Wire `appliance.targetActive` into the heartbeat payload sent to the hosted API
+- Consider adding `systemctl is-failed autopoiesis.target` for failed-unit detection
+
+---
+
 ## 2026-06-09 - User-initiated device pairing endpoint (POST /frames/me/pair)
 
 Date: 2026-06-09

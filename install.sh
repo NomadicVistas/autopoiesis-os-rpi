@@ -36,5 +36,5 @@ AUTOPOIESIS_APP_DIR="$INSTALL_DIR/app" \
 echo "Installed. Next steps:"
 echo "  1. Configure kiosk OS mode (auto-login, screen blanking):"
 echo "     sudo $INSTALL_DIR/app/scripts/configure-kiosk-os.sh"
-echo "  2. Start the kiosk services:"
-echo "     sudo systemctl start autopoiesis-setup.service autopoiesis-kiosk.service"
+echo "  2. Start the appliance:"
+echo "     sudo systemctl start autopoiesis.target"
