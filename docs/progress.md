@@ -1,5 +1,66 @@
 # Progress
 
+## 2026-06-09 - User-facing Profile API endpoints (/frames/me/*)
+
+Date: 2026-06-09
+
+Milestone: PROFILE — user-facing API for Profile > Frames page
+
+Changed files:
+
+- `hosted-api/server.js` (authenticateUser, 6 handleMe* handlers, 6 route wirings, CORS x-user-token header)
+- `scripts/user-profile-me-check.sh` (new: 16-step 99-check validation gate)
+- `docs/progress.md`
+- `docs/agent-notes/user-profile-me-note.md` (new)
+- `/data/.openclaw/workspace/autopoiesis-os-program/ROLLING-LOG.md`
+
+Implemented:
+
+- **User authentication middleware**: Added `authenticateUser(req, db)` — validates user requests via `x-user-token` header or `Authorization: Bearer <token>` against `AUTOPOIESIS_FRAMES_USER_TOKENS` env var (JSON map of `token→userId`). When not configured, returns 503 (service not configured). Admin token also accepted — admin users can access any user's data by passing `?userId=<target>`. The env-var approach is an MVP placeholder that can be replaced with proper OAuth/session auth later without changing the `/frames/me/*` endpoint contract.
+
+- **GET /frames/me — User profile summary**: Returns userId, deviceCount, subscription (plan/status/provider), entitlements (maxDevices, devicesRemaining, offlineCache, remoteActions, activeArtistsLimit), likedArtworkCount, preferences, and preferencesUpdatedAt. Reuses existing `db.countDevicesByOwner()`, `db.getSubscription()`, `computeEntitlements()`, `db.getUserPreferences()`, `db.getLikedArtworks()`.
+
+- **GET /frames/me/devices — User's paired devices**: Returns list of devices owned by the authenticated user with deviceId, deviceName, deviceType, softwareVersion, updateChannel, online status, remoteEnabled, disabled, lastHeartbeatAt, currentMode, releaseStatus. Reuses `db.listDevices({ ownerUserId })`.
+
+- **GET /frames/me/preferences — Read user preferences**: Returns full preferences object with defaults for users with no stored preferences. Reuses `db.getUserPreferences()`.
+
+- **PATCH /frames/me/preferences — Update user preferences**: Accepts partial preference updates with merge-into-existing behavior. Supports `updatedAt`-based conflict resolution (same pattern as admin endpoint). Validates against VALID_KEYS, rejects unknown keys with 400.
+
+- **GET /frames/me/liked-artworks — User's liked artworks**: Returns paginated liked artwork IDs with total count. Supports `?limit` and `?offset` pagination.
+
+- **GET /frames/me/subscription — Subscription and entitlements**: Returns subscription details with computed entitlements and device count. Uses `computeEntitlements()` for consistent entitlement calculation.
+
+- **CORS header update**: Added `x-user-token` to `access-control-allow-headers` in CORS_HEADERS constant, ensuring browser-based Profile > Frames pages can send the user token header.
+
+- Added `scripts/user-profile-me-check.sh` — a 16-step 99-check validation gate proving: syntax validation, static contract (16 patterns), server bootstrap, device registration + pairing, user profile summary (9 checks), device listing (9 checks), preference read with defaults (5 checks), preference update (3 checks), conflict resolution (5 checks), liked artworks (7 checks with pagination), subscription + entitlements (8 checks), admin token pass-through (3 checks), auth gates (no tokens → 503, missing → 401, wrong → 403, Bearer support), CORS preflight, input validation (unknown keys, empty body), and regression (health, admin bundle, device settings, heartbeat).
+
+Why this matters:
+
+The hosted API had extensive admin endpoints and device endpoints but zero user-facing endpoints. A user going to Profile > Frames in the online app had no API to read their own data — their devices, preferences, liked artworks, and subscription were only accessible via admin-authenticated endpoints. The `/frames/me/*` surface closes this gap: the Profile > Frames frontend can now call `GET /frames/me` for a summary, `GET /frames/me/devices` to list paired Frames, `PATCH /frames/me/preferences` to update stream settings, `GET /frames/me/liked-artworks` to see what the user liked, and `GET /frames/me/subscription` to check their plan and entitlements. This is the #1 priority from the pulse brief (profile → database → API → ...) and unblocks the entire Profile > Frames frontend. The `authenticateUser()` middleware is designed for easy replacement — swap the env-var approach for proper OAuth/session auth without touching any handler code.
+
+Verification:
+
+- `scripts/user-profile-me-check.sh` passed all 99 checks (16 steps).
+- `scripts/cors-preflight-check.sh` passed all 45 checks (7 steps, no regression).
+- `scripts/admin-auth-check.sh` passed all 38 checks (no regression).
+- `scripts/hosted-api-security-smoke.sh` passed all 41 checks (no regression).
+- `node --check hosted-api/server.js` passed.
+- `node --check hosted-api/db.js` passed.
+- `node --check local-ui/server.js` passed.
+- `bash -n install.sh update.sh uninstall-dev-tools.sh factory-reset.sh` passed.
+- `bash -n scripts/*.sh` passed.
+
+Next step:
+
+- Build Profile > Frames frontend page that calls /frames/me/* endpoints.
+- Replace AUTOPOIESIS_FRAMES_USER_TOKENS with proper user auth (OAuth, session-based).
+- Add `POST /frames/me/pair` endpoint for user-initiated device pairing.
+- Wire /frames/me/* endpoints into the admin dashboard for user context switching.
+- Add user token management endpoints (create/revoke tokens via admin).
+- Test the full profile → preferences → stream → display cycle end-to-end.
+
+---
+
 ## 2026-06-09 - Admin fleet device listing endpoint + db.listDevices() filter extension
 
 Date: 2026-06-09

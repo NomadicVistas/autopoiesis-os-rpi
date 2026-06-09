@@ -162,6 +162,8 @@ INTEGRATION_HEAVY_GATES=(
   "scripts/admin-content-management-check.sh"
   # ── Admin user management (multi-server, user CRUD + preferences) ──
   "scripts/admin-user-management-check.sh"
+  # ── User Profile /frames/me/* (user-facing, auth gates) ──
+  "scripts/user-profile-me-check.sh"
 )
 
 CONTRACT_GATES=(

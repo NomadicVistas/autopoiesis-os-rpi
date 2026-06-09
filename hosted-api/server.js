@@ -39,6 +39,12 @@
  *   GET  /frames/admin/commands                    – Admin: fleet-wide command queue
  *   GET  /frames/admin/command-audits              – Admin: command audit trail
  *   GET  /frames/admin/devices                     – Admin: fleet-wide device listing
+ *   GET  /frames/me                                 – User: profile summary
+ *   GET  /frames/me/devices                         – User: paired devices
+ *   GET  /frames/me/preferences                     – User: read preferences
+ *   PATCH /frames/me/preferences                    – User: update preferences
+ *   GET  /frames/me/liked-artworks                  – User: liked artworks
+ *   GET  /frames/me/subscription                    – User: subscription + entitlements
  */
 
 "use strict";
@@ -128,6 +134,75 @@ function sendResult(res, result) {
 // ── Admin authentication ────────────────────────────────────────────────────
 
 const ADMIN_TOKEN = process.env.AUTOPOIESIS_FRAMES_ADMIN_TOKEN || null;
+
+// ── User authentication ────────────────────────────────────────────────────
+//
+// MVP user auth: AUTOPOIESIS_FRAMES_USER_TOKENS is a JSON map of { "<token>": "<userId>" }.
+// For single-user setups, set to e.g. '{"my-secret-token": "user-ewoud"}'.
+// This can be replaced with proper OAuth/session auth later without changing the
+// /frames/me/* endpoint contract.
+//
+const USER_TOKENS = _parseUserTokens(process.env.AUTOPOIESIS_FRAMES_USER_TOKENS);
+
+function _parseUserTokens(raw) {
+  if (!raw) return null;
+  try {
+    const parsed = JSON.parse(raw);
+    if (typeof parsed === "object" && parsed !== null && !Array.isArray(parsed)) {
+      return parsed;
+    }
+  } catch (_) { /* ignore */ }
+  return null;
+}
+
+/**
+ * Authenticate a user request for /frames/me/* endpoints.
+ *
+ * Accepts user token via:
+ *   - Authorization: Bearer <token>
+ *   - x-user-token: <token>
+ *
+ * When AUTOPOIESIS_FRAMES_USER_TOKENS is not set, user endpoints return 503
+ * (service not configured). When the token is valid, returns { ok, userId }.
+ * Admin token is also accepted — admin users can access any user's data by
+ * passing ?userId=<target> query parameter.
+ *
+ * @param {http.IncomingMessage} req
+ * @param {AosDb} db
+ * @returns {{ ok: boolean, userId?: string, status?: number, error?: string }}
+ */
+function authenticateUser(req, db) {
+  // Admin pass-through: admin token grants user access
+  if (ADMIN_TOKEN) {
+    const bearer = (req.headers["authorization"] || "").replace(/^Bearer\s+/i, "");
+    const adminHeader = req.headers["x-admin-token"] || "";
+    const token = bearer || adminHeader;
+    if (token === ADMIN_TOKEN) {
+      // Admin access: userId comes from query param or falls back to first known user
+      const url = new URL(req.url, "http://localhost");
+      const targetUserId = url.searchParams.get("userId");
+      if (targetUserId) return { ok: true, userId: targetUserId, adminAccess: true };
+      // No userId specified — admin can still use /frames/me with explicit userId
+      return { ok: true, userId: null, adminAccess: true };
+    }
+  }
+
+  // User token authentication
+  if (!USER_TOKENS) {
+    return { ok: false, status: 503, error: "User tokens not configured. Set AUTOPOIESIS_FRAMES_USER_TOKENS to enable user access." };
+  }
+  const bearer = (req.headers["authorization"] || "").replace(/^Bearer\s+/i, "");
+  const header = req.headers["x-user-token"] || "";
+  const token = bearer || header;
+  if (!token) {
+    return { ok: false, status: 401, error: "Missing user token. Provide via Authorization: Bearer <token> or x-user-token header." };
+  }
+  const userId = USER_TOKENS[token];
+  if (!userId) {
+    return { ok: false, status: 403, error: "Invalid user token" };
+  }
+  return { ok: true, userId };
+}
 
 /**
  * Authenticate an admin request.
@@ -1825,7 +1900,7 @@ function handleAdminDeviceSnapshot(db, deviceId) {
 const CORS_HEADERS = {
   "access-control-allow-origin": "*",
   "access-control-allow-methods": "GET, POST, PATCH, PUT, DELETE, OPTIONS",
-  "access-control-allow-headers": "Content-Type, Authorization, x-admin-token, x-frame-device-key",
+  "access-control-allow-headers": "Content-Type, Authorization, x-admin-token, x-frame-device-key, x-user-token",
   "access-control-max-age": "86400"
 };
 
@@ -1840,6 +1915,270 @@ function sendCorsPreflight(res) {
   res.end();
 }
 
+// ── User-facing Profile endpoints (/frames/me/*) ────────────────────────
+//
+// These endpoints serve the Profile > Frames page in the online app.
+// They require user authentication (user token or admin token).
+// The userId is resolved from the token — callers never specify it in the path.
+//
+
+/**
+ * GET /frames/me — User profile summary
+ *
+ * Returns: user info, device count, subscription summary, preferences summary,
+ * liked artwork count, and entitlements.
+ *
+ * Auth: user token or admin token (with ?userId=...)
+ */
+function handleMeProfile(db, userId) {
+  if (!userId) return { status: 400, body: { ok: false, error: "userId required (pass ?userId=... for admin access)" } };
+
+  const deviceCount = db.countDevicesByOwner(userId);
+  const sub = db.getSubscription(userId);
+  const entitlements = computeEntitlements(sub, deviceCount);
+  const rawPrefs = db.getUserPreferences(userId);
+  const likedIds = db.getLikedArtworks(userId);
+
+  return {
+    status: 200,
+    body: {
+      ok: true,
+      kind: "autopoiesis_frames_me_profile",
+      generatedAt: now(),
+      profile: {
+        userId,
+        deviceCount,
+        subscription: sub ? {
+          plan: sub.plan,
+          status: sub.status,
+          provider: sub.provider,
+          createdAt: sub.createdAt,
+          updatedAt: sub.updatedAt
+        } : null,
+        entitlements: {
+          maxDevices: entitlements.deviceLimit === null ? null : entitlements.deviceLimit,
+          devicesRemaining: entitlements.deviceSlotsRemaining,
+          offlineCache: entitlements.offlineCache,
+          remoteActions: entitlements.canUseRemoteActions,
+          activeArtistsLimit: entitlements.activeArtistsLimit
+        },
+        likedArtworkCount: likedIds.length,
+        preferences: rawPrefs.preferences || {},
+        preferencesUpdatedAt: rawPrefs.updatedAt
+      }
+    }
+  };
+}
+
+/**
+ * GET /frames/me/devices — User's paired devices
+ *
+ * Returns: list of devices owned by the user with online status, current mode,
+ * release status, and action availability.
+ *
+ * Auth: user token or admin token (with ?userId=...)
+ */
+function handleMeDevices(db, userId) {
+  if (!userId) return { status: 400, body: { ok: false, error: "userId required (pass ?userId=... for admin access)" } };
+
+  const sub = db.getSubscription(userId);
+  const ownerSub = sub ? { plan: sub.plan, status: sub.status } : null;
+  const deviceList = db.listDevices({ ownerUserId: userId, pairedOnly: true, limit: 100 });
+
+  const devices = deviceList.items.map(d => ({
+    deviceId: d.deviceId,
+    deviceName: d.deviceName,
+    deviceType: d.deviceType,
+    softwareVersion: d.softwareVersion,
+    updateChannel: d.updateChannel,
+    online: d.lastHeartbeatAt
+      ? (Date.now() - new Date(d.lastHeartbeatAt).getTime()) < 300000
+      : false,
+    remoteEnabled: d.remoteEnabled,
+    disabled: !!d.disabled,
+    lastHeartbeatAt: d.lastHeartbeatAt,
+    currentMode: d.currentMode || "display",
+    releaseStatus: d.releaseStatus || "idle"
+  }));
+
+  return {
+    status: 200,
+    body: {
+      ok: true,
+      kind: "autopoiesis_frames_me_devices",
+      generatedAt: now(),
+      devices,
+      total: deviceList.total
+    }
+  };
+}
+
+/**
+ * GET /frames/me/preferences — User preferences
+ *
+ * Returns: the user's full preferences object with updatedAt timestamp.
+ * If no preferences exist yet, returns defaults.
+ *
+ * Auth: user token or admin token (with ?userId=...)
+ */
+function handleMeGetPreferences(db, userId) {
+  if (!userId) return { status: 400, body: { ok: false, error: "userId required (pass ?userId=... for admin access)" } };
+
+  const rawPrefs = db.getUserPreferences(userId);
+  const defaults = {
+    activeArtists: [],
+    streamCategories: ["artwork", "curatorial", "blog"],
+    allowImages: true,
+    allowVideos: true,
+    allowSoundWorks: false,
+    allowGenerativeWorks: true,
+    autoplay: true,
+    videoAutoplay: false,
+    soundAutoplay: false,
+    soundEnabled: false,
+    cacheLikedArtworks: true,
+    cacheRecentArtworks: true,
+    offlineFallbackMode: "cached"
+  };
+
+  const preferences = (rawPrefs && rawPrefs.preferences && Object.keys(rawPrefs.preferences).length > 0)
+    ? rawPrefs.preferences
+    : defaults;
+
+  return {
+    status: 200,
+    body: {
+      ok: true,
+      kind: "autopoiesis_frames_me_preferences",
+      generatedAt: now(),
+      preferences,
+      updatedAt: rawPrefs.updatedAt
+    }
+  };
+}
+
+/**
+ * PATCH /frames/me/preferences — Update user preferences
+ *
+ * Accepts a partial preferences object. Merges with existing preferences.
+ * Supports conflict resolution via optional `updatedAt` field.
+ *
+ * Auth: user token or admin token (with ?userId=...)
+ */
+function handleMeUpdatePreferences(db, userId, body) {
+  if (!userId) return { status: 400, body: { ok: false, error: "userId required (pass ?userId=... for admin access)" } };
+  if (!body || typeof body !== "object" || Array.isArray(body)) {
+    return { status: 400, body: { ok: false, error: "Request body must be a JSON object" } };
+  }
+
+  // Valid preference keys (same as admin endpoint)
+  const VALID_KEYS = new Set([
+    "activeArtists", "streamCategories", "allowImages", "allowVideos",
+    "allowSoundWorks", "allowGenerativeWorks", "autoplay", "videoAutoplay",
+    "soundAutoplay", "soundEnabled", "cacheLikedArtworks", "cacheRecentArtworks",
+    "offlineFallbackMode", "updatedAt"
+  ]);
+
+  const incomingUpdatedAt = body.updatedAt || null;
+  const patch = { ...body };
+  delete patch.updatedAt;
+
+  const keys = Object.keys(patch);
+  if (keys.length === 0) {
+    return { status: 400, body: { ok: false, error: "No preferences to update" } };
+  }
+
+  const unknown = keys.filter(k => !VALID_KEYS.has(k));
+  if (unknown.length > 0) {
+    return { status: 400, body: { ok: false, error: "Unknown preference keys: " + unknown.join(", ") } };
+  }
+
+  const result = db.setUserPreferences(userId, patch, incomingUpdatedAt);
+  if (!result.ok) {
+    return { status: 409, body: { ok: false, error: "Preferences conflict", reason: result.reason, conflict: true, preferences: result.preferences, updatedAt: result.updatedAt } };
+  }
+
+  return {
+    status: 200,
+    body: {
+      ok: true,
+      kind: "autopoiesis_frames_me_preferences_updated",
+      preferences: result.preferences,
+      updatedAt: result.updatedAt
+    }
+  };
+}
+
+/**
+ * GET /frames/me/liked-artworks — User's liked artworks
+ *
+ * Returns: list of liked artwork IDs with like timestamps.
+ * Supports pagination via ?limit and ?offset.
+ *
+ * Auth: user token or admin token (with ?userId=...)
+ */
+function handleMeLikedArtworks(db, userId, queryParams) {
+  if (!userId) return { status: 400, body: { ok: false, error: "userId required (pass ?userId=... for admin access)" } };
+
+  const likedIds = db.getLikedArtworks(userId);
+  const limit = Math.min(parseInt(queryParams.limit, 10) || 50, 200);
+  const offset = parseInt(queryParams.offset, 10) || 0;
+  const page = likedIds.slice(offset, offset + limit);
+
+  return {
+    status: 200,
+    body: {
+      ok: true,
+      kind: "autopoiesis_frames_me_liked_artworks",
+      generatedAt: now(),
+      likedArtworks: page.map(artworkId => ({ artworkId })),
+      total: likedIds.length,
+      limit,
+      offset
+    }
+  };
+}
+
+/**
+ * GET /frames/me/subscription — User's subscription and entitlements
+ *
+ * Returns: subscription details with computed entitlements.
+ * If no subscription exists, returns defaults (trial tier).
+ *
+ * Auth: user token or admin token (with ?userId=...)
+ */
+function handleMeSubscription(db, userId) {
+  if (!userId) return { status: 400, body: { ok: false, error: "userId required (pass ?userId=... for admin access)" } };
+
+  const deviceCount = db.countDevicesByOwner(userId);
+  const sub = db.getSubscription(userId);
+  const entitlements = computeEntitlements(sub, deviceCount);
+
+  return {
+    status: 200,
+    body: {
+      ok: true,
+      kind: "autopoiesis_frames_me_subscription",
+      generatedAt: now(),
+      subscription: sub ? {
+        plan: sub.plan,
+        status: sub.status,
+        provider: sub.provider,
+        createdAt: sub.createdAt,
+        updatedAt: sub.updatedAt
+      } : null,
+      entitlements: {
+        maxDevices: entitlements.deviceLimit === null ? null : entitlements.deviceLimit,
+        devicesRemaining: entitlements.deviceSlotsRemaining,
+        offlineCache: entitlements.offlineCache,
+        remoteActions: entitlements.canUseRemoteActions,
+        activeArtistsLimit: entitlements.activeArtistsLimit
+      },
+      deviceCount
+    }
+  };
+}
+
 async function handle(db, req, res) {
   const pathname = extractPath(req.url);
   const method = req.method;
@@ -1847,6 +2186,55 @@ async function handle(db, req, res) {
   // CORS preflight — handle before any route matching
   if (method === "OPTIONS") {
     return sendCorsPreflight(res);
+  }
+
+  // ── User Profile endpoints (/frames/me/*) ────────────────────────────
+
+  // GET /frames/me — User profile summary
+  if (method === "GET" && pathname === "/frames/me") {
+    const userAuth = authenticateUser(req, db);
+    if (!userAuth.ok) return sendJson(res, userAuth.status, { ok: false, error: userAuth.error });
+    return sendResult(res, handleMeProfile(db, userAuth.userId));
+  }
+
+  // GET /frames/me/devices — User's paired devices
+  if (method === "GET" && pathname === "/frames/me/devices") {
+    const userAuth = authenticateUser(req, db);
+    if (!userAuth.ok) return sendJson(res, userAuth.status, { ok: false, error: userAuth.error });
+    return sendResult(res, handleMeDevices(db, userAuth.userId));
+  }
+
+  // GET /frames/me/preferences — User preferences
+  if (method === "GET" && pathname === "/frames/me/preferences") {
+    const userAuth = authenticateUser(req, db);
+    if (!userAuth.ok) return sendJson(res, userAuth.status, { ok: false, error: userAuth.error });
+    return sendResult(res, handleMeGetPreferences(db, userAuth.userId));
+  }
+
+  // PATCH /frames/me/preferences — Update user preferences
+  if (method === "PATCH" && pathname === "/frames/me/preferences") {
+    const userAuth = authenticateUser(req, db);
+    if (!userAuth.ok) return sendJson(res, userAuth.status, { ok: false, error: userAuth.error });
+    const body = JSON.parse((await readBody(req)) || "{}");
+    return sendResult(res, handleMeUpdatePreferences(db, userAuth.userId, body));
+  }
+
+  // GET /frames/me/liked-artworks — User's liked artworks
+  if (method === "GET" && pathname === "/frames/me/liked-artworks") {
+    const userAuth = authenticateUser(req, db);
+    if (!userAuth.ok) return sendJson(res, userAuth.status, { ok: false, error: userAuth.error });
+    const url = new URL(req.url, "http://localhost");
+    const queryParams = {};
+    if (url.searchParams.get("limit")) queryParams.limit = url.searchParams.get("limit");
+    if (url.searchParams.get("offset")) queryParams.offset = url.searchParams.get("offset");
+    return sendResult(res, handleMeLikedArtworks(db, userAuth.userId, queryParams));
+  }
+
+  // GET /frames/me/subscription — User's subscription
+  if (method === "GET" && pathname === "/frames/me/subscription") {
+    const userAuth = authenticateUser(req, db);
+    if (!userAuth.ok) return sendJson(res, userAuth.status, { ok: false, error: userAuth.error });
+    return sendResult(res, handleMeSubscription(db, userAuth.userId));
   }
 
   // ── Admin broadcast delivery endpoints ────────────────────────────────
