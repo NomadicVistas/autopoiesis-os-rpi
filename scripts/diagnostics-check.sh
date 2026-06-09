@@ -218,7 +218,7 @@ step 11 "All check categories present"
 setup_env
 OUT="$(run_diag --quick 2>&1)"
 # Check that all expected check names appear
-for name in disk_space cpu_temp network local_ui device_id cache offline_mode kiosk_process; do
+for name in disk_space cpu_temp network local_ui device_id cache offline_mode kiosk_process appliance_target; do
   echo "$OUT" | grep -q "$name" && pass "check '$name' present" || fail "check '$name' missing"
 done
 cleanup_env

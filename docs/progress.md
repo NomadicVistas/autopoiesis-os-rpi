@@ -7518,3 +7518,31 @@ Commit status:
 Next step:
 
 Ingest heartbeat `events` into durable backend broadcast delivery, release rollout, and device event rows using `deviceId + eventKey` idempotency, then show those rows in Admin > Frames.
+-e 
+## 2026-06-09 - Added appliance_target assertion to diagnostics-check.sh
+
+Date: 2026-06-09
+
+Milestone: RPI APPLIANCE — diagnostics-check.sh now validates the appliance target composite status
+
+Changed files:
+
+- `scripts/diagnostics-check.sh` (added "appliance_target" to the list of expected check names in the "All check categories present" step)
+
+Implemented:
+
+- The diagnostics-check.sh validation gate now ensures that the diagnostics.sh script includes the "appliance_target" check in its output. This validates that the appliance target composite status (autopoiesis.target) is being checked by the diagnostics tool, providing operators with a single health indicator for the entire appliance lifecycle.
+
+Verification:
+
+- `scripts/diagnostics-check.sh` passed all 40 checks (no regression).
+- `scripts/diagnostics-check.sh` still passes in a clean environment where autopoiesis.target is not found (expected warn status).
+- `node --check local-ui/server.js` passed.
+- `node --check hosted-api/server.js` passed.
+- `node --check hosted-api/db.js` passed.
+- `bash -n install.sh update.sh uninstall-dev-tools.sh factory-reset.sh scripts/*.sh` passed.
+
+Next step:
+
+- Test on physical Pi: verify `appliance.targetStatus` reports `active` when target is running
+- Consider adding `systemctl is-failed autopoiesis.target` for failed-unit detection
