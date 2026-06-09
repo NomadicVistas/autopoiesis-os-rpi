@@ -1,5 +1,78 @@
 # Progress
 
+## 2026-06-09 - Systemd target for unified appliance lifecycle management
+
+Date: 2026-06-09
+
+Milestone: RPI APPLIANCE — autopoiesis.target groups all services and timers for unified lifecycle
+
+Changed files:
+
+- `services/autopoiesis.target` (new)
+- `services/autopoiesis-setup.service` (added PartOf=autopoiesis.target)
+- `services/autopoiesis-kiosk.service` (added PartOf=autopoiesis.target)
+- `services/autopoiesis-heartbeat.service` (added PartOf=autopoiesis.target)
+- `services/autopoiesis-cache.service` (added PartOf=autopoiesis.target)
+- `services/autopoiesis-command-executor.service` (added PartOf=autopoiesis.target)
+- `services/autopoiesis-updater.service` (added PartOf=autopoiesis.target)
+- `services/autopoiesis-watchdog.service` (added PartOf=autopoiesis.target)
+- `services/autopoiesis-night-mode.service` (added PartOf=autopoiesis.target)
+- `timers/autopoiesis-heartbeat.timer` (added PartOf=autopoiesis.target)
+- `timers/autopoiesis-command-executor.timer` (added PartOf=autopoiesis.target)
+- `timers/autopoiesis-cache.timer` (added PartOf=autopoiesis.target)
+- `timers/autopoiesis-updater.timer` (added PartOf=autopoiesis.target)
+- `timers/autopoiesis-watchdog.timer` (added PartOf=autopoiesis.target)
+- `timers/autopoiesis-night-mode.timer` (added PartOf=autopoiesis.target)
+- `scripts/install-systemd-units.sh` (install and enable target alongside existing units)
+- `factory-reset.sh` (target-based stop/start replacing manual enumeration)
+- `scripts/preflight.sh` (target in required files list)
+- `scripts/systemd-units-install-check.sh` (target + PartOf verification)
+- `scripts/factory-reset-check.sh` (target-based stop/start assertions)
+- `scripts/systemd-timers-check.sh` (added missing night-mode timer)
+- `docs/progress.md`
+- `docs/agent-notes/systemd-target-note.md` (new)
+- `/data/.openclaw/workspace/autopoiesis-os-program/ROLLING-LOG.md`
+
+Implemented:
+
+- **autopoiesis.target systemd target**: Created a systemd target that groups all 8 appliance services and 6 timers under a single lifecycle unit. This is the standard pattern for multi-service Linux appliances (nginx, PostgreSQL, Docker all use targets). The target declares `Wants=` for all long-running services (setup, kiosk) and all periodic timers (heartbeat, cache, command-executor, updater, watchdog, night-mode). `WantedBy=graphical.target` ensures the target starts at boot with the graphical environment.
+
+- **PartOf= reverse dependency**: Added `PartOf=autopoiesis.target` to every service file (8) and timer file (6). This provides reverse dependency: stopping or restarting the target automatically stops or restarts all member units. Without `PartOf=`, `systemctl stop autopoiesis.target` would stop the target but leave all services running. With `PartOf=`, stop propagation works correctly.
+
+- **Factory reset simplification**: Replaced the 9-line manual unit enumeration in factory-reset.sh with `systemctl stop autopoiesis.target` and `systemctl start autopoiesis.target`. This is more maintainable (future units are automatically included) and less error-prone (no risk of forgetting to add a new service).
+
+- **Install integration**: Updated install-systemd-units.sh to install and enable the target. The install loop now processes `*.service` and `*.target` files from the services directory. The target is enabled alongside existing units.
+
+- **Night-mode timer coverage**: Added the missing `autopoiesis-night-mode.timer` to `scripts/systemd-timers-check.sh`. This timer was enabled by install-systemd-units.sh but was not checked by the timers verification gate.
+
+- **Verification updates**: Updated `systemd-units-install-check.sh` to verify: target file exists in rendered systemd directory, target contains correct Wants= entries (setup, kiosk, all 6 timers), target has WantedBy=graphical.target, all 8 services have PartOf=autopoiesis.target, all 6 timers have PartOf=autopoiesis.target, enable command includes target. Updated `factory-reset-check.sh` to verify target-based stop/start.
+
+Why this matters:
+
+The Autopoiesis Frame appliance has 14 systemd units that must operate as a coherent group. Without a target, every lifecycle operation (stop, start, restart, status) requires manually enumerating every unit name. Factory reset stopped 9 units individually and restarted 2. Updates restarted 2 services. There was no way to check the health of the appliance as a whole — operators had to check each service individually or rely on shell globs (`systemctl status autopoiesis-*`). This is a foundational piece for the MVP 1.0 production installer milestone: production appliances need clean lifecycle management. The target enables: (1) `systemctl stop autopoiesis.target` to cleanly stop the entire appliance, (2) `systemctl start autopoiesis.target` to start everything, (3) `systemctl restart autopoiesis.target` to restart everything, (4) `systemctl status autopoiesis.target` to check overall health, (5) factory reset with a single stop/start command, (6) future admin tooling that can manage the appliance as a unit.
+
+Verification:
+
+- `scripts/systemd-units-install-check.sh` passed (target + PartOf checks added)
+- `scripts/factory-reset-check.sh` passed (target-based stop/start)
+- `scripts/configure-kiosk-os-check.sh` passed (8/8 tests, no regression)
+- `scripts/systemd-security-check.sh` passed (130/130, no regression)
+- `scripts/diagnostics-check.sh` passed (39/39, no regression)
+- `node --check local-ui/server.js` passed
+- `node --check hosted-api/server.js` passed
+- `node --check hosted-api/db.js` passed
+- `bash -n install.sh update.sh uninstall-dev-tools.sh factory-reset.sh` passed
+- `bash -n scripts/*.sh` passed (all scripts)
+
+Next step:
+
+- Test the target lifecycle on a physical Pi: `systemctl start/stop/restart autopoiesis.target`
+- Wire `systemctl is-active autopoiesis.target` into diagnostics.sh as a composite service health check
+- Consider adding the target to the heartbeat payload (overall appliance active status)
+- Add the target to the remote-install.sh summary output
+
+---
+
 ## 2026-06-09 - Admin user management validation + data/ gitignore
 
 Date: 2026-06-09

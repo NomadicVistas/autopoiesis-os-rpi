@@ -1,5 +1,6 @@
 [Unit]
 Description=Autopoiesis night mode display power enforcement
+PartOf=autopoiesis.target
 After=autopoiesis-setup.service
 Wants=autopoiesis-night-mode.timer
 

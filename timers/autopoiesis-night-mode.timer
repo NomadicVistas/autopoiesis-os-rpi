@@ -1,5 +1,6 @@
 [Unit]
 Description=Apply night mode display power state every minute
+PartOf=autopoiesis.target
 
 [Timer]
 OnCalendar=*:0/1

@@ -69,11 +69,14 @@ for unit in \
   autopoiesis-command-executor.service \
   autopoiesis-updater.service \
   autopoiesis-watchdog.service \
+  autopoiesis-night-mode.service \
+  autopoiesis.target \
   autopoiesis-heartbeat.timer \
   autopoiesis-command-executor.timer \
   autopoiesis-cache.timer \
   autopoiesis-updater.timer \
-  autopoiesis-watchdog.timer; do
+  autopoiesis-watchdog.timer \
+  autopoiesis-night-mode.timer; do
   require_file "$SYSTEMD_DIR/$unit"
 done
 
@@ -113,7 +116,38 @@ require_contains "$SYSTEMD_DIR/autopoiesis-updater.service" "Environment=AUTOPOI
 require_contains "$SYSTEMD_DIR/autopoiesis-watchdog.service" "ExecStart=$APP_DIR/scripts/watchdog.sh"
 
 require_contains "$SYSTEMCTL_LOG" "daemon-reload"
-require_contains "$SYSTEMCTL_LOG" "enable autopoiesis-setup.service autopoiesis-kiosk.service autopoiesis-heartbeat.timer autopoiesis-command-executor.timer autopoiesis-updater.timer autopoiesis-cache.timer autopoiesis-watchdog.timer"
-require_contains "$SYSTEMCTL_LOG" "start autopoiesis-heartbeat.timer autopoiesis-command-executor.timer autopoiesis-updater.timer autopoiesis-cache.timer autopoiesis-watchdog.timer"
+require_contains "$SYSTEMCTL_LOG" "enable autopoiesis.target autopoiesis-setup.service autopoiesis-kiosk.service autopoiesis-heartbeat.timer autopoiesis-command-executor.timer autopoiesis-updater.timer autopoiesis-cache.timer autopoiesis-watchdog.timer autopoiesis-night-mode.timer"
+require_contains "$SYSTEMCTL_LOG" "start autopoiesis-heartbeat.timer autopoiesis-command-executor.timer autopoiesis-updater.timer autopoiesis-cache.timer autopoiesis-watchdog.timer autopoiesis-night-mode.timer"
+
+# Verify autopoiesis.target renders correctly
+require_contains "$SYSTEMD_DIR/autopoiesis.target" "Description=Autopoiesis Frame Appliance"
+require_contains "$SYSTEMD_DIR/autopoiesis.target" "Wants=autopoiesis-setup.service"
+require_contains "$SYSTEMD_DIR/autopoiesis.target" "autopoiesis-kiosk.service"
+require_contains "$SYSTEMD_DIR/autopoiesis.target" "autopoiesis-heartbeat.timer"
+require_contains "$SYSTEMD_DIR/autopoiesis.target" "autopoiesis-night-mode.timer"
+require_contains "$SYSTEMD_DIR/autopoiesis.target" "WantedBy=graphical.target"
+
+# Verify PartOf=autopoiesis.target in all service and timer units
+for service in \
+  autopoiesis-setup.service \
+  autopoiesis-kiosk.service \
+  autopoiesis-heartbeat.service \
+  autopoiesis-cache.service \
+  autopoiesis-command-executor.service \
+  autopoiesis-updater.service \
+  autopoiesis-watchdog.service \
+  autopoiesis-night-mode.service; do
+  require_contains "$SYSTEMD_DIR/$service" "PartOf=autopoiesis.target"
+done
+
+for timer in \
+  autopoiesis-heartbeat.timer \
+  autopoiesis-command-executor.timer \
+  autopoiesis-cache.timer \
+  autopoiesis-updater.timer \
+  autopoiesis-watchdog.timer \
+  autopoiesis-night-mode.timer; do
+  require_contains "$SYSTEMD_DIR/$timer" "PartOf=autopoiesis.target"
+done
 
 echo "Systemd unit install rendering check passed."

@@ -1,5 +1,6 @@
 [Unit]
 Description=Run Autopoiesis heartbeat every minute
+PartOf=autopoiesis.target
 
 [Timer]
 OnBootSec=30s

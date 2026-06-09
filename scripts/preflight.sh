@@ -104,6 +104,8 @@ check_app_tree() {
     services/autopoiesis-cache.service
     services/autopoiesis-updater.service
     services/autopoiesis-watchdog.service
+    services/autopoiesis-night-mode.service
+    services/autopoiesis.target
     timers/autopoiesis-heartbeat.timer
     timers/autopoiesis-command-executor.timer
     timers/autopoiesis-cache.timer

@@ -155,16 +155,7 @@ echo "Factory resetting Autopoiesis OS local appliance state..."
 log "starting reset dataDir=$DATA_DIR cacheDir=$CACHE_DIR"
 
 if [[ "$RESTART_SERVICES" == "1" ]]; then
-  run_systemctl stop \
-    autopoiesis-heartbeat.timer \
-    autopoiesis-command-executor.timer \
-    autopoiesis-cache.timer \
-    autopoiesis-updater.timer \
-    autopoiesis-watchdog.timer \
-    autopoiesis-heartbeat.service \
-    autopoiesis-command-executor.service \
-    autopoiesis-cache.service \
-    autopoiesis-watchdog.service
+  run_systemctl stop autopoiesis.target
 fi
 
 if [[ "$DRY_RUN" == "1" ]]; then
@@ -206,7 +197,7 @@ if [[ "$RESTART_SERVICES" == "1" ]]; then
   if [[ -x "$APP_DIR/scripts/install-systemd-units.sh" ]]; then
     AUTOPOIESIS_APP_DIR="$APP_DIR" "$APP_DIR/scripts/install-systemd-units.sh"
   fi
-  run_systemctl restart autopoiesis-setup.service autopoiesis-kiosk.service
+  run_systemctl start autopoiesis.target
 fi
 
 log "completed reset"

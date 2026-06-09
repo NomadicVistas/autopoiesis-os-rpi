@@ -1,5 +1,6 @@
 [Unit]
 Description=Refresh Autopoiesis artwork cache hourly
+PartOf=autopoiesis.target
 
 [Timer]
 OnBootSec=5min

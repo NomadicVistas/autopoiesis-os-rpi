@@ -1,0 +1,8 @@
+[Unit]
+Description=Autopoiesis Frame Appliance
+Documentation=https://github.com/NomadicVistas/autopoiesis-os-rpi
+After=graphical.target network.target network-online.target
+Wants=autopoiesis-setup.service autopoiesis-kiosk.service autopoiesis-heartbeat.timer autopoiesis-command-executor.timer autopoiesis-updater.timer autopoiesis-cache.timer autopoiesis-watchdog.timer autopoiesis-night-mode.timer
+
+[Install]
+WantedBy=graphical.target

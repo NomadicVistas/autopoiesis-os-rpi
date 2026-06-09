@@ -1,5 +1,6 @@
 [Unit]
 Description=Run Autopoiesis command executor frequently
+PartOf=autopoiesis.target
 
 [Timer]
 OnBootSec=2min

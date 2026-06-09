@@ -59,7 +59,7 @@ USER_HOME="${USER_HOME:-/home/$USER_NAME}"
 
 install -d -m 0755 "$SYSTEMD_DIR"
 
-for unit in "$APP_DIR/services/"*.service; do
+for unit in "$APP_DIR/services/"*.service "$APP_DIR/services/"*.target; do
   render_unit "$unit" "$SYSTEMD_DIR/$(basename "$unit")"
 done
 
@@ -70,6 +70,7 @@ done
 "$SYSTEMCTL" daemon-reload
 
 "$SYSTEMCTL" enable \
+  autopoiesis.target \
   autopoiesis-setup.service \
   autopoiesis-kiosk.service \
   autopoiesis-heartbeat.timer \

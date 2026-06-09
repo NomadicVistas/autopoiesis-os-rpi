@@ -1,5 +1,6 @@
 [Unit]
 Description=Run Autopoiesis appliance watchdog frequently
+PartOf=autopoiesis.target
 
 [Timer]
 OnBootSec=3min

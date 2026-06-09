@@ -1,5 +1,6 @@
 [Unit]
 Description=Run Autopoiesis updater hourly
+PartOf=autopoiesis.target
 
 [Timer]
 OnBootSec=10min

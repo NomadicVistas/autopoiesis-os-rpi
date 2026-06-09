@@ -10,6 +10,7 @@ TIMERS=(
   autopoiesis-cache.timer
   autopoiesis-updater.timer
   autopoiesis-watchdog.timer
+  autopoiesis-night-mode.timer
 )
 
 fail() {

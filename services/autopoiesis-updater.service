@@ -1,5 +1,6 @@
 [Unit]
 Description=Autopoiesis release updater
+PartOf=autopoiesis.target
 After=network-online.target autopoiesis-setup.service
 Wants=network-online.target
 

@@ -1,5 +1,6 @@
 [Unit]
 Description=Autopoiesis appliance watchdog
+PartOf=autopoiesis.target
 After=autopoiesis-setup.service autopoiesis-kiosk.service
 Wants=autopoiesis-setup.service autopoiesis-kiosk.service
 

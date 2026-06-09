@@ -163,8 +163,8 @@ validate_default_reset() {
   [[ -d "$INSTALL_DIR/cache/artworks" ]] || fail "install cache artwork directory was not restored"
   [[ -d "$INSTALL_DIR/cache/metadata" ]] || fail "install cache metadata directory was not restored"
   [[ -d "$INSTALL_DIR/cache/fallback" ]] || fail "install cache fallback directory was not restored"
-  require_contains "$SYSTEMCTL_LOG" "stop autopoiesis-heartbeat.timer autopoiesis-command-executor.timer autopoiesis-cache.timer autopoiesis-updater.timer autopoiesis-watchdog.timer autopoiesis-heartbeat.service autopoiesis-command-executor.service autopoiesis-cache.service autopoiesis-watchdog.service"
-  require_contains "$SYSTEMCTL_LOG" "restart autopoiesis-setup.service autopoiesis-kiosk.service"
+  require_contains "$SYSTEMCTL_LOG" "stop autopoiesis.target"
+  require_contains "$SYSTEMCTL_LOG" "start autopoiesis.target"
 }
 
 validate_keep_support_history() {
