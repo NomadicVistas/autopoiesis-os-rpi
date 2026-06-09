@@ -160,6 +160,8 @@ INTEGRATION_HEAVY_GATES=(
   "scripts/hosted-api-admin-bundle-check.sh"
   # ── Admin content management (multi-server, heavy CRUD) ──
   "scripts/admin-content-management-check.sh"
+  # ── Admin user management (multi-server, user CRUD + preferences) ──
+  "scripts/admin-user-management-check.sh"
 )
 
 CONTRACT_GATES=(

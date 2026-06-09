@@ -6,6 +6,9 @@ npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
 
+# Runtime data directory (databases, test artifacts)
+data/
+
 # Runtime and local device state
 device.json
 preferences.json

@@ -1,5 +1,58 @@
 # Progress
 
+## 2026-06-09 - Admin user management validation + data/ gitignore
+
+Date: 2026-06-09
+
+Milestone: LEAD / INTEGRATION — admin user management endpoint validation and runtime data gitignore
+
+Changed files:
+
+- `scripts/admin-user-management-check.sh` (rewrite: 11-step 101-check validation gate)
+- `scripts/verify-all.sh` (registered admin-user-management-check in Phase 3b)
+- `.gitignore` (added `data/` directory to prevent database/secret leaks)
+- `docs/progress.md`
+- `docs/agent-notes/admin-user-mgmt-validation-note.md` (new)
+- `/data/.openclaw/workspace/autopoiesis-os-program/ROLLING-LOG.md`
+
+Implemented:
+
+- **Admin user management validation gate**: Rewrote `scripts/admin-user-management-check.sh` as a proper 11-step 101-check validation gate for the 4 admin user management endpoints: `GET /frames/admin/users` (list), `GET /frames/admin/users/:userId` (detail), `GET /frames/admin/users/:userId/preferences` (read preferences), `PATCH /frames/admin/users/:userId/preferences` (update preferences). Previous version had multiple bugs: wrong server start flags (`--port`/`--db` instead of `AOS_PORT`/`AOS_DB` env vars), broken pairing flow (tried to pair via settings push which requires the device to already be paired), fragile static contract patterns (escaped-slash regex), `curl -sf` suppressing error response bodies (broke auth gate and validation checks), hardcoded port 18931 (caused EADDRINUSE conflicts between runs), and no cleanup trap.
+
+- **Fixed pairing flow**: Replaced the broken settings-push pairing with `db.claimPairingCode()` via Node.js one-liner, matching the proven pattern from `hosted-api-admin-bundle-check.sh`.
+
+- **Fixed curl response handling**: Removed `-f` (fail silently) from api helper functions so error response bodies (401, 403, 400) are captured for assertion matching. Kept `-s` for clean output.
+
+- **Fixed cleanup**: Added `trap cleanup EXIT` to ensure server process is killed and temp database is removed even when the script exits early due to `set -e`.
+
+- **Random port**: Used `$(( 19000 + (RANDOM % 1000) ))` to avoid EADDRINUSE conflicts with parallel or consecutive runs.
+
+- **data/ gitignore**: Added `data/` directory to `.gitignore`. The `data/` directory contains `aos.db` (the runtime SQLite database with device API keys, admin tokens, and user data) plus test artifact databases from check scripts. Previously, `*.sqlite` and `*.sqlite-*` were gitignored but `*.db` files were not. This prevented accidental commits of runtime databases containing secrets.
+
+- **Registered in verify-all.sh**: Added `admin-user-management-check.sh` to the Phase 3b heavy integration gates alongside `admin-content-management-check.sh`.
+
+Why this matters:
+
+The 4 admin user management endpoints are the core of the admin dashboard's user management interface. They were implemented but had no validation gate — the existing check script was broken and could never pass. With 101 checks proving: handler existence, route wiring, API doc headers, live server bootstrap with multi-device multi-user setup (3 devices, 2 owners, subscriptions, liked artworks), user listing with filtering (plan, status) and pagination, user detail with full profile (devices, subscription, entitlements, preferences, liked artworks, action availability), preference read with defaults, preference update with merge, validation errors (unknown keys, empty body, invalid types, invalid enum values), auth gates (no token → 401, wrong token → 403), and regression (admin bundle still works). The `data/` gitignore prevents a real data leak risk — `data/aos.db` contains every device's API key.
+
+Verification:
+
+- `scripts/admin-user-management-check.sh` passed all 101 checks (11 steps).
+- `node --check hosted-api/server.js` passed.
+- `node --check hosted-api/db.js` passed.
+- `node --check local-ui/server.js` passed.
+- `bash -n install.sh update.sh uninstall-dev-tools.sh factory-reset.sh` passed.
+- `bash -n scripts/*.sh` passed.
+
+Next step:
+
+- Add user-facing endpoints for Profile > Frames (user-level auth separate from admin auth).
+- Add `POST /frames/admin/users/:userId/preferences` with `updatedAt` conflict resolution (currently only `setUserPreferences` has it, not the admin endpoint handler).
+- Consider default-merge in `handleAdminGetUserPreferences` so partial updates still show all default fields.
+- Test admin user management endpoints against PostgreSQL backend.
+
+---
+
 ## 2026-06-09 - User preferences updatedAt conflict resolution
 
 Date: 2026-06-09
