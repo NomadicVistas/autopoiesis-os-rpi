@@ -1,5 +1,54 @@
 # Progress
 
+## 2026-06-09 - Admin fleet device listing endpoint + db.listDevices() filter extension
+
+Date: 2026-06-09
+
+Milestone: ONLINE ADMIN — fleet-wide device listing with filters, pagination, and per-device enrichment
+
+Changed files:
+
+- `hosted-api/db.js` (extended `listDevices()` with disabled/deviceType/updateChannel/search/paired filters; added `getPendingCommandCount()`)
+- `hosted-api/server.js` (added `handleAdminListDevices()` handler + route for `GET /frames/admin/devices`)
+- `scripts/admin-fleet-devices-check.sh` (new: 14-step 63-check validation gate)
+- `docs/progress.md`
+- `docs/agent-notes/admin-fleet-devices-note.md` (new)
+- `/data/.openclaw/workspace/autopoiesis-os-program/ROLLING-LOG.md`
+
+Implemented:
+
+- **Extended `db.listDevices()` with additional filters**: Added support for `disabled`, `deviceType`, `updateChannel`, `search` (fuzzy match on device_id, device_name, owner_user_id), and explicit `paired` boolean filter. Previously `listDevices` only supported `ownerUserId` and `pairedOnly` — insufficient for an admin dashboard that needs to filter devices by state, type, or search terms. The `search` filter uses SQL LIKE for fuzzy matching across three columns, enabling the admin dashboard's device search box.
+
+- **Added `db.getPendingCommandCount(deviceId)`**: Efficient count-only query for pending commands (`status IN ('queued', 'sent')`) without loading full command objects. Used by the fleet device listing to show pending command badges per device without the overhead of `getPendingCommands()` which maps full rows.
+
+- **Added `handleAdminListDevices()` handler**: New handler that returns a fleet-wide device listing with full enrichment per device: online status (computed from lastHeartbeatAt < 5min), pending command count, subscription context (plan, status), entitlements, and action availability. Supports query params: `ownerUserId`, `paired`, `online`, `disabled`, `deviceType`, `updateChannel`, `search`, `limit`, `offset`. The `online` filter is applied post-SQL (computed field, not stored) and adjusts the total count accordingly.
+
+- **Added `GET /frames/admin/devices` route**: Admin-only endpoint (requires x-admin-token). Returns `{ ok, kind, devices: { items, total, limit, offset } }`. Route wired after user management endpoints, before fleet commands. Documented in endpoint header comments.
+
+Why this matters:
+
+Previously, the admin dashboard had no way to list devices across the fleet without loading the entire admin bundle (`GET /frames/admin/bundle`) — a monolithic endpoint that returns ALL users, ALL subscriptions, ALL devices, preferences, liked artworks, and plan limits in one response. For a "Devices" tab in the admin dashboard, the frontend would need to parse this massive response just to show a paginated, filterable device table. This change provides a focused, lightweight endpoint specifically for device listing: (1) paginated (no need to load all 500+ devices), (2) filterable by state (online, disabled, paired), ownership, type, channel, and search terms, (3) enriched with per-device data that was previously only available in the per-device admin-snapshot (pending commands, action availability, subscription context). The admin dashboard can now render a snappy "Devices" view with search, filters, sorting, and pagination — the foundation for fleet management UX.
+
+Verification:
+
+- `scripts/admin-fleet-devices-check.sh` passed all 63 checks (14 steps).
+- `scripts/admin-command-audit-fleet-queue-check.sh` passed all 75 checks (no regression).
+- `scripts/admin-auth-check.sh` passed all 38 checks (no regression).
+- `scripts/hosted-api-security-smoke.sh` passed all 41 checks (no regression).
+- `node --check hosted-api/server.js` passed.
+- `node --check hosted-api/db.js` passed.
+- `node --check local-ui/server.js` passed.
+- `bash -n` on all shell scripts passed.
+
+Next step:
+
+- Wire the fleet device listing into the admin dashboard frontend (Devices tab).
+- Add sort parameter (e.g., `sortBy=lastHeartbeatAt&sortOrder=desc`).
+- Consider adding device health summary (heartbeat miss count, error rate).
+- Add fleet stats endpoint (total/online/disabled counts for dashboard cards).
+
+---
+
 ## 2026-06-09 - Admin command audit logging + fleet-wide command queue
 
 Date: 2026-06-09

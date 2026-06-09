@@ -38,6 +38,7 @@
  *   PATCH /frames/admin/users/:userId/preferences   – Admin: update user preferences
  *   GET  /frames/admin/commands                    – Admin: fleet-wide command queue
  *   GET  /frames/admin/command-audits              – Admin: command audit trail
+ *   GET  /frames/admin/devices                     – Admin: fleet-wide device listing
  */
 
 "use strict";
@@ -1080,6 +1081,105 @@ function handleAdminUpdateDevice(db, deviceId, body) {
   };
 }
 
+/**
+ * GET /frames/admin/devices
+ *
+ * Fleet-wide device listing with filters and pagination.
+ * Returns per-device: state, subscription context, action availability, pending command count.
+ *
+ * Query params:
+ *   ownerUserId   – filter by owner
+ *   paired        – "true"/"false" filter paired status
+ *   online        – "true"/"false" filter online (<5min heartbeat)
+ *   disabled      – "true"/"false" filter disabled
+ *   deviceType    – filter by device type
+ *   updateChannel – filter by update channel
+ *   search        – search device_id, device_name, owner_user_id
+ *   limit         – page size (default 50)
+ *   offset        – page offset
+ */
+function handleAdminListDevices(db, queryParams) {
+  const {
+    ownerUserId, paired, online, disabled, deviceType, updateChannel, search,
+    limit: rawLimit, offset: rawOffset
+  } = queryParams;
+
+  const limit = Math.min(Math.max(parseInt(rawLimit, 10) || 50, 1), 500);
+  const offset = Math.max(parseInt(rawOffset, 10) || 0, 0);
+
+  // Build db.listDevices opts
+  const listOpts = { limit, offset };
+  if (ownerUserId) listOpts.ownerUserId = ownerUserId;
+  if (paired !== undefined) listOpts.paired = paired === "true";
+  if (disabled !== undefined) listOpts.disabled = disabled === "true";
+  if (deviceType) listOpts.deviceType = deviceType;
+  if (updateChannel) listOpts.updateChannel = updateChannel;
+  if (search) listOpts.search = search;
+
+  const fleet = db.listDevices(listOpts);
+
+  // Load subscriptions for owner context
+  const subs = db.listSubscriptions({ limit: 1000 });
+  const subMap = new Map(subs.items.map(s => [s.userId, s]));
+
+  const nowMs = Date.now();
+  const ONLINE_THRESHOLD_MS = 300000; // 5 minutes
+
+  const items = fleet.items.map(device => {
+    const ownerSub = device.ownerUserId ? subMap.get(device.ownerUserId) : null;
+    const ownerSubscription = ownerSub ? { plan: ownerSub.plan, status: ownerSub.status } : null;
+    const isOnline = device.lastHeartbeatAt
+      ? (nowMs - new Date(device.lastHeartbeatAt).getTime()) < ONLINE_THRESHOLD_MS
+      : false;
+    const pendingCommandCount = db.getPendingCommandCount(device.deviceId);
+
+    return {
+      deviceId: device.deviceId,
+      deviceName: device.deviceName,
+      deviceType: device.deviceType,
+      ownerUserId: device.ownerUserId,
+      softwareVersion: device.softwareVersion,
+      currentMode: device.currentMode || "display",
+      updateChannel: device.updateChannel,
+      paired: device.paired,
+      online: isOnline,
+      remoteEnabled: device.remoteEnabled,
+      disabled: !!device.disabled,
+      lastHeartbeatAt: device.lastHeartbeatAt,
+      releaseStatus: device.releaseStatus || "idle",
+      pendingCommandCount,
+      subscription: ownerSub ? {
+        subscriptionId: ownerSub.subscriptionId,
+        status: ownerSub.status,
+        plan: ownerSub.plan,
+        tier: ownerSub.tier
+      } : null,
+      entitlements: computeEntitlements(ownerSub, db.countDevicesByOwner(device.ownerUserId)),
+      actionAvailability: buildActionAvailability(device, "admin", ownerSubscription, pendingCommandCount)
+    };
+  });
+
+  // Apply online filter (computed, not in SQL)
+  const filtered = online !== undefined
+    ? items.filter(d => online === "true" ? d.online : !d.online)
+    : items;
+
+  const total = online !== undefined
+    ? (online === "true"
+        ? fleet.items.filter(d => d.lastHeartbeatAt && (nowMs - new Date(d.lastHeartbeatAt).getTime()) < ONLINE_THRESHOLD_MS).length
+        : fleet.items.filter(d => !d.lastHeartbeatAt || (nowMs - new Date(d.lastHeartbeatAt).getTime()) >= ONLINE_THRESHOLD_MS).length)
+    : fleet.total;
+
+  return {
+    status: 200,
+    body: {
+      ok: true,
+      kind: "autopoiesis_frames_admin_device_list",
+      devices: { items: filtered, total, limit, offset }
+    }
+  };
+}
+
 /* --------------------------------------------------------------------------
  * Admin Content Management Handlers
  * -------------------------------------------------------------------------- */
@@ -1877,6 +1977,21 @@ async function handle(db, req, res) {
     if (url.searchParams.get("subscriptionStatus")) filters.subscriptionStatus = url.searchParams.get("subscriptionStatus");
     if (url.searchParams.get("subscriptionPlan")) filters.subscriptionPlan = url.searchParams.get("subscriptionPlan");
     return sendResult(res, handleAdminListUsers(db, filters));
+  }
+
+  // ── Admin fleet device listing ───────────────────────────────────────
+
+  // GET /frames/admin/devices — Fleet-wide device listing with filters
+  if (method === "GET" && pathname === "/frames/admin/devices") {
+    const adminAuth = authenticateAdmin(req);
+    if (!adminAuth.ok) return sendJson(res, adminAuth.status, { ok: false, error: adminAuth.error });
+    const url = new URL(req.url, "http://localhost");
+    const queryParams = {};
+    for (const key of ["ownerUserId", "paired", "online", "disabled", "deviceType", "updateChannel", "search", "limit", "offset"]) {
+      const val = url.searchParams.get(key);
+      if (val !== null) queryParams[key] = val;
+    }
+    return sendResult(res, handleAdminListDevices(db, queryParams));
   }
 
   // ── Admin fleet commands + audit trail ────────────────────────────────

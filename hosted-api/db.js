@@ -856,6 +856,20 @@ class AosDb {
   }
 
   /**
+   * Count pending commands for a device (efficient, no row mapping).
+   *
+   * @param {string} deviceId
+   * @returns {number}
+   */
+  getPendingCommandCount(deviceId) {
+    const row = this.db.prepare(
+      `SELECT COUNT(*) AS cnt FROM aos_device_commands
+       WHERE device_id = ? AND status IN ('queued', 'sent')`
+    ).get(deviceId);
+    return row ? row.cnt : 0;
+  }
+
+  /**
    * Acknowledge a command.
    *
    * @param {string} deviceId
@@ -1862,7 +1876,12 @@ class AosDb {
    * @returns {{ items: Array<object>, total: number }}
    */
   listDevices(opts = {}) {
-    const { ownerUserId, pairedOnly = false, limit = 100, offset = 0 } = opts;
+    const {
+      ownerUserId, pairedOnly = false, paired,
+      deviceType, updateChannel, disabled,
+      search,
+      limit = 100, offset = 0
+    } = opts;
     const conditions = [];
     const params = [];
 
@@ -1872,6 +1891,27 @@ class AosDb {
     }
     if (pairedOnly) {
       conditions.push("paired = 1");
+    }
+    if (paired !== undefined) {
+      conditions.push("paired = ?");
+      params.push(paired ? 1 : 0);
+    }
+    if (deviceType) {
+      conditions.push("device_type = ?");
+      params.push(deviceType);
+    }
+    if (updateChannel) {
+      conditions.push("update_channel = ?");
+      params.push(updateChannel);
+    }
+    if (disabled !== undefined) {
+      conditions.push("disabled = ?");
+      params.push(disabled ? 1 : 0);
+    }
+    if (search) {
+      conditions.push("(device_id LIKE ? OR device_name LIKE ? OR owner_user_id LIKE ?)");
+      const term = `%${search}%`;
+      params.push(term, term, term);
     }
 
     const where = conditions.length > 0 ? "WHERE " + conditions.join(" AND ") : "";
