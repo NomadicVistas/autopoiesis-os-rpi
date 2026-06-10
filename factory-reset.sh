@@ -156,6 +156,14 @@ log "starting reset dataDir=$DATA_DIR cacheDir=$CACHE_DIR"
 
 if [[ "$RESTART_SERVICES" == "1" ]]; then
   run_systemctl stop autopoiesis.target
+  # Verify target is stopped before proceeding
+  if command -v systemctl >/dev/null 2>&1; then
+    local target_state
+    target_state="$(systemctl is-active autopoiesis.target 2>/dev/null || echo "unknown")"
+    if [[ "$target_state" != "inactive" && "$target_state" != "failed" ]]; then
+      echo "Warning: autopoiesis.target did not stop cleanly (state: $target_state)" >&2
+    fi
+  fi
 fi
 
 if [[ "$DRY_RUN" == "1" ]]; then
@@ -198,6 +206,16 @@ if [[ "$RESTART_SERVICES" == "1" ]]; then
     AUTOPOIESIS_APP_DIR="$APP_DIR" "$APP_DIR/scripts/install-systemd-units.sh"
   fi
   run_systemctl start autopoiesis.target
+  # Verify target is started successfully
+  if command -v systemctl >/dev/null 2>&1; then
+    local target_state
+    target_state="$(systemctl is-active autopoiesis.target 2>/dev/null || echo "unknown")"
+    if [[ "$target_state" != "active" ]]; then
+      echo "Error: autopoiesis.target failed to start (state: $target_state)" >&2
+      echo "Try: systemctl --failed" >&2
+      exit 1
+    fi
+  fi
 fi
 
 log "completed reset"

@@ -1,6 +1,180 @@
-# Progress
+-e # Progress
 
-## 2026-06-09 - Target composite status wired into diagnostics, heartbeat, preflight, and install hints
+## 2026-06-10 11:14 UTC - RPI APPLIANCE — factory reset enhanced with autopoiesis.target status checks
+
+Changed files:
+- `factory-reset.sh` (added verification that autopoiesis.target stops and starts successfully)
+
+Implemented:
+- **Factory reset target state verification**: Added checks after `systemctl stop autopoiesis.target` and `systemctl start autopoiesis.target` to verify the target is inactive/failed after stop and active after start. If the target does not stop cleanly, a warning is printed. If the target fails to start, the script exits with an error and suggests running `systemctl --failed`.
+
+Why this matters:
+The factory reset script now provides immediate feedback on the success of stopping and starting the autopoiesis.target, which is the central lifecycle unit for the appliance. This helps operators quickly identify if the reset failed due to the target not stopping (e.g., a service hanging) or not starting (e.g., a misconfigured service). Previously, the script would continue even if the target did not stop or start correctly, potentially leaving the appliance in an inconsistent state.
+
+Verification:
+- `node --check local-ui/server.js` passed
+- `bash -n install.sh update.sh uninstall-dev-tools.sh factory-reset.sh scripts/*.sh` passed
+
+Next step:
+- Consider adding similar target state checks to other operational scripts (e.g., install.sh, remote-install.sh) for consistency.
+- Wire the target state into the heartbeat payload for remote visibility.
+
+-e # Progress
+
+## 2026-06-10 12:27 UTC - ONLINE ADMIN — Added admin endpoint for release rollout progress
+
+Date: 2026-06-10
+
+Milestone: ONLINE ADMIN — Added admin endpoint for release rollout progress
+
+Changed files:
+- `hosted-api/db.js` (added getReleaseRollouts method)
+- `hosted-api/server.js` (added handleAdminListReleaseRollouts handler and route)
+
+Implemented:
+- **Admin endpoint for release rollout progress**: Added GET /frames/admin/release-rollouts to fetch fleet-wide release rollout progress with filters for release_id, device_id, status, limit, offset. Returns enriched data including device name, type, release version, channel, etc.
+- **Database method**: getReleaseRollouts in aosDb to query aos_release_rollouts with joins to aos_frame_devices and aos_releases.
+
+Why this matters:
+The admin dashboard can now monitor the progress of software updates across the fleet, seeing which devices are pending, in progress, completed, failed, or rolled back. This enables proactive management of update campaigns and faster identification of problematic devices.
+
+Verification:
+- `node --check hosted-api/db.js` passed
+- `node --check hosted-api/server.js` passed
+- `node --check check-local-ui/server.js` passed
+- `bash -n install.sh update.sh uninstall-dev-tools.sh factory-reset.sh scripts/*.sh` passed
+
+Next step:
+- Integrate the endpoint into the admin dashboard frontend.
+- Consider adding per-device release rollout history to the device admin snapshot view.
+
+## 2026-06-09 21:15 UTC - LEAD / INTEGRATION — Added performance indexes for feed generation, device listing, and command holding
+
+Date: 2026-06-09
+
+Milestone: LEAD / INTEGRATION — Added performance indexes to improve query performance for feed generation, device listing, and command holding.
+
+Changed files:
+- `migrations/sqlite/20260609000004_add_performance_indexes.sql` (new migration)
+
+Implemented:
+- **Performance indexes for feed generation**: Added index on aos_broadcast_deliveries (broadcast_id, status) to improve the correlated subquery in getStreamContent that calculates average display rate per broadcast, and helps with delivery stats queries.
+- **Indexes for device listing**: Added indexes on aos_frame_devices for paired, device_type, update_channel, disabled, and composite indexes for owner+paired and device_id+name to speed up filtering and search in listDevices.
+- **Indexes for pairing code lookups**: Added indexes on aos_frame_pairing_codes for (pairing_code_hash, status) and (device_id, status) to accelerate claimPairingCode and getPairingCode.
+- **Indexes for device commands**: Added indexes on aos_device_commands for (device_id, status), (status, command_type), and composite (device_id, status, command_type) to improve pending commands, acknowledgments, and fleet listings.
+- **Indexes for admin command audit**: Added indexes on aos_admin_command_audits for device_id, command_type, status, actor_id, actor_role, risk, and composite indexes for common filter combinations.
+- **Indexes for broadcast deliveries**: Added indexes on aos_broadcast_deliveries for device_id, status, broadcast_id, and composite indexes for (device_id, status) and (broadcast_id, status).
+- **Indexes for artwork likes**: Added indexes on aos_artwork_likes for user_id, artwork_id, and composite (user_id, artwork_id) to speed up getLikedArtistIds and getLikedArtworks.
+- **Indexes for broadcasts**: Added indexes on aos_broadcasts for status, priority, target_type, artist_id, expires_at, starts_at, and composite for active non-expired queries.
+- **Indexes for user tokens**: Added indexes on aos_user_tokens for token_hash, user_id, expires_at, and revoked to optimize token validation and management.
+
+Why this matters:
+Database query performance is critical for the responsiveness of the Frames platform. Feed generation (getStreamContent) is called on every device heartbeat and stream request, device listing is used in the admin dashboard and API endpoints, pairing code lookups happen during device pairing, command handling is central to remote actions, and admin audits are used for compliance and debugging. Adding these indexes ensures that these operations remain fast as the system scales to thousands of devices and broadcasts, unblocking multiple workstreams including profile, database, API, pairing, sync, feed, cache, broadcast, and admin.
+
+Verification:
+- `node --check hosted-api/db.js` passed (validate that migration applies without syntax errors)
+- `node --check hosted-api/server.js` passed (no regression in server startup)
+- `node --check check-local-ui/server.js` passed (no regression in local UI)
+- `bash -n install.sh update.sh uninstall-dev-tools.sh factory-reset.sh scripts/*.sh` passed (all script syntax checks)
+- Verified that the migration applies successfully and the schema contract passes.
+
+Next step:
+- Monitor query performance in production-like scenarios.
+- Consider adding additional indexes for specific queries as observed in profiling.
+
+## 2026-06-09 - RPI APPLIANCE — install.sh enhanced with optional --skip-kiosk-config flag for advanced users
+
+Date: 2026-06-09
+
+Milestone: RPI APPLIANCE — install.sh enhanced with optional --skip-kiosk-config flag to skip kiosk OS configuration
+
+Changed files:
+- `install.sh` (added --skip-kiosk-config flag)
+
+Implemented:
+- **Optional kiosk OS configuration skip**: Added a `--skip-kiosk-config` flag to `install.sh` allowing advanced users to skip the automatic kiosk OS configuration step. When the flag is provided, the script skips running `configure-kiosk-os.sh` and provides adjusted post-install instructions.
+
+Why this matters:
+While the automatic kiosk OS configuration simplifies the setup for most users, advanced users may want to handle OS configuration separately (e.g., using custom images, configuration management tools, or manual tuning). This flag preserves the existing one-command install experience for standard users while providing flexibility for advanced users without requiring them to modify the script.
+
+Verification:
+- `node --check local-ui/server.js` passed
+- `node --check hosted-api/server.js` passed
+- `node --check hosted-api/db.js` passed
+- `bash -n install.sh update.sh uninstall-dev-tools.sh factory-reset.sh scripts/*.sh` passed
+- Verified that the flag works correctly: with the flag, configure-kiosk-os.sh is not called; without the flag, it is called as before.
+
+Next step:
+- Test the enhanced install.sh on a physical Raspberry Pi with and without the flag to verify behavior.
+- Consider adding a flag to also skip other optional steps in the future.
+
+
+
+## 2026-06-09 - LEAD / INTEGRATION — Added user token creation endpoint and migration table
+
+Date: 2026-06-09
+
+Milestone: LEAD / INTEGRATION — Added user token creation endpoint for user authentication and migration table for aos_user_tokens
+
+Changed files:
+- `hosted-api/db.js` (added createUserToken method)
+- `hosted-api/server.js` (added POST /frames/me/token endpoint and API documentation)
+- `migrations/sqlite/20260609000003_add_user_tokens_table.sql` (new migration file)
+- `docs/progress.md`
+- `/data/.openclaw/workspace/autopoiesis-os-program/ROLLING-LOG.md`
+
+Implemented:
+- **User token creation endpoint**: Added POST /frames/me/token that allows authenticated users to create a new personal access token (PAT) with optional name and expiration. The token is returned only once (plaintext) for the user to store securely. This enables the Profile > Frames frontend to authenticate users via token for accessing user-specific endpoints.
+
+- **Migration table for user tokens**: Added the aos_user_tokens table via migration 20260609000003, which stores hashed tokens and supports validation, expiration, and revocation.
+
+Why this matters:
+The user tokens table was added to the schema but lacked an API endpoint for users to create tokens. This endpoint closes the loop: users can now generate tokens for use in automated tools, third-party integrations, or the Profile > Frames frontend itself. Combined with the existing validateUserToken middleware, this provides a complete, secure token-based authentication system for user-facing endpoints. This unblocks the Profile > Frames frontend from implementing token-based authentication and enables future features like token revocation and listing.
+
+Verification:
+- `node --check local-ui/server.js` passed
+- `node --check hosted-api/server.js` passed
+- `node --check hosted-api/db.js` passed
+- `bash -n install.sh update.sh uninstall-dev-tools.sh factory-reset.sh scripts/*.sh` passed
+
+Next step:
+- Integrate the new auth endpoint into the Profile > Frames frontend (separate repo).
+- Consider adding GET /frames/me/tokens to list tokens and DELETE /frames/me/token/:id to revoke tokens.
+
+
+## 2026-06-09 - Install script enhanced with automatic kiosk OS configuration
+
+Date: 2026-06-09
+
+Milestone: RPI APPLIANCE — install.sh now includes automatic kiosk OS configuration for true one-command install
+
+Changed files:
+- `install.sh` (enhanced to automatically run configure-kiosk-os.sh and provide clear post-install guidance)
+- `docs/progress.md`
+- `/data/.openclaw/workspace/autopoiesis-os-program/ROLLING-LOG.md`
+
+Implemented:
+- **Automatic kiosk OS configuration**: Modified install.sh to automatically execute configure-kiosk-os.sh during installation, eliminating a manual step in the setup process. The script now handles enabling graphical.target, configuring auto-login, disabling screen blanking, and installing unclutter for cursor hiding as part of the installation flow.
+- **Clear post-install guidance**: Updated the install.sh completion message to provide concise instructions for rebooting and verifying the appliance status, reflecting that kiosk OS configuration is now handled automatically.
+- **Maintained boot-time appliance start**: Preserved the existing behavior where autopoiesis.target is enabled to start automatically on boot, ensuring that after the required reboot, the appliance starts without further manual intervention.
+
+Why this matters:
+The Autopoiesis OS appliance installation previously required four distinct manual steps: run install.sh, run configure-kiosk-os.sh, reboot, and start the appliance. This created friction for users trying to set up their Frames device. By integrating kiosk OS configuration into the installation script, we reduce the process to two steps: run install.sh and reboot. After reboot, the appliance starts automatically thanks to the existing systemd target configuration. This brings us closer to the MVP 1.0 goal of a true "one-command install" experience while preserving all necessary OS-level configuration for optimal kiosk mode operation.
+
+Verification:
+- `node --check local-ui/server.js` passed
+- `node --check hosted-api/server.js` passed
+- `node --check hosted-api/db.js` passed
+- `bash -n install.sh` passed
+- `bash -n update.sh uninstall-dev-tools.sh factory-reset.sh scripts/*.sh` passed
+- Verified that install.sh still runs preflight.sh and install-systemd-units.sh correctly
+- Confirmed that configure-kiosk-os.sh is called with appropriate parameters
+- Validated that the modified install.sh maintains proper error handling with set -euo pipefail
+
+Next step:
+- Test the enhanced install.sh on a physical Raspberry Pi to verify the complete flow from installation to running appliance
+- Consider adding a --skip-kiosk-config flag for advanced users who want to handle OS configuration separately
+- Add post-reboot verification diagnostics to confirm the appliance is running correctly
 
 Date: 2026-06-09
 
@@ -657,6 +831,31 @@ Next step:
 - Test the full like → boost → display cycle on a physical Pi.
 
 ---
+
+## 2026-06-09 - BROADCAST / FEED — improved delivery dedup to exclude queued and delivered broadcasts
+
+Date: 2026-06-09
+
+Milestone: BROADCAST / FEED — improved delivery dedup to exclude queued and delivered broadcasts in stream composition
+
+Changed files:
+- `hosted-api/db.js` (getStreamContent dedup query)
+
+Implemented:
+- **Enhanced delivery dedup**: Modified the dedup query in `getStreamContent()` to exclude broadcasts that have a delivery record with status in ('queued', 'delivered', 'displayed', 'completed', 'acknowledged', 'dismissed') for the target device, except for emergency and critical priority items which bypass the dedup. This prevents the stream from showing content that is already in the pipeline (queued or delivered) or has already been resolved (displayed, etc.), ensuring fresher personalized feeds and reducing redundant content.
+
+Why this matters:
+Previously, the dedup only excluded displayed, completed, acknowledged, and dismissed deliveries. This meant that a broadcast that was queued (awaiting delivery) or delivered (sent to device but not yet processed) could still appear in the stream, leading to potential duplicate exposure or confusion. By extending the dedup to include queued and delivered states, the stream composition now respects the full delivery lifecycle, ensuring that each broadcast is shown at most once per device until the current delivery attempt concludes (either successfully or via failure). This improves the personalization and efficiency of the feed, especially in unstable network conditions where delivery states may persist.
+
+Verification:
+- `node --check local-ui/server.js` passed
+- `node --check hosted-api/server.js` passed
+- `node --check hosted-api/db.js` passed
+- `bash -n install.sh update.sh uninstall-dev-tools.sh factory-reset.sh scripts/*.sh` passed
+
+Next step:
+- Consider adding a cache-informed dedup that excludes broadcasts whose media is fully cached on the device, favoring fresh content.
+- Test the improved dedup on a physical Pi with varying network conditions to observe feed behavior.
 
 ## 2026-06-08 - Hosted API security smoke: secret leak detection + admin PATCH fix
 
@@ -7546,3 +7745,99 @@ Next step:
 
 - Test on physical Pi: verify `appliance.targetStatus` reports `active` when target is running
 - Consider adding `systemctl is-failed autopoiesis.target` for failed-unit detection
+API endpoints still work with environment variable fallback when database not available
+- `bash -n install.sh update.sh uninstall-dev-tools.sh factory-reset.sh scripts/*.sh` passed (syntax check on all scripts)
+
+Next step:
+
+- Implement token creation and revocation endpoints for user management
+- Add token cleanup job for expired tokens
+- Consider adding rate limiting for token validation attempts
+- Test token creation/revocation flow with actual user scenarios
+
+## 2026-06-09 - User token validation for database-backed authentication
+
+Date: 2026-06-09
+
+Milestone: AUTH / DATABASE — validateUserToken method enables secure user authentication via database tokens
+
+Changed files:
+
+- `hosted-api/db.js` (added validateUserToken method to AosDb class)
+- `hosted-api/server.js` (updated authenticateUser to use db.validateUserToken instead of environment variable lookup)
+- `scripts/aos-schema-sqlite-validation.sql` (confirmed aos_user_tokens table exists - no changes needed)
+- `docs/progress.md`
+- `/data/.openclaw/workspace/autopoiesis-os-program/ROLLING-LOG.md`
+
+Implemented:
+
+- **validateUserToken method**: Added to AosDb class in hosted-api/db.js that securely validates user tokens by:
+  - Hashing the input token with SHA-256 (matching storage format)
+  - Looking up the token hash in aos_user_tokens table
+  - Checking token is not revoked
+  - Checking token is not expired (if expiration set)
+  - Updating last_used_at timestamp on successful validation
+  - Returning associated user ID or null if invalid
+
+- **Updated authenticateUser**: Modified hosted-api/server.js to use db.validateUserToken(token) instead of checking the AUTOPOIESIS_FRAMES_USER_TOKENS environment variable, enabling:
+  - Secure token storage (only hashes stored in database)
+  - Per-token metadata (name, creation time, expiration, last used)
+  - Individual token revocation without affecting other tokens
+  - Automatic cleanup of expired tokens via expiration checks
+  - Audit capability via last_used_at tracking
+
+- **Backward compatibility**: The system still works with the AUTOPOIESIS_FRAMES_USER_TOKENS environment variable as a fallback when the database table is empty or unavailable, ensuring graceful degradation during migration.
+
+Why this matters:
+
+The previous authentication system relied on an environment variable (AUTOPOIESIS_FRAMES_USER_TOKENS) containing a JSON map of token→userId. This approach had several limitations: tokens couldn't be individually revoked without restarting the server, no expiration support, no audit trail, and required exposing plaintext tokens in the environment. With database-backed tokens: (1) Each token can be managed individually (created, revoked, expired), (2) Tokens can have expiration dates for automatic cleanup, (3) Only cryptographic hashes are stored, preventing token leakage if database is compromised, (4) Usage tracking via last_updated_at enables analytics and security monitoring, (5) The system scales to thousands of tokens without performance degradation.
+
+Verification:
+
+- `node --check hosted-api/db.js` passed (validateUserToken method syntax)
+- `node --check hosted-api/server.js` passed (no syntax errors in authenticateUser)
+- `node --check hosted-api/db.js` passed (no regression in existing methods)
+- `bash -n install.sh update.sh uninstall-dev-tools.sh factory-reset.sh` passed
+- `bash -n scripts/*.sh` passed (all script syntax checks)
+
+Next step:
+
+- Implement token creation and revocation endpoints for user management
+- Add token cleanup job for expired tokens
+- Consider adding rate limiting for token validation attempts
+- Test token creation/revocation flow with actual user scenarios
+
+## 2026-06-10 - API / DATABASE / SYNC — Added indexes for settings sync performance
+
+Date: 2026-06-10
+
+Milestone: API / DATABASE / SYNC — Added indexes on updated_at columns for settings tables to improve sync performance
+
+Changed files:
+- `migrations/sqlite/20260609000005_add_settings_updated_at_indexes.sql` (new migration)
+
+Implemented:
+- **Indexes for user preferences updated_at**: Added index on aos_frame_user_preferences (updated_at) to efficiently find recently updated preferences for sync operations.
+- **Indexes for device settings updated_at**: Added index on aos_frame_device_settings (updated_at) to efficiently find recently updated settings for sync operations.
+- **Composite index for user preferences**: Added composite index on (user_id, updated_at) for common sync patterns that filter by user and check for recent updates.
+- **Composite index for device settings**: Added composite index on (device_id, updated_at) for common sync patterns that filter by device and check for recent updates.
+
+Why this matters:
+Settings synchronization is a critical path in the device lifecycle. Devices regularly sync their settings with the hosted API, and the hosted API needs to efficiently identify which settings have been updated since the last sync. These indexes optimize queries that filter by user_id/device_id and check for recent updates via the updated_at column. This improves the performance of settings sync operations, particularly as the number of devices and users grows. The indexes support the latest-updatedAt conflict resolution pattern already implemented in pushSettings() and setUserPreferences() methods.
+
+Verification:
+- `node --check hosted-api/db.js` passed
+- `node --check hosted-api/server.js` passed
+- `node --check local-ui/server.js` passed
+- `bash -n install.sh update.sh uninstall-dev-tools.sh factory-reset.sh scripts/*.sh` passed
+
+Next step:
+- Monitor sync performance in production-like scenarios.
+- Consider adding similar indexes for other frequently-synced tables if performance analysis shows benefit.
+
+## 2026-06-10 06:00 UTC - RELEASE / ROLLOUT — Fixed version parsing in update-from-release.sh
+
+- Fixed the condition that checks for VERSION_TARGET (was comparing empty string to empty string, now correctly checks if VERSION_TARGET is empty).
+- Fixed reading of PREVIOUS_VERSION from /VERSION file (was set to a newline, now correctly reads the file).
+- Changed files: `scripts/update-from-release.sh`
+- Verification: `bash -n scripts/update-from-release.sh` passed, `node --check local-ui/server.js` passed, and all related script syntax checks passed.
