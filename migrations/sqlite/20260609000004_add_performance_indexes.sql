@@ -1,5 +1,5 @@
 -- Migration: 20260609000004_add_performance_indexes
--- Adds indexes to improve query performance for feed generation, device listing, and command handling.
+-- Adds indexes to improve query performance for feed generation, device listing, and command holding.
 -- Safe to re-run (IF NOT EXISTS).
 
 -- Index for feed generation: improves the correlated subquery in getStreamContent that calculates

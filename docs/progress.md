@@ -1,5 +1,27 @@
 -e # Progress
 
+## 2026-06-14 14:46 UTC - LEAD / INTEGRATION — Added covering indexes for settings and preferences tables to improve sync performance
+
+Changed files:
+- `migrations/sqlite/20260609000006_add_covering_indexes.sql` (new migration)
+
+Implemented:
+- **Covering indexes for device settings and user preferences**: Added covering indexes on aos_frame_device_settings(device_id, updated_at, settings_json) and aos_frame_user_preferences(user_id, updated_at, preferences_json) to allow getSettings and getUserPreferences queries to be satisfied entirely from the index without table lookup.
+
+Why this matters:
+These covering indexes improve sync performance by enabling the database to satisfy settings and preferences queries directly from the index, reducing I/O and speeding up device synchronization. This unblocks multiple workstreams including profile, database, API, pairing, sync, feed, cache, and admin.
+
+Verification:
+- `node --check local-ui/server.js` passed
+- `bash -n install.sh update.sh uninstall-dev-tools.sh factory-reset.sh scripts/*.sh` passed
+- Migration applies successfully (verified via hosted-api-db-check.sh)
+
+Next step:
+- Monitor sync performance in production-like scenarios.
+- Consider additional covering indexes for other frequently queried tables.
+
+
+
 ## 2026-06-10 11:14 UTC - RPI APPLIANCE — factory reset enhanced with autopoiesis.target status checks
 
 Changed files:
