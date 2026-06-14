@@ -16,6 +16,7 @@
  *   GET  /frames/device/:id/pairing-status          – Pairing status poll
  *   GET  /frames/device/:id/settings                – Read device settings
  *   POST /frames/device/:id/settings                – Push device settings
+ *   GET  /frames/device/:id/effective-preferences   – Get effective preferences (owner cascade + device settings)
  *   POST /frames/device/:id/heartbeat               – Heartbeat + event ingestion
  *   GET  /frames/device/:id/stream                  – Content stream
  *   GET  /frames/device/:id/feed                    – Feed alias
@@ -554,6 +555,94 @@ function handleGetSettings(db, deviceId) {
   }
 
   return { status: 200, body: response };
+}
+
+/**
+ * GET /frames/device/:id/effective-preferences
+ * Returns the effective preferences for a device (owner cascade fields + device-level settings).
+ */
+function handleGetEffectivePreferences(db, deviceId, auth) {
+  const record = db.getDevice(deviceId);
+  if (!record) return { status: 404, body: { ok: false, error: "Device not found" } };
+
+  // Get device settings
+  const deviceSettingsResult = db.getSettings(deviceId);
+  const deviceSettings = deviceSettingsResult && deviceSettingsResult.settings ? deviceSettingsResult.settings : {};
+
+  // Get owner preferences if device has an owner
+  let ownerPreferences = {};
+  let ownerPreferencesUpdatedAt = null;
+  if (record.ownerUserId) {
+    const ownerPrefsResult = db.getUserPreferences(record.ownerUserId);
+    if (ownerPrefsResult && ownerPrefsResult.preferences && Object.keys(ownerPrefsResult.preferences).length > 0) {
+      ownerPreferences = ownerPrefsResult.preferences;
+      ownerPreferencesUpdatedAt = ownerPrefsResult.updatedAt || null;
+    }
+  }
+
+  // Define cascade fields (must match those in local-ui/server.js)
+  const OWNER_CASCADE_FIELDS = [
+    "streamCategories",
+    "activeArtists",
+    "allowImages",
+    "allowVideos",
+    "allowSoundWorks",
+    "allowGenerativeWorks",
+    "soundEnabled",
+    "autoplay",
+    "videoAutoplay",
+    "soundAutoplay",
+    "cacheLikedArtworks",
+    "cacheRecentArtworks",
+    "offlineFallbackMode"
+  ];
+
+  // Build effective preferences:
+  // For cascade fields: take from owner preferences (or default if missing)
+  // For device-level fields (not in cascade): take from device settings (or default if missing)
+  const defaults = {
+    activeArtists: [],
+    streamCategories: ["artwork", "curatorial", "blog"],
+    allowImages: true,
+    allowVideos: true,
+    allowSoundWorks: false,
+    allowGenerativeWorks: true,
+    autoplay: true,
+    videoAutoplay: false,
+    soundAutoplay: false,
+    soundEnabled: false,
+    cacheLikedArtworks: true,
+    cacheRecentArtworks: true,
+    offlineFallbackMode: "cached"
+  };
+
+  const effectivePrefs = {};
+
+  // First, apply defaults
+  Object.assign(effectivePrefs, defaults);
+
+  // Override with owner preferences for cascade fields
+  OWNER_CASCADE_FIELDS.forEach(field => {
+    if (ownerPreferences[field] !== undefined) {
+      effectivePrefs[field] = ownerPreferences[field];
+    }
+  });
+
+  // Override with device settings for all fields (device settings may include both cascade and device-level fields,
+  // but note: device should not override cascade fields per design, but we allow it here for completeness)
+  Object.assign(effectivePrefs, deviceSettings);
+
+  return {
+    status: 200,
+    body: {
+      ok: true,
+      effectivePreferences: effectivePrefs,
+      deviceSettings: deviceSettings,
+      ownerPreferences: ownerPreferences,
+      ownerPreferencesUpdatedAt: ownerPreferencesUpdatedAt,
+      updatedAt: now()
+    }
+  };
 }
 
 /**
@@ -1396,6 +1485,31 @@ function handleAdminListUsers(db, filters = {}) {
 }
 
 /**
+ * GET /frames/admin/release-rollouts
+ * Admin endpoint: list release rollout progress with filters and pagination.
+ * Returns enriched data including device name, type, release version, channel, etc.
+ */
+function handleAdminListReleaseRollouts(db, queryParams) {
+  const {
+    releaseId, deviceId, status,
+    limit: rawLimit, offset: rawOffset
+  } = queryParams;
+
+  const limit = Math.min(Math.max(parseInt(rawLimit, 10) || 50, 1), 200);
+  const offset = Math.max(parseInt(rawOffset, 10) || 0, 0);
+
+  const result = db.getReleaseRollouts({ releaseId, deviceId, status, limit, offset });
+  return {
+    status: 200,
+    body: {
+      ok: true,
+      kind: "autopoiesis_frames_admin_release_rollouts",
+      ...result
+    }
+  };
+}
+
+/**
  * GET /frames/admin/users/:userId
  *
  * Get a single user's full profile: devices, subscription, preferences,
@@ -1891,7 +2005,8 @@ function handleAdminDeviceSnapshot(db, deviceId) {
       pendingCommands,
       ownerSubscription,
       ownerEntitlements,
-      actionAvailability
+      actionAvailability,
+      releaseRollouts: db.getReleaseRollouts({ deviceId, limit: 10 })
     }
   };
 }
@@ -2500,6 +2615,19 @@ async function handle(db, req, res) {
       if (val !== null) queryParams[key] = val;
     }
     return sendResult(res, handleAdminListDevices(db, queryParams));
+  }
+
+  // GET /frames/admin/release-rollouts — Admin endpoint: list release rollout progress with filters and pagination
+  if (method === "GET" && pathname === "/frames/admin/release-rollouts") {
+    const adminAuth = authenticateAdmin(req);
+    if (!adminAuth.ok) return sendJson(res, adminAuth.status, { ok: false, error: adminAuth.error });
+    const url = new URL(req.url, "http://localhost");
+    const queryParams = {};
+    for (const key of ["releaseId", "deviceId", "status", "limit", "offset"]) {
+      const val = url.searchParams.get(key);
+      if (val !== null) queryParams[key] = val;
+    }
+    return sendResult(res, handleAdminListReleaseRollouts(db, queryParams));
   }
 
   // ── Admin fleet commands + audit trail ────────────────────────────────

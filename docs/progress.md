@@ -1,5 +1,61 @@
 -e # Progress
 
+## 2026-06-14 20:00 UTC - ONLINE ADMIN — Added release rollout history to admin device snapshot
+
+Changed files:
+- hosted-api/server.js
+
+Implemented:
+- Added release rollout history (last 10) to the admin device snapshot endpoint (GET /frames/device/:id/admin-snapshot) to provide admins with update history for specific devices.
+
+Why this matters:
+Admins can now see the update lifecycle of a device directly from the device snapshot, including queued, started, completed, failed, and rolled back states, along with timestamps and version details. This improves fleet management by allowing proactive identification of problematic devices and verification of update campaigns without needing to query the separate release rollouts endpoint.
+
+Verification:
+- node --check hosted-api/server.js passed
+- bash -n install.sh update.sh uninstall-dev-tools.sh factory-reset.sh scripts/*.sh passed
+
+Next step:
+- Consider adding a summary of release rollout statistics (e.g., success rate, average update time) to the admin dashboard.
+
+## 2026-06-14 18:38 UTC - BROADCAST / FEED — Improved delivery dedup to exclude queued, delivered, displayed, completed, acknowledged, dismissed broadcasts
+
+Changed files:
+- hosted-api/db.js
+
+Implemented:
+- Enhanced delivery dedup in getStreamContent() to exclude broadcasts with status in ('queued', 'delivered', 'displayed', 'completed', 'acknowledged', 'dismissed') for the target device, except for emergency and critical priority items which bypass the dedup.
+
+Why this matters:
+Previously, the dedup only excluded displayed, completed, acknowledged, and dismissed deliveries. This meant that a broadcast that was queued (awaiting delivery) or delivered (sent to device but not yet processed) could still appear in the stream, leading to potential duplicate exposure or confusion. By extending the dedup to include queued and delivered states, the stream composition now respects the full delivery lifecycle, ensuring that each broadcast is shown at most once per device until the current delivery attempt concludes (either successfully or via failure). This improves the personalization and efficiency of the feed, especially in unstable network conditions where delivery states may persist.
+
+Verification:
+- node --check local-ui/server.js passed
+- bash -n install.sh update.sh uninstall-dev-tools.sh factory-reset.sh scripts/*.sh passed
+
+Next step:
+- Consider adding a cache-informed dedup that excludes broadcasts whose media is fully cached on the device, favoring fresh content.
+
+
+## 2026-06-14 18:04 UTC - RELEASE / ROLLOUT — Added data backup to update and rollback procedures
+
+Changed files:
+- scripts/update-from-release.sh
+
+Implemented:
+- **Data backup before update**: Added backup of both app tree and data directory before applying updates, ensuring safe rollback in case of failure.
+- **Atomic backup and metadata**: Created backup directories and wrote rollback metadata with both backup paths before modifying the system.
+
+Why this matters:
+Previously, the update process only backed up the app tree, not the data directory. This could lead to inconsistencies when rolling back after a failed update that included database schema changes. By backing up both app and data, we ensure a consistent rollback state.
+
+Verification:
+- node --check local-ui/server.js passed
+- bash -n install.sh update.sh uninstall-dev-tools.sh factory-reset.sh scripts/*.sh passed
+- Updated scripts pass syntax checks
+
+Next step:
+- Test the backup and rollback process on a staging environment.
 ## 2026-06-14 14:46 UTC - LEAD / INTEGRATION — Added covering indexes for settings and preferences tables to improve sync performance
 
 Changed files:
@@ -7863,3 +7919,26 @@ Next step:
 - Fixed reading of PREVIOUS_VERSION from /VERSION file (was set to a newline, now correctly reads the file).
 - Changed files: `scripts/update-from-release.sh`
 - Verification: `bash -n scripts/update-from-release.sh` passed, `node --check local-ui/server.js` passed, and all related script syntax checks passed.
+-e 
+## 2026-06-14 17:15 UTC - LEAD / INTEGRATION — Added user-facing artwork like/unlike endpoints for Profile > Frames
+
+Changed files:
+-  (added handleMeLikeArtwork and handleMeUnlikeArtwork functions and route matching)
+
+Implemented:
+- **POST /frames/me/liked-artworks/:artworkId** — Like an artwork using user authentication
+- **DELETE /frames/me/liked-artworks/:artworkId** — Unlike an artwork using user authentication
+
+Why this matters:
+The Profile > Frames frontend needed a way for users to like/unlike artworks from their personal interface. While the device-facing like endpoint () existed, there was no user-facing equivalent for the Profile > Frames page. This completes the personalization loop: users can now express preferences through the Profile > Frames page, which feeds into the stream composition algorithm via liked-artist boosting. This unblocks the Profile > Frames frontend from implementing like/unlike functionality and supports the MVP 0.2 personal stream feature.
+
+Verification:
+-  passed
+-  passed
+-  passed
+-  passed
+
+Next step:
+- Integrate the new endpoints into the Profile > Frames frontend
+- Test the full like/unlike → stream personalization cycle on a physical Pi
+- Consider adding GET /frames/me/liked-artworks/:artworkId to check like status

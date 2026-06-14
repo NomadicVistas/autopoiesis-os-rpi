@@ -65,6 +65,7 @@ SERVICE_COMMAND_EXECUTOR="unknown"
 SERVICE_WATCHDOG="unknown"
 SERVICE_NIGHT_MODE="unknown"
 APPLIANCE_TARGET="unknown"
+APPLIANCE_TARGET_ENABLED="unknown"
 
 if command -v systemctl >/dev/null 2>&1; then
   SERVICE_SETUP="$(systemctl is-active autopoiesis-setup.service 2>/dev/null || echo "unknown")"
@@ -76,9 +77,10 @@ if command -v systemctl >/dev/null 2>&1; then
   SERVICE_WATCHDOG="$(systemctl is-active autopoiesis-watchdog.service 2>/dev/null || echo "unknown")"
   SERVICE_NIGHT_MODE="$(systemctl is-active autopoiesis-night-mode.service 2>/dev/null || echo "unknown")"
   APPLIANCE_TARGET="$(systemctl is-active autopoiesis.target 2>/dev/null || echo "unknown")"
+  APPLIANCE_TARGET_ENABLED="$(systemctl is-enabled autopoiesis.target 2>/dev/null || echo "unknown")"
 fi
 
-printf '%s device=%s mode=%s temp=%s diskFreeMb=%s memoryUsageMb=%s memoryTotalMb=%s cpuLoadAvg=%s uptimeSeconds=%s setup=%s heartbeat=%s kiosk=%s cache=%s updater=%s commandExecutor=%s watchdog=%s nightMode=%s applianceTarget=%s\n' "$(date -Is)" "$DEVICE_ID" "$MODE" "$TEMP" "$DISK_FREE_MB" "$MEMORY_USAGE_MB" "$MEMORY_TOTAL_MB" "$CPU_LOAD_AVG" "$UPTIME_SECONDS" "$SERVICE_SETUP" "$SERVICE_HEARTBEAT" "$SERVICE_KIOSK" "$SERVICE_CACHE" "$SERVICE_UPDATER" "$SERVICE_COMMAND_EXECUTOR" "$SERVICE_WATCHDOG" "$SERVICE_NIGHT_MODE" "$APPLIANCE_TARGET" >> "$LOG_DIR/heartbeat.log"
+printf '%s device=%s mode=%s temp=%s diskFreeMb=%s memoryUsageMb=%s memoryTotalMb=%s cpuLoadAvg=%s uptimeSeconds=%s setup=%s heartbeat=%s kiosk=%s cache=%s updater=%s commandExecutor=%s watchdog=%s nightMode=%s applianceTarget=%s applianceTargetEnabled=%s\n' "$(date -Is)" "$DEVICE_ID" "$MODE" "$TEMP" "$DISK_FREE_MB" "$MEMORY_USAGE_MB" "$MEMORY_TOTAL_MB" "$CPU_LOAD_AVG" "$UPTIME_SECONDS" "$SERVICE_SETUP" "$SERVICE_HEARTBEAT" "$SERVICE_KIOSK" "$SERVICE_CACHE" "$SERVICE_UPDATER" "$SERVICE_COMMAND_EXECUTOR" "$SERVICE_WATCHDOG" "$SERVICE_NIGHT_MODE" "$APPLIANCE_TARGET" "$APPLIANCE_TARGET_ENABLED" >> "$LOG_DIR/heartbeat.log"
 
 if command -v curl >/dev/null 2>&1; then
   if curl -fsS -X POST "$HEARTBEAT_URL" >> "$LOG_DIR/heartbeat.log" 2>> "$LOG_DIR/heartbeat-error.log"; then

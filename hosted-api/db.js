@@ -1211,6 +1211,83 @@ class AosDb {
   }
 
   /**
+   * Get release rollout progress with optional filters and pagination.
+   * @param {object} [opts]
+   * @param {string} [opts.releaseId] - Filter by release ID
+   * @param {string} [opts.deviceId] - Filter by device ID
+   * @param {string} [opts.status] - Filter by rollout status (pending, in_progress, completed, failed, rolled_back)
+   * @param {number} [opts.limit] - Max results (default 50)
+   * @param {number} [opts.offset] - Offset for pagination
+   * @returns {{ items: Array<object>, total: number, limit: number, offset: number }}
+   */
+  getReleaseRollouts(opts = {}) {
+    const limit = Math.min(Math.max(1, opts.limit || 50), 200);
+    const offset = Math.max(0, opts.offset || 0);
+    const conditions = [];
+    const params = [];
+
+    if (opts.releaseId) {
+      conditions.push("release_id = ?");
+      params.push(opts.releaseId);
+    }
+    if (opts.deviceId) {
+      conditions.push("device_id = ?");
+      params.push(opts.deviceId);
+    }
+    if (opts.status) {
+      conditions.push("status = ?");
+      params.push(opts.status);
+    }
+
+    const where = conditions.length > 0 ? "WHERE " + conditions.join(" AND ") : "";
+
+    const countRow = this.db.prepare(
+      `SELECT COUNT(*) AS cnt FROM aos_release_rollouts ${where}`
+    ).get(...params);
+    const total = countRow ? countRow.cnt : 0;
+
+    const rows = this.db.prepare(
+      `SELECT r.*, d.device_name, d.device_type, rel.version as release_version, rel.channel as release_channel
+       FROM aos_release_rollouts r
+       JOIN aos_frame_devices d ON r.device_id = d.device_id
+       JOIN aos_releases rel ON r.release_id = rel.id
+       ${where}
+       ORDER BY r.created_at DESC
+       LIMIT ? OFFSET ?`
+    ).all(...params, limit, offset);
+
+    return {
+      items: rows.map(row => ({
+        id: row.id,
+        releaseId: row.release_id,
+        deviceId: row.device_id,
+        commandId: row.command_id,
+        currentVersion: row.current_version,
+        targetVersion: row.target_version,
+        status: row.status,
+        queuedAt: row.queued_at,
+        startedAt: row.started_at,
+        completedAt: row.completed_at,
+        failedAt: row.failed_at,
+        rolledBackAt: row.rolled_back_at,
+        failureReason: row.failure_reason,
+        acknowledgedAt: row.acknowledged_at,
+        error: row.error,
+        lastSeenAt: row.last_seen_at,
+        createdAt: row.created_at,
+        updatedAt: row.updated_at,
+        deviceName: row.device_name,
+        deviceType: row.device_type,
+        releaseVersion: row.release_version,
+        releaseChannel: row.release_channel
+      })),
+      total,
+      limit,
+      offset
+    };
+  }
+
+  /**
    * Create a release.
    * @param {object} params
    * @returns {{ ok, release }}
@@ -1412,15 +1489,17 @@ class AosDb {
     const limit = context.limit || 30;
     const nowISO = now();
 
-    // Build set of already-displayed broadcast IDs for this device (dedup)
-    const displayedSet = new Set();
+    // Build set of excluded broadcast IDs for this device (dedup)
+    // Exclude broadcasts that are queued, delivered, displayed, completed, acknowledged, or dismissed
+    // Emergency and critical priority items bypass this exclusion
+    const excludedSet = new Set();
     if (deviceId) {
       try {
-        const displayed = this.db.prepare(
+        const excluded = this.db.prepare(
           `SELECT broadcast_id FROM aos_broadcast_deliveries
-           WHERE device_id = ? AND status IN ('displayed', 'completed', 'acknowledged')`
+           WHERE device_id = ? AND status IN ('queued', 'delivered', 'displayed', 'completed', 'acknowledged', 'dismissed')`
         ).all(deviceId);
-        for (const row of displayed) displayedSet.add(row.broadcast_id);
+        for (const row of excluded) excludedSet.add(row.broadcast_id);
       } catch (_) { /* table may not exist in fresh bootstrap */ }
     }
 
@@ -1493,8 +1572,8 @@ class AosDb {
 
     // Map rows to stream items with source attribution and delivery dedup
     const items = categoryFiltered.filter(row => {
-      // Exclude already-displayed items (unless they are emergency/critical priority)
-      if (displayedSet.has(row.id)) {
+      // Exclude excluded items (unless they are emergency/critical priority)
+      if (excludedSet.has(row.id)) {
         const rank = _priorityRank(row.priority);
         return rank >= 400; // keep emergency (500) and critical (400)
       }

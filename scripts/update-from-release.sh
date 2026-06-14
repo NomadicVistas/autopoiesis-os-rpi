@@ -216,18 +216,10 @@ preflight_same_version() {
 # ── Rollback metadata ────────────────────────────────────────────────────
 
 write_rollback_metadata() {
-  node -e "const fs=require('fs');const file=process.argv[1];const previousVersion=process.argv[2];const previousRevision=process.argv[3]||null;const targetVersion=process.argv[4];const backupDir=process.argv[5]||null;const releaseChannel=process.argv[6]||null;const releaseTag=process.argv[7]||null;const releaseId=process.argv[8]||null;fs.writeFileSync(file, JSON.stringify({previousVersion,previousRevision,targetVersion,backupDir,releaseChannel,releaseTag,releaseId,startedAt:new Date().toISOString()}, null, 2)+'\n')" "$ROLLBACK_FILE" "$PREVIOUS_VERSION" "$PREVIOUS_REV" "$VERSION_TARGET" "$ROLLBACK_BACKUP_DIR" "$RELEASE_CHANNEL" "$RELEASE_TAG" "$RELEASE_ID"
+  node -e "const fs=require(fs);const file=process.argv[1];const previousVersion=process.argv[2];const previousRevision=process.argv[3]||null;const targetVersion=process.argv[4];const appBackupDir=process.argv[5]||null;const dataBackupDir=process.argv[6]||null;const releaseChannel=process.argv[7]||null;const releaseTag=process.argv[8]||null;const releaseId=process.argv[9]||null;fs.writeFileSync(file, JSON.stringify({previousVersion,previousRevision,targetVersion,appBackupDir,dataBackupDir,releaseChannel,releaseTag,releaseId,startedAt:new Date().toISOString()}, null, 2)+
+)"
+  "$ROLLBACK_FILE" "$PREVIOUS_VERSION" "$PREVIOUS_REV" "$VERSION_TARGET" "$ROLLBACK_BACKUP_DIR" "$DATA_BACKUP_DIR" "$RELEASE_CHANNEL" "$RELEASE_TAG" "$RELEASE_ID"
 }
-
-# ══════════════════════════════════════════════════════════════════════════
-# Main update flow
-# ══════════════════════════════════════════════════════════════════════════
-
-if [[ -z "$RELEASE_JSON" || ! -f "$RELEASE_JSON" ]]; then
-  fail "missing release json argument"
-fi
-
-# ── 1. Channel enforcement ───────────────────────────────────────────────
 
 if [[ -z "${AUTOPOIESIS_RELEASE_CHANNEL:-}" ]]; then
   DEVICE_UPDATE_CHANNEL="$(read_device_update_channel)"
@@ -287,9 +279,23 @@ if [[ -z "$ARTIFACT_URL" ]]; then
     fail "installed app is not a git checkout and no artifact_url was supplied"
   fi
   METHOD="git_ff"
-  write_rollback_metadata
 
   stop_appliance_services
+
+  # Create rollback backup directories
+  ROLLBACK_DIR="$INSTALL_DIR/releases/rollback"
+  APP_BACKUP_DIR="$ROLLBACK_DIR/app"
+  DATA_BACKUP_DIR="$ROLLBACK_DIR/data"
+  mkdir -p "$APP_BACKUP_DIR" "$DATA_BACKUP_DIR"
+
+  # Backup app tree
+  copy_app_tree "$APP_DIR" "$APP_BACKUP_DIR"
+
+  # Backup data directory
+  copy_app_tree "$DATA_DIR" "$DATA_BACKUP_DIR"
+
+  # Write rollback metadata
+  node -e "const fs=require('fs');const file=process.argv[1];const previousVersion=process.argv[2];const previousRevision=process.argv[3]||null;const targetVersion=process.argv[4];const appBackupDir=process.argv[5]||null;const dataBackupDir=process.argv[6]||null;const releaseChannel=process.argv[7]||null;const releaseTag=process.argv[8]||null;const releaseId=process.argv[9]||null;fs.writeFileSync(file, JSON.stringify({previousVersion,previousRevision,targetVersion,appBackupDir,dataBackupDir,releaseChannel,releaseTag,releaseId,startedAt:new Date().toISOString()}, null, 2)+'\\n')" "$ROLLBACK_FILE" "$PREVIOUS_VERSION" "$PREVIOUS_REV" "$VERSION_TARGET" "$APP_BACKUP_DIR" "$DATA_BACKUP_DIR" "$RELEASE_CHANNEL" "$RELEASE_TAG" "$RELEASE_ID"
 
   git -C "$APP_DIR" fetch origin main
   git -C "$APP_DIR" pull --ff-only origin main
@@ -336,12 +342,18 @@ fi
 # Stop services before touching app tree
 stop_appliance_services
 
-# Create rollback backup (while services are stopped)
+# Create rollback backup of data directory (while services are stopped)
 rm -rf "$ROLLBACK_DIR"
+mkdir -p "$ROLLBACK_DIR"
+DATA_BACKUP_DIR="$ROLLBACK_DIR/data"
+copy_app_tree "$DATA_DIR" "$DATA_BACKUP_DIR"
+log "data backup created: $DATA_BACKUP_DIR"
+
+# Create rollback backup of app tree (while services are stopped)
 mkdir -p "$ROLLBACK_DIR/app"
 copy_app_tree "$APP_DIR" "$ROLLBACK_DIR/app"
 ROLLBACK_BACKUP_DIR="$ROLLBACK_DIR/app"
-write_rollback_metadata
+node -e "const fs=require('fs');const file=process.argv[1];const previousVersion=process.argv[2];const previousRevision=process.argv[3]||null;const targetVersion=process.argv[4];const appBackupDir=process.argv[5]||null;const dataBackupDir=process.argv[6]||null;const releaseChannel=process.argv[7]||null;const releaseTag=process.argv[8]||null;const releaseId=process.argv[9]||null;fs.writeFileSync(file, JSON.stringify({previousVersion,previousRevision,targetVersion,appBackupDir,dataBackupDir,releaseChannel,releaseTag,releaseId,startedAt:new Date().toISOString()}, null, 2)+'\n')" "$ROLLBACK_FILE" "$PREVIOUS_VERSION" "$PREVIOUS_REV" "$VERSION_TARGET" "$ROLLBACK_BACKUP_DIR" "$DATA_BACKUP_DIR" "$RELEASE_CHANNEL" "$RELEASE_TAG" "$RELEASE_ID"
 log "rollback backup created: $ROLLBACK_BACKUP_DIR"
 
 # Extract artifact to staging

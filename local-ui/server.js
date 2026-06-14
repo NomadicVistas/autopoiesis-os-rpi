@@ -249,7 +249,73 @@ function status() {
   const state = readJson(paths.state, {});
   const network = readJson(path.join(DATA_DIR, "network.json"), null);
   const pairing = readJson(paths.pairing, null);
-  return { device, preferences, state, network, pairing, version: version() };
+  const services = {};
+  const timers = {};
+  
+  // Collect service and timer status if systemctl is available
+  if (typeof process !== "undefined" && process.versions && process.versions.node) {
+    // Note: In the browser environment, we can't access systemctl
+    // This will only work when running in Node.js context (local UI server)
+    try {
+      const { execSync } = require("child_process");
+      const hasSystemctl = !!execSync("which systemctl", { stdio: "ignore" });
+      
+      if (hasSystemctl) {
+        // Get autopoiesis.target status
+        try {
+          const targetStatus = execSync("systemctl is-active autopoiesis.target", { encoding: "utf8" }).trim();
+          services.autopoiesisTarget = targetStatus;
+        } catch (e) {
+          services.autopoiesisTarget = "not_found";
+        }
+        
+        // Get key service statuses
+        const keyServices = [
+          "autopoiesis-setup.service",
+          "autopoiesis-kiosk.service",
+          "autopoiesis-heartbeat.service",
+          "autopoiesis-cache.service",
+          "autopoiesis-command-executor.service",
+          "autopoiesis-updater.service",
+          "autopoiesis-watchdog.service",
+          "autopoiesis-night-mode.service"
+        ];
+        
+        for (const service of keyServices) {
+          try {
+            const status = execSync(`systemctl is-active ${service}`, { encoding: "utf8" }).trim();
+            services[service.replace(".service", "")] = status;
+          } catch (e) {
+            services[service.replace(".service", "")] = "not_found";
+          }
+        }
+        
+        // Get key timer statuses
+        const keyTimers = [
+          "autopoiesis-heartbeat.timer",
+          "autopoiesis-command-executor.timer",
+          "autopoiesis-updater.timer",
+          "autopoiesis-cache.timer",
+          "autopoiesis-watchdog.timer",
+          "autopoiesis-night-mode.timer"
+        ];
+        
+        for (const timer of keyTimers) {
+          try {
+            const status = execSync(`systemctl is-active ${timer}`, { encoding: "utf8" }).trim();
+            timers[timer.replace(".timer", "")] = status;
+          } catch (e) {
+            timers[timer.replace(".timer", "")] = "not_found";
+          }
+        }
+      }
+    } catch (e) {
+      // If we can't check systemctl status, leave services/timers empty
+      console.warn("Could not check systemctl status:", e.message);
+    }
+  }
+
+  return { device, preferences, state, network, pairing, version: version(), services, timers };
 }
 
 function updateState(patch) {
@@ -3502,6 +3568,8 @@ async function collectDiagnostics(options = {}) {
     display: displayDiagnostics(),
     logs: logDiagnostics(),
     mode: data.state.currentMode || "setup",
+    services: services || null,
+    timers: timers || null,
     network: data.network || null,
     pairing: {
       paired: Boolean(data.device.paired),
