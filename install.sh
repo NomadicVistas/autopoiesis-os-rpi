@@ -7,6 +7,22 @@ DATA_DIR="${AUTOPOIESIS_DATA_DIR:-/var/lib/autopoiesis-os}"
 LOG_DIR="${AUTOPOIESIS_LOG_DIR:-/var/log/autopoiesis-os}"
 USER_NAME="${AUTOPOIESIS_USER:-frame}"
 
+SKIP_KIOSK_CONFIG=false
+
+# Parse command line arguments
+while [[ $# -gt 0 ]]; do
+  case $1 in
+    --skip-kiosk-config)
+      SKIP_KIOSK_CONFIG=true
+      shift
+      ;;
+    *)
+      echo "Unknown option: $1" >&2
+      exit 1
+      ;;
+  esac
+done
+
 if [[ "$(id -u)" -ne 0 ]]; then
   echo "Run with sudo: sudo ./install.sh" >&2
   exit 1
@@ -26,6 +42,13 @@ ln -sfn "$INSTALL_DIR/current" "$INSTALL_DIR/app"
 
 "$INSTALL_DIR/app/scripts/bootstrap.sh"
 
+if [[ "$SKIP_KIOSK_CONFIG" == false ]]; then
+  echo "Configuring kiosk OS..."
+  "$REPO_DIR/scripts/configure-kiosk-os.sh"
+else
+  echo "Skipping kiosk OS configuration (--skip-kiosk-config provided)."
+fi
+
 AUTOPOIESIS_APP_DIR="$INSTALL_DIR/app" \
   AUTOPOIESIS_INSTALL_DIR="$INSTALL_DIR" \
   AUTOPOIESIS_DATA_DIR="$DATA_DIR" \
@@ -34,7 +57,15 @@ AUTOPOIESIS_APP_DIR="$INSTALL_DIR/app" \
   "$INSTALL_DIR/app/scripts/install-systemd-units.sh"
 
 echo "Installed. Next steps:"
-echo "  1. Configure kiosk OS mode (auto-login, screen blanking):"
-echo "     sudo $INSTALL_DIR/app/scripts/configure-kiosk-os.sh"
-echo "  2. Start the appliance:"
-echo "     sudo systemctl start autopoiesis.target"
+if [[ "$SKIP_KIOSK_CONFIG" == false ]]; then
+  echo "  1. Reboot the system:"
+  echo "     sudo reboot"
+  echo "  2. After reboot, the appliance will start automatically via enabled autopoiesis.target."
+else
+  echo "  1. Configure kiosk OS mode (auto-login, screen blanking):"
+  echo "     sudo $INSTALL_DIR/app/scripts/configure-kiosk-os.sh"
+  echo "  2. Reboot the system:"
+  echo "     sudo reboot"
+  echo "  3. After reboot, start the appliance:"
+  echo "     sudo systemctl start autopoiesis.target"
+fi
