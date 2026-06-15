@@ -220,3 +220,22 @@ fi
 
 log "completed reset"
 echo "Factory reset complete. Device identity and pairing state have been regenerated locally."
+
+# Post-reset verification
+run_post_reset_check() {
+  echo ""
+  echo "Running post-reset verification..."
+  if [[ -x "$INSTALL_DIR/app/scripts/diagnostics.sh" ]]; then
+    "$INSTALL_DIR/app/scripts/diagnostics.sh" --quick 2>&1 | tee -a "$LOG_DIR/factory-reset-verification.log" || true
+    echo "Verification log written to $LOG_DIR/factory-reset-verification.log"
+    # Extract summary line
+    if tail -5 "$LOG_DIR/factory-reset-verification.log" | grep -q "Summary:"; then
+      tail -5 "$LOG_DIR/factory-reset-verification.log" | grep "Summary:"
+    else
+      echo "Verification completed (see log for details)."
+    fi
+  else
+    echo "Verification script not found; skipping."
+  fi
+}
+run_post_reset_check

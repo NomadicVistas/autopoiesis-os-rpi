@@ -249,7 +249,7 @@ check_ssh_policy() {
 
   printf '%s\n' "${exposed[@]}" >&2
   if [[ "$ALLOW_SSH" == "1" ]]; then
-    warn "ssh/sshd is exposed but explicitly allowed by policy"
+    pass "ssh/sshd is exposed but explicitly allowed by policy"
   else
     warn "ssh/sshd is enabled or active; set AUTOPOIESIS_PRODUCTION_ALLOW_SSH=1 only when remote support is intentional"
   fi

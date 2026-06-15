@@ -801,10 +801,16 @@ function handleStream(db, deviceId, auth) {
     limit: 30
   });
 
+  // Add cacheEligible flag to each item for downstream cache eligibility logic
+  const itemsWithCacheEligibility = items.map(item => ({
+    ...item,
+    cacheEligible: !!(item.cache_allowed && item.media_url && item.media_url.trim() !== '')
+  }));
+
   const body = {
     ok: true,
     generatedAt: now(),
-    items,
+    items: itemsWithCacheEligibility,
     polling,
     settings: {
       displayMode: (settings.settings && settings.settings.displayMode) || "shuffle",
@@ -1505,6 +1511,376 @@ function handleAdminListReleaseRollouts(db, queryParams) {
       ok: true,
       kind: "autopoiesis_frames_admin_release_rollouts",
       ...result
+    }
+  };
+}
+
+/**
+ * GET /frames/admin/readiness
+ * Admin endpoint: platform-level readiness snapshot for Admin > Frames dashboard.
+ * Returns a comprehensive view of system health and readiness across users, devices, subscriptions, and actions.
+ *
+ * Query params:
+ *   actorRole - Role to compute action availability for (admin, owner, maintainer, support, curator)
+ *   actorId   - Identifier for the actor (used for echoing back)
+ *
+ * @param {AosDb} db
+ * @param {object} [queryParams]
+ * @returns {{ status: number, body: object }}
+ */
+function handleAdminReadiness(db, queryParams) {
+  const { actorRole, actorId } = queryParams;
+
+  // Validate actorRole
+  const validRoles = ["admin", "owner", "maintainer", "support", "curator"];
+  if (!actorRole || !validRoles.includes(actorRole)) {
+    return {
+      status: 400,
+      body: {
+        ok: false,
+        error: `Invalid actorRole. Must be one of: ${validRoles.join(", ")}`
+      }
+    };
+  }
+
+  const generatedAt = now();
+
+  // ── Gather base data ──────────────────────────────────────────────────────
+  const ownerIds = db.listOwnerUserIds();
+  const subs = db.listSubscriptions({ limit: 1000 });
+  const subMap = new Map(subs.items.map(s => [s.userId, s]));
+  const allUserIds = new Set([...ownerIds, ...subs.items.map(s => s.userId)]);
+
+  const fleet = db.listDevices({ limit: 10000 }); // Get all devices for platform view
+  const nowMs = Date.now();
+  const ONLINE_THRESHOLD_MS = 300000; // 5 minutes
+  const STALE_PENDING_HOURS = 4; // Pending commands older than this are considered stale
+
+  // ── User statistics ───────────────────────────────────────────────────────
+  const users = [];
+  const usersWithPreferences = [];
+  const usersWithLikedArtworks = [];
+  
+  for (const userId of allUserIds) {
+    const sub = subMap.get(userId);
+    const deviceCount = db.countDevicesByOwner(userId);
+    const prefs = db.getUserPreferences(userId);
+    const likedIds = db.getLikedArtworks(userId);
+    
+    users.push({ userId, sub, deviceCount });
+    
+    if (prefs && prefs.preferences && Object.keys(prefs.preferences).length > 0) {
+      usersWithPreferences.push(userId);
+    }
+    
+    if (likedIds && likedIds.length > 0) {
+      usersWithLikedArtworks.push(userId);
+    }
+  }
+
+  // ── Subscription statistics ───────────────────────────────────────────────
+  const subscriptionStatusCounts = {};
+  const subscriptionPlanCounts = {};
+  let degradedSubscriptionCount = 0;
+  
+  for (const sub of subs.items) {
+    subscriptionStatusCounts[sub.status] = (subscriptionStatusCounts[sub.status] || 0) + 1;
+    subscriptionPlanCounts[sub.plan] = (subscriptionPlanCounts[sub.plan] || 0) + 1;
+    
+    if (DEGRADED_STATUSES.has(sub.status)) {
+      degradedSubscriptionCount++;
+    }
+  }
+
+  // ── Device fleet statistics ───────────────────────────────────────────────
+  const fleetStats = {
+    total: fleet.items.length,
+    paired: 0,
+    unpaired: 0,
+    online: 0,
+    offline: 0,
+    disabled: 0,
+    remoteEnabled: 0,
+    remoteDisabled: 0
+  };
+  
+  const pairedDevices = [];
+  const unpairedDevices = [];
+  const onlineDevices = [];
+  const offlineDevices = [];
+  const disabledDevices = [];
+  
+  for (const device of fleet.items) {
+    if (device.paired) {
+      fleetStats.paired++;
+      pairedDevices.push(device);
+    } else {
+      fleetStats.unpaired++;
+      unpairedDevices.push(device);
+    }
+    
+    const isOnline = device.lastHeartbeatAt
+      ? (nowMs - new Date(device.lastHeartbeatAt).getTime()) < ONLINE_THRESHOLD_MS
+      : false;
+    
+    if (isOnline) {
+      fleetStats.online++;
+      onlineDevices.push(device);
+    } else {
+      fleetStats.offline++;
+      offlineDevices.push(device);
+    }
+    
+    if (device.disabled) {
+      fleetStats.disabled++;
+      disabledDevices.push(device);
+    }
+    
+    if (device.remoteEnabled !== false) {
+      fleetStats.remoteEnabled++;
+    } else {
+      fleetStats.remoteDisabled++;
+    }
+  }
+
+  // ── Pairing state statistics ──────────────────────────────────────────────
+  // Note: For a real implementation, we'd need to check pending/expired pairing codes
+  // For now, we'll compute based on devices that have owners vs those that don't
+  // A more complete implementation would query aos_pairing_codes or similar
+  const pairingStats = {
+    pending: 0,   // Would come from checking unclaimed pairing codes
+    expired: 0,   // Would come from checking expired pairing codes
+    paired: fleetStats.paired
+  };
+
+  // ── Settings and preferences readiness ────────────────────────────────────
+  // Users with explicit preferences vs those using defaults
+  const settingsReadiness = {
+    totalUsers: users.length,
+    usersWithPreferences: usersWithPreferences.length,
+    usersUsingDefaults: users.length - usersWithPreferences.length,
+    hasExplicitPreferences: usersWithPreferences.length > 0
+  };
+
+  // ── Cache preference readiness ────────────────────────────────────────────
+  // Users who have caching enabled (cacheLikedArtworks or cacheRecentArtworks)
+  const cacheEnabledUsers = [];
+  const cacheDisabledUsers = [];
+  
+  for (const userId of allUserIds) {
+    const prefs = db.getUserPreferences(userId);
+    const cacheLiked = prefs && prefs.preferences && prefs.preferences.cacheLikedArtworks === true;
+    const cacheRecent = prefs && prefs.preferences && prefs.preferences.cacheRecentArtworks === true;
+    
+    if (cacheLiked || cacheRecent) {
+      cacheEnabledUsers.push(userId);
+    } else {
+      cacheDisabledUsers.push(userId);
+    }
+  }
+
+  // ── Active artists readiness ──────────────────────────────────────────────
+  // Users who have selected active artists
+  const usersWithActiveArtists = [];
+  
+  for (const userId of allUserIds) {
+    const prefs = db.getUserPreferences(userId);
+    const activeArtists = prefs && prefs.preferences && prefs.preferences.activeArtists;
+    if (activeArtists && Array.isArray(activeArtists) && activeArtists.length > 0) {
+      usersWithActiveArtists.push(userId);
+    }
+  }
+
+  // ── Stale pending commands ───────────────────────────────────────────────
+  // Commands that have been pending longer than STALE_PENDING_HOURS
+  const stalePendingCommands = [];
+  const stalePendingDevices = new Set();
+  
+  for (const device of fleet.items) {
+    const pendingCommands = db.getPendingCommands(device.deviceId);
+    for (const cmd of pendingCommands) {
+      const createdAt = new Date(cmd.createdAt || cmd.updatedAt || now());
+      const ageHours = (nowMs - createdAt.getTime()) / (1000 * 60 * 60);
+      
+      if (ageHours > STALE_PENDING_HOURS) {
+        stalePendingCommands.push(cmd);
+        stalePendingDevices.add(device.deviceId);
+      }
+    }
+  }
+
+  // ── Role-gated action availability across fleet ───────────────────────────
+  // For the requested actorRole, compute how many devices allow/block each action
+  const roleActionMatrixRow = ROLE_ACTION_MATRIX.find(r => r.role === actorRole);
+  const actionAvailability = {};
+  
+  if (roleActionMatrixRow) {
+    // Initialize counters for each action
+    for (const [actionKey] of Object.entries(roleActionMatrixRow.actions)) {
+      actionAvailability[actionKey] = {
+        allowedDevices: 0,
+        blockedDevices: 0,
+        blockerCounts: {}
+      };
+    }
+    
+    // Check each device
+    for (const device of fleet.items) {
+      const ownerSub = device.ownerUserId ? subMap.get(device.ownerUserId) : null;
+      const ownerSubscription = ownerSub ? { plan: ownerSub.plan, status: sub.status } : null;
+      const pendingCommandCount = db.getPendingCommandCount(device.deviceId);
+      
+      const availability = buildActionAvailability(
+        device,
+        actorRole,
+        ownerSubscription,
+        pendingCommandCount
+      );
+      
+      // Tally results for each action
+      for (const [actionKey, actionResult] of Object.entries(availability.actions)) {
+        if (actionAvailability[actionKey]) {
+          if (actionResult.allowed) {
+            actionAvailability[actionKey].allowedDevices++;
+          } else {
+            actionAvailability[actionKey].blockedDevices++;
+            const reasonCode = actionResult.reasonCode || "unknown";
+            actionAvailability[actionKey].blockerCounts[reasonCode] = 
+              (actionAvailability[actionKey].blockerCounts[reasonCode] || 0) + 1;
+          }
+        }
+      }
+    }
+  }
+
+  // ── Compute surface statuses ─────────────────────────────────────────────
+  // Helper to determine status based on counts
+  const computeSurfaceStatus = (hasAny, total, threshold = 0) => {
+    if (!hasAny) return "empty";
+    if (hasAny >= total) return "ready";
+    return "needs_attention";
+  };
+  
+  const computeReadinessStatus = (readyCount, totalCount) => {
+    if (readyCount === totalCount) return "ready";
+    if (readyCount === 0) return "blocked";
+    return "needs_attention";
+  };
+
+  const surfaces = {
+    profile: computeSurfaceStatus(
+      usersWithPreferences.length, 
+      users.length
+    ),
+    pairing: computeSurfaceStatus(
+      pairingStats.paired, 
+      pairingStats.paired + pairingStats.pending + pairingStats.expired
+    ),
+    settings: computeSurfaceStatus(
+      usersWithPreferences.length, 
+      users.length
+    ),
+    cache: computeReadinessStatus(
+      cacheEnabledUsers.length, 
+      users.length
+    ),
+    subscribers: computeSurfaceStatus(
+      allUserIds.size - ownerIds.size, // Users with subscriptions but no devices
+      allUserIds.size
+    ),
+    subscriptions: degradedSubscriptionCount === 0 ? "ready" : "needs_attention",
+    fleet: computeReadinessStatus(
+      fleetStats.online, 
+      fleetStats.total
+    ),
+    roleGatedActions: computeReadinessStatus(
+      // Count actions where all devices are allowed
+      Object.values(actionAvailability).filter(a => a.blockedDevices === 0).length,
+      Object.keys(actionAvailability).length
+    )
+  };
+
+  // ── Summary counts ───────────────────────────────────────────────────────
+  const summary = {
+    users: {
+      total: users.length,
+      withPreferences: usersWithPreferences.length,
+      withLikedArtworks: usersWithLikedArtworks.length,
+      withActiveArtists: usersWithActiveArtists.length
+    },
+    subscriptions: {
+      total: subs.items.length,
+      byStatus: subscriptionStatusCounts,
+      byPlan: subscriptionPlanCounts,
+      degradedCount: degradedSubscriptionCount
+    },
+    devices: {
+      total: fleetStats.total,
+      paired: fleetStats.paired,
+      unpaired: fleetStats.unpaired,
+      online: fleetStats.online,
+      offline: fleetStats.offline,
+      disabled: fleetStats.disabled,
+      remoteEnabled: fleetStats.remoteEnabled,
+      remoteDisabled: fleetStats.remoteDisabled
+    },
+    pairing: {
+      pending: pairingStats.pending,
+      expired: pairingStats.expired,
+      paired: pairingStats.paired
+    },
+    cache: {
+      enabledUsers: cacheEnabledUsers.length,
+      disabledUsers: cacheDisabledUsers.length
+    },
+    actions: {
+      totalActions: Object.keys(actionAvailability).length,
+      allowedDevices: {}, // Will fill below
+      blockedDevices: {}, // Will fill below
+      byAction: {}
+    },
+    attentionReasons: {
+      // Count of devices blocked for each reason across all actions
+      // This would require aggregating blockerCounts from actionAvailability
+      // For simplicity, we'll compute a few key ones
+      subscriptionDegraded: degradedSubscriptionCount,
+      offlineDevices: fleetStats.offline,
+      disabledDevices: fleetStats.disabled,
+      remoteDisabledDevices: fleetStats.remoteDisabled,
+      stalePendingCommands: stalePendingDevices.size
+    }
+  };
+  
+  // Fill in per-action allowed/blocked device counts
+  for (const [actionKey, actionData] of Object.entries(actionAvailability)) {
+    summary.actions.allowedDevices[actionKey] = actionData.allowedDevices;
+    summary.actions.blockedDevices[actionKey] = actionData.blockedDevices;
+    summary.actions.byAction[actionKey] = {
+      allowed: actionData.allowedDevices,
+      blocked: actionData.blockedDevices,
+      blockerCounts: actionData.blockerCounts
+    };
+  }
+
+  // ── Filters info ───────────────────────────────────────────────────────
+  const filters = {
+    scanLimit: fleet.items.length,
+    stalePendingHours: STALE_PENDING_HOURS
+  };
+
+  return {
+    status: 200,
+    body: {
+      ok: true,
+      kind: "autopoiesis_frames_admin_readiness",
+      generatedAt,
+      actor: {
+        actorId: actorId || null,
+        role: actorRole
+      },
+      surfaces,
+      summary,
+      filters
     }
   };
 }
@@ -2499,6 +2875,14 @@ async function handle(db, req, res) {
     return sendResult(res, handleAdminBundle(db, profileUserId));
   }
 
+  // GET /frames/admin/readiness — Online admin readiness snapshot
+  if (method === "GET" && pathname === "/frames/admin/readiness") {
+    const adminAuth = authenticateAdmin(req);
+    if (!adminAuth.ok) return sendJson(res, adminAuth.status, { ok: false, error: adminAuth.error });
+    const url = new URL(req.url, "http://localhost");
+    return sendResult(res, handleAdminReadiness(db, url.searchParams));
+  }
+
   // ── Device admin snapshot ───────────────────────────────────────────────
 
   // GET /frames/device/:id/admin-snapshot — Detailed device snapshot for admin
@@ -2561,6 +2945,15 @@ async function handle(db, req, res) {
     if (!adminAuth.ok) return sendJson(res, adminAuth.status, { ok: false, error: adminAuth.error });
     const body = JSON.parse((await readBody(req)) || "{}");
     return sendResult(res, handleAdminUpdateDevice(db, adminDevUpdateMatch[1], body));
+  }
+
+  // POST /frames/admin/devices/actions — Bulk device actions
+  const adminDevBulkMatch = pathname.match(/^\/frames\/admin\/devices\/actions$/);
+  if (method === "POST" && adminDevBulkMatch) {
+    const adminAuth = authenticateAdmin(req);
+    if (!adminAuth.ok) return sendJson(res, adminAuth.status, { ok: false, error: adminAuth.error });
+    const body = JSON.parse((await readBody(req)) || "{}");
+    return sendResult(res, handleAdminBulkDeviceActions(db, body));
   }
 
   // ── Admin user management endpoints ────────────────────────────────────
@@ -2888,7 +3281,7 @@ function main() {
     }) + "\n");
   });
 
-  // Graceful shutdown
+  // Graceful shutdown test
   function shutdown(signal) {
     process.stdout.write(JSON.stringify({ ok: true, message: "Shutting down", signal }) + "\n");
     server.close(() => {
@@ -2901,6 +3294,177 @@ function main() {
 
   process.on("SIGTERM", () => shutdown("SIGTERM"));
   process.on("SIGINT", () => shutdown("SIGINT"));
+}
+
+/**
+ * POST /frames/admin/devices/actions — Bulk device actions
+ * Queue the same action on multiple devices. Validates each device individually
+ * against role-action matrix and device-state gates.
+ *
+ * Expects: { deviceIds: string[], action: string, payload?: object, reason?: string }
+ * Returns: Results for each device with success/failure status
+ */
+function handleAdminBulkDeviceActions(db, body) {
+  const { deviceIds = [], action, payload = {}, reason = null } = body;
+
+  // Validate required fields
+  if (!Array.isArray(deviceIds) || deviceIds.length === 0) {
+    return { status: 400, body: { ok: false, error: "deviceIds must be a non-empty array" } };
+  }
+  if (!action || typeof action !== "string") {
+    return { status: 400, body: { ok: false, error: "action is required and must be a string" } };
+  }
+  if (deviceIds.length > 100) {
+    return { status: 400, body: { ok: false, error: "Cannot process more than 100 devices per request" } };}
+
+  // Validate action against admin role in the action matrix
+  const adminRole = ROLE_ACTION_MATRIX.find(r => r.role === "admin");
+  if (!adminRole || !adminRole.actions[action]) {
+    return { status: 400, body: { ok: false, error: "Unknown action: " + action } };
+  }
+
+  // Map action names to command types
+  const ACTION_TO_COMMAND = {
+    sync_settings: "sync_settings",
+    clear_cache: "clear_cache",
+    restart_display: "restart_display",
+    enable_device: "enable_device",
+    disable_device: "disable_device",
+    restart_device: "restart_device",
+    update_device: "update_device",
+    show_broadcast: "show_broadcast",
+    factory_reset_request: "factory_reset_request"
+  };
+
+  const commandType = ACTION_TO_COMMAND[action];
+  if (!commandType) {
+    return { status: 400, body: { ok: false, error: "Cannot map action to command: " + action } };
+  }
+
+  // Determine risk level
+  const riskMap = {
+    sync_settings: "low",
+    clear_cache: "low",
+    restart_display: "medium",
+    enable_device: "low",
+    disable_device: "high",
+    restart_device: "high",
+    update_device: "high",
+    show_broadcast: "low",
+    factory_reset_request: "critical"
+  };
+
+  const results = {
+    successful: [],
+    failed: [],
+    totalRequested: deviceIds.length
+  };
+
+  // Process each device
+  for (const deviceId of deviceIds) {
+    try {
+      const device = db.getDevice(deviceId);
+      if (!device) {
+        results.failed.push({
+          deviceId,
+          error: "Device not found",
+          status: 404
+        });
+        continue;
+      }
+
+      if (!device.paired) {
+        results.failed.push({
+          deviceId,
+          error: "Device is not paired",
+          status: 400
+        });
+        continue;
+      }
+
+      // Compute action availability to check device-state gates
+      let ownerSubscription = null;
+      if (device.ownerUserId) {
+        const sub = db.getSubscription(device.ownerUserId);
+        ownerSubscription = sub ? { plan: sub.plan, status: sub.status } : null;
+      }
+      const pendingCommands = db.getPendingCommands(deviceId);
+      const availability = buildActionAvailability(device, "admin", ownerSubscription, pendingCommands.length);
+      const actionAvail = availability.actions[action];
+
+      if (actionAvail && !actionAvail.allowed) {
+        results.failed.push({
+          deviceId,
+          error: "Action not available: " + (actionAvail.reason || "device state prevents this action"),
+          reasonCode: actionAvail.reasonCode || "action_blocked",
+          deviceState: availability.deviceState,
+          status: 409
+        });
+        continue;
+      }
+
+      // Queue the command
+      const command = db.queueCommand(deviceId, commandType, payload, riskMap[commandType] || "medium");
+
+      // Record admin audit trail for this action
+      const commandId = command.command?.commandId || command.commandId || command.id;
+      try {
+        db.logCommandAudit({
+          commandId,
+          deviceId,
+          commandType,
+          risk: riskMap[commandType] || "medium",
+          actorId: "admin",
+          actorRole: "admin",
+          reason: reason || null,
+          payloadSummary: { action, payloadKeys: Object.keys(payload || {}) },
+          authorization: {
+            actionAvailability: actionAvail || null,
+            deviceState: availability.deviceState
+          },
+        });
+      } catch (auditErr) {
+        // Audit logging failure must not break the command queue
+        process.stderr.write("[audit] logCommandAudit failed: " + auditErr.message + "\n");
+      }
+
+      results.successful.push({
+        deviceId,
+        queued: true,
+        commandId,
+        auditId: commandId,
+        action,
+        actionType: commandType,
+        risk: riskMap[commandType] || "medium",
+        queuedAt: now(),
+        deviceState: availability.deviceState
+      });
+    } catch (err) {
+      results.failed.push({
+        deviceId,
+        error: err.message || "Unknown error",
+        status: 500
+      });
+    }
+  }
+
+  // Determine overall status
+  let statusCode = 200;
+  if (results.successful.length === 0 && results.failed.length > 0) {
+    // All failed
+    statusCode = results.failed[0].status || 400;
+  } else if (results.failed.length > 0) {
+    // Partial success
+    statusCode = 207; // Multi-status
+  }
+
+  return {
+    status: statusCode,
+    body: {
+      ok: statusCode < 400,
+      ...results
+    }
+  };
 }
 
 main();

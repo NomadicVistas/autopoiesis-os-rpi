@@ -535,6 +535,7 @@ class AosDb {
         reason: "stale_write",
         conflict: true,
         settings: jsonParse(current.settings_json, {}),
+        incomingSettings: settings,
         updatedAt: existing,
       };
     }

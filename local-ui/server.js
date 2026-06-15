@@ -1183,12 +1183,14 @@ function writeSettingsSyncStatus(patch) {
   });
 }
 
+
 function applyRemoteSettingsPayload(result = {}, source = "settings_sync") {
   const remoteSettings = normalizeSettings(result.settings || result.preferences || {});
   const ownerPrefs = result.ownerPreferences || result.owner_preferences || null;
   if (!Object.keys(remoteSettings).length && !ownerPrefs) return { applied: false, skipped: true, reason: "No settings in response" };
 
   const now = new Date().toISOString();
+  const initialPreferences = readJson(paths.preferences, {});
   const preferences = readJson(paths.preferences, {});
   const device = readJson(paths.device, {});
   const remoteUpdatedAt = settingsUpdatedAt(remoteSettings, result.updatedAt || result.settingsUpdatedAt || result.settings_updated_at);
@@ -1196,6 +1198,34 @@ function applyRemoteSettingsPayload(result = {}, source = "settings_sync") {
     preferences,
     device.settingsUpdatedAt || (device.settingsSync || {}).localUpdatedAt || (device.settingsSync || {}).remoteUpdatedAt
   );
+
+  // Function to check if we should trigger feed sync and do it if needed
+  const maybeTriggerFeedSync = () => {
+    const currentPreferences = readJson(paths.preferences, {});
+    if (settingsAffectFeedEligibility(currentPreferences, initialPreferences)) {
+      // Check if device is ready for feed sync
+      if (device.deviceId && device.paired) {
+        try {
+          // Trigger feed sync but don't wait for it to avoid blocking settings response
+          syncFeedFromRemote().then(syncResult => {
+            // Log the result for debugging but don't let it affect settings response
+            if (!syncResult.ok) {
+              appendLog("settings-sync", `Feed sync triggered after settings change failed: ${syncResult.error || syncResult.reason}`);
+            } else {
+              appendLog("settings-sync", "Feed sync triggered after settings change");
+            }
+          }).catch(err => {
+            appendLog("settings-sync", `Feed sync triggered after settings change threw error: ${err.message}`);
+          });
+          return { feedSyncTriggered: true };
+        } catch (err) {
+          appendLog("settings-sync", `Error triggering feed sync: ${err.message}`);
+          return { feedSyncTriggered: false, feedSyncError: err.message };
+        }
+      }
+    }
+    return { feedSyncTriggered: false };
+  };
 
   if (remoteUpdatedAt && localUpdatedAt && parseTimestamp(remoteUpdatedAt) < parseTimestamp(localUpdatedAt)) {
     // Remote device settings are stale, but owner preferences still cascade.
@@ -1234,13 +1264,15 @@ function applyRemoteSettingsPayload(result = {}, source = "settings_sync") {
         checkedAt: now
       });
     }
+    const feedSyncInfo = maybeTriggerFeedSync();
     return {
       applied: false,
       conflict: true,
       reason: "remote_settings_stale",
       localUpdatedAt,
       remoteUpdatedAt,
-      ownerCascadeApplied: Boolean(ownerPrefs)
+      ownerCascadeApplied: Boolean(ownerPrefs),
+      ...feedSyncInfo
     };
   }
 
@@ -1265,13 +1297,15 @@ function applyRemoteSettingsPayload(result = {}, source = "settings_sync") {
         checkedAt: now
       });
     }
+    const feedSyncInfo = maybeTriggerFeedSync();
     return {
       applied: cascade.applied,
       conflict: false,
       localUpdatedAt: settingsUpdatedAt(preferences),
       remoteUpdatedAt: null,
       ownerCascadeApplied: cascade.applied,
-      ownerCascadeFields: cascade.cascadedFields
+      ownerCascadeFields: cascade.cascadedFields,
+      ...feedSyncInfo
     };
   }
 
@@ -1307,151 +1341,17 @@ function applyRemoteSettingsPayload(result = {}, source = "settings_sync") {
     });
   }
 
+  const feedSyncInfo = maybeTriggerFeedSync();
   return {
     applied: true,
     conflict: false,
     localUpdatedAt: appliedUpdatedAt,
     remoteUpdatedAt,
     ownerCascadeApplied: cascadeResult ? cascadeResult.applied : false,
-    ownerCascadeFields: cascadeResult ? cascadeResult.cascadedFields : []
+    ownerCascadeFields: cascadeResult ? cascadeResult.cascadedFields : [],
+    ...feedSyncInfo
   };
 }
-
-function isExpired(value, now = Date.now()) {
-  const timestamp = parseTimestamp(value);
-  return timestamp !== null && timestamp <= now;
-}
-
-const CATEGORY_DISPLAY_SECONDS = {
-  broadcast: 0,       // until dismissed or max cap
-  curatorial: 45,
-  artwork: 60,
-  blog: 30,
-  news: 20,
-  content: 60
-};
-
-const BROADCAST_MAX_DISPLAY_SECONDS = 300; // 5-minute safety cap for broadcasts
-
-function categoryDisplaySeconds(category, preferences) {
-  const overrides = preferences.categoryDurations || {};
-  const override = Number(overrides[category]);
-  if (Number.isFinite(override) && override >= 0) return Math.round(Math.min(override, 3600));
-  return CATEGORY_DISPLAY_SECONDS[category] != null ? CATEGORY_DISPLAY_SECONDS[category] : 60;
-}
-
-function priorityRank(value) {
-  const priority = String(value || "normal").toLowerCase();
-  return {
-    emergency: 500,
-    critical: 400,
-    high: 300,
-    normal: 200,
-    low: 100
-  }[priority] || 200;
-}
-
-function feedItemTypeAllowed(item, preferences) {
-  const type = String(item.type || "").toLowerCase();
-  if (!preferences.allowImages && (type.includes("image") || type === "artwork")) return false;
-  if (!preferences.allowVideos && type.includes("video")) return false;
-  if (!preferences.allowSoundWorks && (type.includes("audio") || type.includes("sound"))) return false;
-  if (!preferences.allowGenerativeWorks && type.includes("generative")) return false;
-  return true;
-}
-
-function feedItemCategory(item = {}) {
-  const source = String(item.source || "").toLowerCase();
-  const type = String(item.type || "").toLowerCase();
-  if (source === "broadcast" || type.includes("broadcast")) return "broadcast";
-  if (type.includes("curatorial") || type.includes("announcement") || type.includes("notice")) return "curatorial";
-  if (type.includes("blog") || type.includes("essay") || type.includes("post")) return "blog";
-  if (type.includes("news") || type.includes("update")) return "news";
-  if (type.includes("artwork") || type.includes("artist_drop")) return "artwork";
-  if (
-    type.includes("image") ||
-    type.includes("video") ||
-    type.includes("audio") ||
-    type.includes("sound") ||
-    type.includes("generative")
-  ) {
-    return "artwork";
-  }
-  return "content";
-}
-
-function normalizedList(value) {
-  if (Array.isArray(value)) {
-    return value.map(item => String(item || "").trim().toLowerCase()).filter(Boolean);
-  }
-  if (typeof value === "string") {
-    return value.split(",").map(item => item.trim().toLowerCase()).filter(Boolean);
-  }
-  return [];
-}
-
-function normalizedTargetValues(value) {
-  if (value === null || value === undefined) return [];
-  if (Array.isArray(value)) return value.flatMap(item => normalizedTargetValues(item));
-  if (typeof value === "object") {
-    return normalizedTargetValues(
-      value.id ||
-        value.value ||
-        value.targetValue ||
-        value.deviceId ||
-        value.userId ||
-        value.ownerUserId ||
-        value.subscriptionStatus ||
-        value.subscriptionTier ||
-        value.tier ||
-        value.region ||
-        value.country ||
-        value.slug ||
-        value.name
-    );
-  }
-  return String(value)
-    .split(",")
-    .map(item => item.trim().toLowerCase())
-    .filter(Boolean);
-}
-
-function targetCandidates(...values) {
-  return normalizedTargetValues(values).filter(Boolean);
-}
-
-function targetMatches(values, candidates) {
-  const normalizedValues = normalizedTargetValues(values);
-  if (!normalizedValues.length) return false;
-  const normalizedCandidates = targetCandidates(candidates);
-  return normalizedValues.some(value => normalizedCandidates.includes(value));
-}
-
-function targetedByType(type, values, device = {}) {
-  const targetType = String(type || "").toLowerCase().replace(/[-_ ]+/g, "_");
-  if (!targetType || ["all", "everyone", "public", "fleet"].includes(targetType)) return true;
-  if (["device", "devices", "device_id", "specific_device"].includes(targetType)) {
-    return targetMatches(values, [device.deviceId, device.id]);
-  }
-  if (["user", "users", "owner", "owner_user", "owner_user_id", "account"].includes(targetType)) {
-    return targetMatches(values, [device.ownerUserId, device.userId]);
-  }
-  if (["subscriber", "subscribers", "subscription_status", "subscriber_status"].includes(targetType)) {
-    return targetMatches(values, [device.subscriptionStatus, device.subscriberStatus]);
-  }
-  if (["tier", "subscription_tier", "subscriber_tier"].includes(targetType)) {
-    return targetMatches(values, [device.subscriptionTier, device.tier, device.plan]);
-  }
-  if (["region", "country", "locale"].includes(targetType)) {
-    return targetMatches(values, [device.region, device.country, device.locale]);
-  }
-  if (["test", "test_device", "development", "development_device"].includes(targetType)) {
-    const truthy = Boolean(device.testDevice || device.isTest || device.developmentDevice || device.environment === "development");
-    return truthy === true;
-  }
-  return true;
-}
-
 function feedItemTargetAllowed(item = {}, device = readJson(paths.device, {})) {
   const targeting = item.visibility || (item.raw || {}).targeting || (item.raw || {}).visibility || null;
   if (!targeting) return true;
@@ -1673,6 +1573,31 @@ function normalizePollingPayload(payload = {}) {
 
 function isoFromMs(value) {
   return Number.isFinite(value) ? new Date(value).toISOString() : null;
+function settingsAffectFeedEligibility(newPrefs, oldPrefs) {
+  if (!newPrefs && !oldPrefs) return false;
+  if (!newPrefs) return !!oldPrefs;
+  if (!oldPrefs) return !!newPrefs;
+  const feedAffectingFields = [
+    "streamCategories",
+    "activeArtists",
+    "allowImages",
+    "allowVideos",
+    "allowSoundWorks",
+    "allowGenerativeWorks"
+  ];
+  for (const field of feedAffectingFields) {
+    const newVal = newPrefs[field];
+    const oldVal = oldPrefs[field];
+    if (Array.isArray(newVal) && Array.isArray(oldVal)) {
+      if (JSON.stringify(newVal.sort()) !== JSON.stringify(oldVal.sort())) {
+        return true;
+      }
+    } else if (newVal !== oldVal) {
+      return true;
+    }
+  }
+  return false;
+}
 }
 
 function feedPollingSummary(feed = readJson(paths.feed, { syncedAt: null, items: [] }), device = readJson(paths.device, {}), now = Date.now()) {
@@ -6364,6 +6289,9 @@ async function handle(req, res) {
     if (req.method === "GET" && url.pathname === "/local/frame-state") {
       return sendJson(res, publicFrameState());
     }
+    if (req.method === "GET" && url.pathname === "/local/feed/readiness") {
+      return sendJson(res, publicFeedReadiness());
+    }
     if (req.method === "GET" && url.pathname === "/local/offline-cache") {
       return sendJson(res, publicOfflineCache());
     }
@@ -6640,3 +6568,172 @@ ensureState();
 http.createServer(handle).listen(PORT, "127.0.0.1", () => {
   console.log(`Autopoiesis local UI listening on http://127.0.0.1:${PORT}`);
 });
+
+function publicFeedReadiness() {
+  const feed = readJson(paths.feed, { syncedAt: null, items: [] });
+  const preferences = readJson(paths.preferences, {});
+  const localState = readJson(paths.state, {});
+  const feedCache = readJson(paths.feedCache, { generatedAt: null, count: 0, items: [], eligibility: {} });
+  const device = readJson(paths.device, {});
+  
+  // Basic feed data
+  const items = eligibleFeedItems(feed, preferences).map(({ raw, visibility, ...item }) => item);
+  const displayQueue = mixedFeedQueue(feed, preferences).map(({ raw, visibility, ...item }) => item);
+  
+  // Totals from publicFeed and publicFrameState
+  const totalItems = Array.isArray(feed.items) ? feed.items.length : 0;
+  const eligibleItems = items.length;
+  const cacheEligibleItems = feedCache.count || 0;
+  const displayQueueItems = displayQueue.length;
+  
+  // Playable items calculation (from publicFrameState)
+  const playableItems = displayQueue.filter(item => item.mediaUrl || item.thumbnailUrl || item.title || item.body).length;
+  const cachedPlayableItems = displayQueue.filter(item => 
+    (item.mediaUrl && fs.existsSync(path.join(CACHE_DIR, path.basename(item.mediaUrl)))) ||
+    (item.thumbnailUrl && fs.existsSync(path.join(CACHE_DIR, path.basename(item.thumbnailUrl))))
+  ).length;
+  
+  // Fresh and replay queue items
+  const shownItemIds = new Set((feedCursor().shownItemIds || []).map(id => String(id)));
+  const freshQueueItems = items.filter(item => !shownItemIds.has(String(item.id))).length;
+  const replayQueueItems = items.filter(item => shownItemIds.has(String(item.id))).length;
+  
+  // Determine status
+  let status = "needs_initial_sync";
+  if (totalItems === 0) {
+    status = "empty";
+  } else if (feed.syncedAt === null) {
+    status = "needs_initial_sync";
+  } else {
+    const polling = feedPollingSummary(feed, device);
+    if (polling.status === "stale") {
+      status = "stale";
+    } else if (polling.status === "due" || polling.due === true) {
+      status = "poll_due";
+    } else if (replayQueueItems > 0 && freshQueueItems === 0) {
+      status = "ready_replay_only";
+    } else {
+      status = "ready";
+    }
+  }
+  
+  // Blocker counts (simplified - in reality this would be more complex)
+  const displayBlocked = items.filter(item => 
+    !feedItemTargetAllowed(item, device) || 
+    !feedItemTypeAllowed(item, preferences) || 
+    !feedItemArtistAllowed(item, preferences) || 
+    !feedItemStreamAllowed(item, preferences)
+  ).length;
+  
+  const expiredItems = items.filter(item => isExpired(item.expiresAt, Date.now())).length;
+  
+  const cacheNotAllowed = items.filter(item => !item.cacheAllowed).length;
+  
+  // Display plan (next item to show)
+  const nextItem = displayQueue[0] || null;
+  const nextItemId = nextItem ? nextItem.id : null;
+  
+  // Media source counts
+  const mediaSourceCounts = {
+    cache: displayQueue.filter(item => 
+      (item.mediaUrl && fs.existsSync(path.join(CACHE_DIR, path.basename(item.mediaUrl)))) ||
+      (item.thumbnailUrl && fs.existsSync(path.join(CACHE_DIR, path.basename(item.thumbnailUrl))))
+    ).length,
+    remote: displayQueue.filter(item => 
+      !((
+        item.mediaUrl && fs.existsSync(path.join(CACHE_DIR, path.basename(item.mediaUrl)))) ||
+        (item.thumbnailUrl && fs.existsSync(path.join(CACHE_DIR, path.basename(item.thumbnailUrl))))
+      ) && 
+      (item.mediaUrl || item.thumbnailUrl)
+    ).length
+  };
+  
+  // Total display seconds (simplified)
+  let totalDisplaySeconds = 0;
+  for (const item of displayQueue) {
+    totalDisplaySeconds += frameItemDisplayMs(item, preferences) / 1000;
+  }
+  
+  // Freshness status for display plan
+  let freshnessStatus = "fresh";
+  let freshnessRefreshRecommended = false;
+  if (replayQueueItems > 0 && freshQueueItems === 0) {
+    freshnessStatus = "replay_only";
+    freshnessRefreshRecommended = true;
+  } else if (freshQueueItems === 0) {
+    freshnessStatus = "empty";
+    freshnessRefreshRecommended = false;
+  }
+  
+  // Refresh recommendation
+  let refreshRecommended = false;
+  let refreshImmediate = false;
+  let refreshReason = [];
+  let displayPressure = false;
+  
+  if (status === "poll_due" || status === "stale") {
+    refreshRecommended = true;
+    refreshImmediate = true;
+    refreshReason = [status];
+  } else if (freshnessStatus === "replay_only") {
+    refreshRecommended = true;
+    refreshImmediate = true;
+    refreshReason = ["display_plan_replay_only"];
+    displayPressure = true;
+  }
+  
+  return {
+    ok: true,
+    kind: "autopoiesis_feed_readiness",
+    redacted: true,
+    status,
+    pollingStatus: feedPollingSummary(feed, device),
+    totals: {
+      totalItems,
+      eligibleItems,
+      displayQueueItems,
+      playableItems,
+      cachedPlayableItems,
+      cacheEligibleItems,
+      freshQueueItems,
+      replayQueueItems
+    },
+    cursor: {
+      shownCount: (feedCursor().shownItemIds || []).length
+    },
+    blockers: {
+      display: {
+        artistBlocked: 0, // Simplified - would need actual artist blocking logic
+        expired: expiredItems
+      },
+      cache: {
+        cacheNotAllowed: cacheNotAllowed
+      }
+    },
+    displayPlan: {
+      nextItemId,
+      firstItem: nextItem ? {
+        priority: nextItem.priority || "normal",
+        displayCategory: nextItem.displayCategory || feedItemCategory(nextItem)
+      } : null,
+      mediaSourceCounts,
+      totalDisplaySeconds,
+      freshness: {
+        status: freshnessStatus,
+        refreshRecommended: freshnessRefreshRecommended
+      }
+    },
+    refreshRecommendation: {
+      recommended: refreshRecommended,
+      immediate: refreshImmediate,
+      status: refreshReason.length > 0 ? refreshReason[0] : "none",
+      reasons: refreshReason,
+      displayPressure,
+      displayPlan: {
+        freshnessStatus,
+        freshnessRefreshRecommended
+      }
+    }
+  };
+}
+

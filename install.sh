@@ -69,3 +69,22 @@ else
   echo "  3. After reboot, start the appliance:"
   echo "     sudo systemctl start autopoiesis.target"
 fi
+
+# Post-install verification
+run_post_install_check() {
+  echo ""
+  echo "Running post-install verification..."
+  if [[ -x "$INSTALL_DIR/app/scripts/diagnostics.sh" ]]; then
+    "$INSTALL_DIR/app/scripts/diagnostics.sh" --quick 2>&1 | tee -a "$LOG_DIR/install-verification.log" || true
+    echo "Verification log written to $LOG_DIR/install-verification.log"
+    # Extract summary line
+    if tail -5 "$LOG_DIR/install-verification.log" | grep -q "Summary:"; then
+      tail -5 "$LOG_DIR/install-verification.log" | grep "Summary:"
+    else
+      echo "Verification completed (see log for details)."
+    fi
+  else
+    echo "Verification script not found; skipping."
+  fi
+}
+run_post_install_check

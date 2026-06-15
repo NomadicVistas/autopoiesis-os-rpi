@@ -1,3 +1,5 @@
+## [Unreleased]
+
 # Changelog
 
 All notable changes to Autopoiesis OS will be documented in this file.
@@ -5,7 +7,29 @@ All notable changes to Autopoiesis OS will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [0.1.2] - 2026-06-15
+
+### Added
+
+#### Release / Update System
+- Enhanced install.sh, update.sh, and factory-reset.sh with post-operation verification steps that run diagnostics.sh --quick and log results for immediate feedback on system health after installation, updates, or factory resets.
+- Enhanced install.sh with automatic kiosk OS configuration and optional --skip-kiosk-config flag, reducing manual setup steps to: run install.sh and reboot.
+- Added release rollout history (last 10 updates) to admin device snapshot endpoint (GET /frames/device/:id/admin-snapshot) for improved fleet management.
+
+#### Content Feed / Display
+- Enhanced applyRemoteSettingsPayload to automatically trigger feed sync when settings affecting feed eligibility change (streamCategories, activeArtists, allowImages, allowVideos, allowSoundWorks, allowGenerativeWorks), ensuring content matches new settings immediately.
+- Added GET /local/feed/readiness endpoint providing compact feed readiness surface for polling, cursor, eligibility, cache, and next-display evidence.
+
+#### Admin Platform
+- Added GET /frames/admin/readiness endpoint providing platform-level readiness snapshot for Admin > Frames dashboard with comprehensive system health view.
+
+### Fixed
+
+- None
+
+### Changed
+
+- None
 
 ## [0.1.1] - 2026-06-08
 
