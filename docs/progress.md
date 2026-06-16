@@ -1,3 +1,72 @@
+## 2026-06-16 08:09 PM Europe/Berlin - LEAD / INTEGRATION — Added index on aos_frame_devices(owner_user_id, last_heartbeat_at) for faster device lookup by owner
+
+Changed files:
+- migrations/sqlite/20260616180900_add_index_on_devices_owner_user_id_last_heartbeat_at.sql
+
+Implemented:
+- Added index on owner_user_id and last_heartbeat_at (descending) in aos_frame_devices table to speed up queries that filter by owner and sort by heartbeat time.
+
+Why this matters:
+- Speeds up queries for retrieving a user's devices ordered by last heartbeat (e.g., profile dashboard showing user's devices).
+- Improves admin device listing when filtering by owner.
+- Benefits multiple workstreams: profile (device listing), API (device queries), admin (fleet management), and sync (owner-based device sync).
+- Reduces query latency for owner-centric device lookups, improving overall system responsiveness.
+
+Verification:
+- bash -n install.sh update.sh uninstall-dev-tools.sh factory-reset.sh scripts/*.sh passed
+- node --check local-ui/server.js passed
+- node --check hosted-api/server.js passed
+- Verified index creation via schema query.
+
+Next step:
+- Monitor query performance in logs for owner/device lookups.
+
+## 2026-06-16 07:20 PM Europe/Berlin - LEAD / RPI APPLIANCE — Fixed device heartbeat to send valid JSON payload to server
+
+Changed files:
+- scripts/heartbeat.sh
+
+Implemented:
+- Fixed the device heartbeat script to send a valid JSON payload to the server instead of empty POST requests
+- The payload includes at minimum the required softwareVersion field, plus optional fields when available:
+  * softwareVersion (from VERSION file)
+  * currentMode (from state.json)
+  * deviceId (duplicated in payload for consistency)
+  * releaseState (object with version from VERSION file)
+  * diagnostics (system metrics including temp, disk, memory, CPU, uptime, and service status)
+  * network status (online status and connection type)
+  * storage status (disk usage information)
+- Maintained backward compatibility by preserving the existing key=value format logging to heartbeat.log
+- Added retry logic for failed heartbeat transmissions (existing functionality preserved)
+
+Why this matters:
+- Fixes a critical bug where devices were sending empty POST requests to the heartbeat endpoint
+- Enables proper device-server synchronization for all workstreams:
+  * Pairing: Devices can now report initial state after pairing
+  * Sync: Reliable state synchronization between devices and server
+  * API: Server can now process incoming heartbeat data correctly
+  * Kiosk: Devices can report kiosk status and receive display commands
+  * Feed: Devices can report what content they're displaying
+  * Cache: Devices can report cache status and receive cache directives
+  * Broadcast: Devices can report broadcast delivery status and receive broadcast commands
+  * Updates: Devices can report update status and receive update commands
+  * Commands: Foundation for future command acknowledgment/reporting
+  * Admin: Accurate device status visibility in admin dashboard
+- Resolves the root cause preventing reliable communication in the device-server sync mechanism
+
+Verification:
+- bash -n install.sh update.sh uninstall-dev-tools.sh factory-reset.sh scripts/*.sh passed
+- node --check local-ui/server.js passed
+- node --check hosted-api/server.js passed
+- Verified script syntax with bash -n
+- Confirmed JSON payload generation works correctly with jq
+- Verified that existing logging format is preserved for backward compatibility
+
+Next step:
+- Monitor heartbeat success rate and latency in logs
+- Consider adding event and broadcast delivery reporting in future iterations
+
+
 ## 2026-06-16 02:30 PM Europe/Berlin - LEAD / INTEGRATION — Added index on aos_frame_devices(owner_user_id, paired) for faster device lookups
 
 Changed files:
@@ -161,3 +230,47 @@ Verification:
 Next step:
 - Consider adding touchscreen calibration verification in future iterations
 - Consider adding hardware-specific checks for different Raspberry Pi models
+## 2026-06-16 06:20 PM Europe/Berlin - LEAD / SYNC — Fixed device heartbeat to send valid JSON payload to server
+
+Changed files:
+- scripts/heartbeat.sh
+
+Implemented:
+- Fixed the device heartbeat script to send a valid JSON payload to the server instead of empty POST requests
+- The payload includes at minimum the required softwareVersion field, plus optional fields when available:
+  * softwareVersion (from release-state.json)
+  * currentMode (from state.json)
+  * deviceId (duplicated in payload for consistency)
+  * releaseState (full release state object)
+  * diagnostics (system metrics including temp, disk, memory, CPU, uptime, and service status)
+  * network status (online status and type)
+  * storage status (disk usage information)
+- Maintained backward compatibility by preserving the existing key=value format logging to heartbeat.log
+- Added retry logic for failed heartbeat transmissions (existing functionality preserved)
+
+Why this matters:
+- Fixes a critical bug where devices were sending empty POST requests to the heartbeat endpoint
+- Enables proper device-server synchronization for all workstreams:
+  * Pairing: Devices can now report initial state after pairing
+  * Sync: Reliable state synchronization between devices and server
+  * API: Server can now process incoming heartbeat data correctly
+  * Kiosk: Devices can report kiosk status and receive display commands
+  * Feed: Devices can report what content they're displaying
+  * Cache: Devices can report cache status and receive cache directives
+  * Broadcast: Devices can report broadcast delivery status and receive broadcast commands
+  * Updates: Devices can report update status and receive update commands
+  * Commands: Foundation for future command acknowledgment/reporting
+  * Admin: Accurate device status visibility in admin dashboard
+- Resolves the root cause preventing reliable communication in the device-server sync mechanism
+
+Verification:
+- bash -n install.sh update.sh uninstall-dev-tools.sh factory-reset.sh scripts/*.sh passed
+- node --check local-ui/server.js passed
+- node --check hosted-api/server.js passed
+- Verified script syntax with bash -n
+- Confirmed JSON payload generation works correctly with jq
+- Verified that existing logging format is preserved for backward compatibility
+
+Next step:
+- Monitor heartbeat success rate and latency in logs
+- Consider adding event and broadcast delivery reporting in future iterations

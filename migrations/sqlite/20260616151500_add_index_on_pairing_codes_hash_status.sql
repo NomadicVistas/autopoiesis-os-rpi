@@ -1,0 +1,2 @@
+-- Add index on aos_frame_pairing_codes(pairing_code_hash, status) for faster pairing code lookups
+CREATE INDEX IF NOT EXISTS idx_aos_frame_pairing_codes_hash_status ON aos_frame_pairing_codes(pairing_code_hash, status);
