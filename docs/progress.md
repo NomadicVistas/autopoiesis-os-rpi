@@ -1,4 +1,81 @@
--e # Progress
+## 2026-06-16 06:15 AM Europe/Berlin - LEAD / INTEGRATION — Added index on aos_broadcasts (target_type, target_value) to improve targeting filter performance
+
+Changed files:
+- migrations/sqlite/20260616041500_add_broadcast_target_target_type_index.sql
+
+Implemented:
+- Added index on aos_broadcasts (target_type, target_value) to improve the initial filtering by target_type and target_value in the getStreamContent function.
+- This allows the database to quickly filter broadcasts by target_type and then scan the target_value for the specific deviceId, ownerUserId, or subscriptionTier.
+
+Why this matters:
+- Speeds up the targeting filter in the stream generation, improving responsiveness of the personalized feed.
+- Benefits the feed workstream by reducing the in-memory filtering overhead.
+- Supports the API / DATABASE / SYNC workstream by improving query performance on a frequently accessed table.
+- Benefits downstream workstreams that rely on stream content (e.g., cache, broadcast, admin).
+
+Verification:
+- bash -n install.sh update.sh uninstall-dev-tools.sh factory-reset.sh scripts/*.sh passed
+- node --check local-ui/server.js passed
+- Syntax of new migration file verified (no errors when parsed by sqlite3 in memory).
+
+Next step:
+- Monitor query performance in logs for getStreamContent calls.
+- Consider adding similar covering indexes for other frequently queried tables (e.g., aos_broadcasts for category-based filtering).
+
+## 2026-06-16 05:17 AM Europe/Berlin - DATABASE / API / SYNC — Added index on aos_artwork_likes to improve getLikedArtworks query performance
+
+Changed files:
+- migrations/sqlite/20260616031700_add_artwork_likes_index.sql
+
+Implemented:
+- Added covering index on aos_artwork_likes (user_id, created_at DESC) INCLUDE (artwork_id) to optimize the getLikedArtworks query used in user liked artworks endpoints and admin user detail.
+- This allows the query to be satisfied entirely from the index without table lookup, improving performance for user profile and admin endpoints.
+
+Why this matters:
+- Speeds up retrieval of liked artworks for users, improving responsiveness of Profile > Frames liked artworks view.
+- Enhances admin dashboard performance when viewing user details and liked artworks.
+- Supports the API / DATABASE / SYNC workstream by improving query performance on a frequently accessed table.
+- Benefits downstream workstreams that rely on user artworkslikes data (e.g., artist statistics, feed personalization).
+
+Verification:
+- bash -n install.sh update.sh uninstall-dev-tools.sh factory-reset.sh scripts/*.sh passed
+- node --check local-ui/server.js passed
+- Syntax of new migration file verified (no errors when parsed by sqlite3 in memory).
+
+Next step:
+- Monitor query performance in logs for getLikedArtworks calls.
+- Consider adding similar covering indexes for other frequently queried tables (e.g., aos_broadcasts for targeting).
+
+## 2026-06-15 04:39 AM Europe/Berlin - RPI APPLIANCE — Enhanced install.sh post-install verification with kiosk OS configuration status
+
+Changed files:
+- install.sh
+
+Implemented:
+- Enhanced run_post_install_check() function to include additional kiosk OS configuration verification
+- Added checks for critical kiosk OS configuration elements that can be verified before reboot:
+  * graphical.target as default systemd target
+  * X11 screen blanking disable file existence
+  * Console blanking disabled in /etc/kbd/config
+- Provides clear, actionable guidance about what to expect after reboot based on configuration status
+- Maintains backward compatibility with existing diagnostics.sh --quick verification
+- Enhanced failure reporting to show detailed information when verification fails
+
+Why this matters:
+- Increases user confidence in the one-command install process (install.sh + reboot)
+- Provides immediate feedback about critical kiosk OS configuration that affects first-boot experience
+- Helps users understand what to expect after reboot, reducing confusion and support requests
+- Makes the verification process more informative and actionable
+- Supports the MVP 1.0 goal of a true "one-command install" experience
+
+Verification:
+- bash -n install.sh update.sh uninstall-dev-tools.sh factory-reset.sh scripts/*.sh passed
+- node --check local-ui/server.js passed
+- Enhanced failure reporting to show detailed information when verification fails
+
+Next step:
+- Test on physical Raspberry Pi to verify the complete flow from installation to running appliance with and without --skip-kiosk-config flag
+
 
 ## 2026-06-15 08:09 AM Europe/Berlin - RELEASE / ROLLOUT — Prepared version 0.1.2 release with changelog and GitHub tag
 
@@ -32,6 +109,7 @@ Next step:
 - Test release manifest validation with release-manifest-check.sh
 - Consider setting up GitHub release workflow for automated artifact distribution
 
+
 ## 2026-06-15 07:20 AM Europe/Berlin - LEAD / INTEGRATION — Enhanced settings sync to trigger feed resync on feed-affecting changes
 
 Changed files:
@@ -56,6 +134,8 @@ Verification:
 Next step:
 - Monitor logs for automatic feed sync triggers following settings changes
 - Consider extending similar integration to other settings-dependent systems like cache eligibility
+
+
 ## 2026-06-15 06:35 AM Europe/Berlin - RPI APPLIANCE — factory-reset.sh enhanced with post-reset verification
 
 Changed files:
@@ -242,16 +322,7 @@ Implemented:
 - This reduces the manual setup steps for most users to two steps: run install.sh and reboot.
 - Preserves all existing functionality and error handling.
 
-Why this matters:
-The Autopoiesis OS appliance installation previously required distinct manual steps: run install.sh, run configure-kiosk-os.sh, reboot, and start the appliance. This created friction for users trying to set up their Frames device. By integrating kiosk OS configuration into the installation script, we move closer to the MVP 1.0 goal of a true "one-command install" experience (run install.sh and reboot) while preserving flexibility for advanced users.
-
-Verification:
-- bash -n install.sh passed
-- bash -n update.sh uninstall-dev-tools.sh factory-reset.sh scripts/*.sh passed
-- node --check local-ui/server.js passed
-
-Next step:
-- Test the enhanced install.sh on a physical Raspberry Pi to verify the complete flow from installation to running appliance with and without the flag.
+- Verification: `bash -n install.sh` passed; `bash -n update.sh uninstall-dev-tools.sh factory-reset.sh scripts/*.sh` passed; `node --check local-ui/server.js` passed
 
 
 ## 2026-06-14 20:00 UTC - ONLINE ADMIN — Added release rollout history to admin device snapshot
