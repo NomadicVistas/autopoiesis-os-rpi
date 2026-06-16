@@ -1,3 +1,79 @@
+## 2026-06-16 02:30 PM Europe/Berlin - LEAD / INTEGRATION — Added index on aos_frame_devices(owner_user_id, paired) for faster device lookups
+
+Changed files:
+- migrations/sqlite/20260616123000_add_index_on_devices_owner_user_id_paired.sql
+
+Implemented:
+- Added index on owner_user_id and paired columns in aos_frame_devices table to speed up queries that filter by owner and paired status.
+
+Why this matters:
+- Speeds up the countDevicesByOwner function used for entitlement computation.
+- Improves listDevices filtering by owner and paired status.
+- Benefits multiple workstreams: profile (subscription entitlements), API (device listing), admin (fleet management), and sync (device ownership checks).
+- Reduces query latency for device-centric operations, improving overall system responsiveness.
+
+Verification:
+- bash -n install.sh update.sh uninstall-dev-tools.sh factory-reset.sh scripts/*.sh passed
+- node --check local-ui/server.js passed
+- node --check hosted-api/server.js passed
+- Verified index creation via schema query.
+
+Next step:
+- Monitor query performance in logs for owner/device lookups.
+
+
+## 2026-06-16 12:41 PM Europe/Berlin - LEAD / BROADCAST/FEED — Enhanced polling logic for personalized content stream
+
+Changed files:
+- hosted-api/server.js
+
+Implemented:
+- Enhanced handleStream function to implement adaptive polling based on content priority and expiry
+- Added logic to detect emergency/critical broadcast items and increase polling frequency
+- Added logic to adjust polling interval based on soonest-expiring content to catch items before expiry
+- Maintained subscription-tier-based polling as baseline with reasonable bounds (30s-30min interval, 60s-1h idle)
+
+Why this matters:
+- Improves responsiveness to high-priority broadcasts (emergency/critical) by polling more frequently
+- Ensures timely delivery of expiring content by adjusting polling to catch items before they expire
+- Reduces unnecessary polling for low-priority content while maintaining subscription-tier fairness
+- Enhances device-side experience by providing more relevant polling guidance based on actual stream content
+- Supports broadcast/feed workstream by making content delivery more adaptive and efficient
+
+Verification:
+- bash -n install.sh update.sh uninstall-dev-tools.sh factory-reset.sh scripts/*.sh passed
+- node --check local-ui/server.js passed
+- node --check hosted-api/server.js passed
+- Manual verification of the adapted polling logic (no regression in stream endpoint)
+
+Next step:
+- Monitor device-side polling behavior to confirm improvement
+
+## 2026-06-16 11:10 AM Europe/Berlin - LEAD / INTEGRATION — Enhanced effective preferences endpoint with subscription and entitlements
+
+Changed files:
+- hosted-api/server.js
+
+Implemented:
+- Extended GET /frames/device/:id/effective-preferences to include subscription and entitlements for the device owner.
+- Added logic to fetch owner subscription, compute device count and entitlements using existing computeEntitlements function.
+- Returned subscription and entitlements in the response alongside existing effective preferences, device settings, and owner preferences.
+
+Why this matters:
+- Reduces round trips for devices needing both effective preferences and subscription/entitlement data during startup or reconfiguration.
+- Integrates profile (subscription) data directly into the effective preferences endpoint, simplifying device-side logic.
+- Supports multiple workstreams (profile, API, pairing, sync) by providing a more complete device context in a single call.
+- Lays foundation for future features like dynamic feature gating based on entitlements.
+
+Verification:
+- bash -n install.sh update.sh uninstall-dev-tools.sh factory-reset.sh scripts/*.sh passed
+- node --check local-ui/server.js passed
+- node --check hosted-api/server.js passed
+- Manual verification of the updated endpoint returns correct subscription and entitlements for paired devices with owners, and null for unpaired devices.
+
+Next step:
+- Consider adding device-specific flags to the effective preferences endpoint for further granularity.
+
 ## 2026-06-16 08:46 AM Europe/Berlin - LEAD / BROADCAST/FEED — Improved cache eligibility logic for personalized content stream
 
 Changed files:
@@ -61,7 +137,7 @@ Changed files:
 
 Implemented:
 - Added kiosk process verification to confirm local-ui/server.js is running when service is active
-- Added port 3030 listening check to ensure UI is ready to serve
+- Added port 3030 listening count to ensure UI is ready to serve
 - Added local UI content validation to confirm HTML interface is served
 - Added checks for factory reset, update, and install script availability and executability
 - Added port conflict detection for port 3030
@@ -85,4 +161,3 @@ Verification:
 Next step:
 - Consider adding touchscreen calibration verification in future iterations
 - Consider adding hardware-specific checks for different Raspberry Pi models
-

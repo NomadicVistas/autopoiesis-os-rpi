@@ -1,0 +1,1 @@
+CREATE INDEX IF NOT EXISTS idx_aos_devices_owner_user_id_paired ON aos_frame_devices(owner_user_id, paired);
