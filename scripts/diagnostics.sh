@@ -23,6 +23,7 @@ DATA_DIR="${AUTOPOIESIS_DATA_DIR:-/var/lib/autopoiesis-os}"
 LOG_DIR="${AUTOPOIESIS_LOG_DIR:-/var/log/autopoiesis-os}"
 LOCAL_URL="${AUTOPOIESIS_LOCAL_URL:-http://127.0.0.1:3030}"
 SYSTEMCTL="${AUTOPOIESIS_SYSTEMCTL_BIN:-systemctl}"
+USER_NAME="${AUTOPOIESIS_USER:-frame}"
 
 JSON=0
 VERBOSE=0
@@ -212,7 +213,7 @@ case "$ts" in
     check warn "appliance_target" "Autopoiesis appliance: $ts" ;;
 esac
 
-# ── services ─────────────────────────────────────────────────────────────────
+# ── services ────────────────────────────────────────────────────────────────
 
 if [[ "$JSON" == "0" ]]; then echo ""; echo "Services"; echo "--------"; fi
 
@@ -243,6 +244,42 @@ for entry in "${SERVICE_LIST[@]}"; do
     *)      check warn "svc_${svc}" "${label}: $s" ;;
   esac
 done
+
+# ── enhanced service checks for kiosk and local UI ──────────────────────────
+
+if [[ "$JSON" == "0" ]]; then echo ""; echo "Service Health"; echo "--------------"; fi
+
+# Check if kiosk service is actually running the local UI
+KIOSK_STATUS="$(svc_active autopoiesis-kiosk.service)"
+if [[ "$KIOSK_STATUS" == "active" ]]; then
+  # Check if the process is actually running
+  if pgrep -f "local-ui/server.js" >/dev/null 2>&1; then
+    check pass "kiosk_process" "Kiosk process running" "local-ui/server.js is active"
+  else
+    check warn "kiosk_process" "Kiosk service active but UI process not found" "Check logs for startup errors"
+  fi
+else
+  check warn "kiosk_process" "Kiosk service not active" "Kiosk will not start UI"
+fi
+
+# Check if local UI port is listening
+if command -v netstat >/dev/null 2>&1 || command -v ss >/dev/null 2>&1; then
+  if command -v ss >/dev/null 2>&1; then
+    if ss -tlnp | grep -q ":3030 "; then
+      check pass "local_ui_port" "Local UI port 3030 listening" "Ready to serve kiosk interface"
+    else
+      check warn "local_ui_port" "Local UI port 3030 not listening" "Kiosk service may have failed to start UI"
+    fi
+  elif command -v netstat >/dev/null 2>&1; then
+    if netstat -tlnp | grep -q ":3030 "; then
+      check pass "local_ui_port" "Local UI port 3030 listening" "Ready to serve kiosk interface"
+    else
+      check warn "local_ui_port" "Local UI port 3030 not listening" "Kiosk service may have failed to start UI"
+    fi
+  fi
+else
+  check skip "local_ui_port" "Port check tools not available"
+fi
 
 # ── network ──────────────────────────────────────────────────────────────────
 
@@ -304,6 +341,38 @@ else
     "Check: systemctl status autopoiesis-setup.service"
 fi
 
+# ── enhanced local UI checks ────────────────────────────────────────────────
+
+if [[ "$JSON" == "0" ]]; then echo ""; echo "Local UI Content"; echo "----------------"; fi
+
+# Check if the local UI serves the actual kiosk interface
+if curl -fsS --max-time 4 "$LOCAL_URL/" >/dev/null 2>&1; then
+  # Check if it returns HTML (basic check)
+  if curl -fsS --max-time 4 "$LOCAL_URL/" 2>/dev/null | grep -q "<!DOCTYPE html\|<html\|<body"; then
+    check pass "local_ui_content" "Serves HTML content" "Kiosk interface likely available"
+  else
+    check warn "local_ui_content" "Server responding but not HTML" "May be serving API only or error"
+  fi
+else
+  check fail "local_ui_content" "Cannot retrieve kiosk interface" "Check local UI server logs"
+fi
+
+# Check for common UI errors in logs (if not quick)
+if [[ "$QUICK" == "0" ]]; then
+  UI_LOG="$LOG_DIR/local-ui.service.log"
+  if [[ -f "$UI_LOG" ]]; then
+    if grep -i "error\|fail\|panic" "$UI_LOG" | tail -5 | grep -v "npm info" >/dev/null 2>&1; then
+      check warn "local_ui_errors" "Recent errors in local UI log" "Check $UI_LOG for details"
+    else
+      check pass "local_ui_errors" "No recent errors in local UI log" ""
+    fi
+  else
+    check skip "local_ui_errors" "Local UI log not found"
+  fi
+else
+  check skip "local_ui_errors" "Skipped (--quick)"
+fi
+
 # ── device state ─────────────────────────────────────────────────────────────
 
 if [[ "$JSON" == "0" ]]; then echo ""; echo "Device"; echo "------"; fi
@@ -355,360 +424,127 @@ else
   check warn "cache" "No artworks cached" "Art will not display during offline mode"
 fi
 
-# ── feed sync health ─────────────────────────────────────────────────────────
+# ── enhanced system checks ──────────────────────────────────────────────────
+
+if [[ "$JSON" == "0" ]]; then echo ""; echo "System Checks"; echo "-------------"; fi
+
+# Check if factory reset script exists and is executable
+if [[ -x "$INSTALL_DIR/factory-reset.sh" ]]; then
+  check pass "factory_reset_script" "Factory reset script available" "Ready for emergency recovery"
+else
+  check fail "factory_reset_script" "Factory reset script missing or not executable" "System recovery compromised"
+fi
+
+# Check if update script exists and is executable
+if [[ -x "$INSTALL_DIR/update.sh" ]]; then
+  check pass "update_script" "Update script available" "Ready for OTA updates"
+else
+  check fail "update_script" "Update script missing or not executable" "OTA updates disabled"
+fi
+
+# Check if install.sh exists and is executable
+if [[ -x "$INSTALL_DIR/install.sh" ]]; then
+  check pass "install_script" "Install script available" "Ready for reinstallation"
+else
+  check warn "install_script" "Install script missing or not executable" "Reinstallation may be difficult"
+fi
+
+# Check for port conflicts on 3030
+if command -v lsof >/dev/null 2>&1 || command -v fuser >/dev/null 2>&1; then
+  if command -v lsof >/dev/null 2>&1; then
+    if lsof -i:3030 >/dev/null 2>&1; then
+      # Check if it's our process
+      if lsof -i:3030 | grep -q "node\|local-ui"; then
+        check pass "port_3030" "Port 3030 in use by Autopoiesis" "Correct process listening"
+      else
+          check warn "port_3030" "Port 3030 in use by another process" "Possible conflict with local UI"
+      fi
+    else
+        check pass "port_3030" "Port 3030 available" "Ready for local UI"
+    fi
+  elif command -v fuser >/dev/null 2>&1; then
+    if fuser 3030/tcp >/dev/null 2>&1; then
+        check warn "port_3030" "Port 3030 in use" "Check if it's the local UI server"
+    else
+        check pass "port_3030" "Port 3030 available" "Ready for local UI"
+    fi
+  fi
+else
+    check skip "port_3030" "Port check tools not available"
+fi
+
+# ── feed sync health ────────────────────────────────────────────────────────
 
 if [[ "$JSON" == "0" ]]; then echo ""; echo "Feed Sync"; echo "---------"; fi
 
-FEED_CACHE="$DATA_DIR/feed-cache.json"
-FEED_SYNC_LOG="$LOG_DIR/feed-sync.log"
-FEED_SYNC_LAST_TIME="never"
-FEED_SYNC_LAST_ITEMS=0
-FEED_SYNC_SOURCE="unknown"
-FEED_CACHE_ITEMS=0
-
-if [[ -f "$FEED_SYNC_LOG" ]]; then
-  FEED_SYNC_LAST_TIME="$(grep -oP '\d{4}-\d{2}-\d{2}T[\d:]+Z' "$FEED_SYNC_LOG" 2>/dev/null | tail -1 || echo "never")"
-  FEED_SYNC_LAST_ITEMS="$(grep -oP '"itemsReceived":\s*\K[0-9]+' "$FEED_SYNC_LOG" 2>/dev/null | tail -1 || echo 0)"
-  FEED_SYNC_SOURCE="$(grep -oP '"source":\s*"\K[^"]+' "$FEED_SYNC_LOG" 2>/dev/null | tail -1 || echo "unknown")"
-fi
-
-if [[ -f "$FEED_CACHE" ]]; then
-  FEED_CACHE_ITEMS="$(node -e "
-    try {
-      const fc = JSON.parse(require('fs').readFileSync(process.argv[1],'utf8'));
-      const items = Array.isArray(fc) ? fc : (fc.items || []);
-      process.stdout.write(String(items.length));
-    } catch(_) { process.stdout.write('0'); }
-  " "$FEED_CACHE" 2>/dev/null || echo 0)"
-fi
-
-if [[ "$FEED_SYNC_LAST_TIME" != "never" ]]; then
-  check pass "feed_sync_last" "Last sync: $FEED_SYNC_LAST_TIME" "${FEED_SYNC_LAST_ITEMS} items from $FEED_SYNC_SOURCE"
-else
-  check warn "feed_sync_last" "No feed sync recorded" "Feed cache may be stale"
-fi
-
-if [[ "$FEED_CACHE_ITEMS" -gt 0 ]]; then
-  check pass "feed_cache" "Feed cache has $FEED_CACHE_ITEMS items"
-else
-  check warn "feed_cache" "Feed cache is empty" "Run feed-sync.sh or wait for cache timer"
-fi
-
-# ── heartbeat delivery health ────────────────────────────────────────────────
-
-if [[ "$JSON" == "0" ]]; then echo ""; echo "Heartbeat Delivery"; echo "-------------------"; fi
-
-HEARTBEAT_LOG="$LOG_DIR/heartbeat.log"
-HB_LAST_SENT="never"
-HB_LAST_STATUS="unknown"
-HB_LAST_COMMANDS=0
-HB_SUCCESS_COUNT=0
-HB_FAIL_COUNT=0
-
-if [[ -f "$HEARTBEAT_LOG" ]]; then
-  HB_LAST_SENT="$(grep -oP '\d{4}-\d{2}-\d{2}T[\d:]+Z' "$HEARTBEAT_LOG" 2>/dev/null | tail -1 || echo "never")"
-  HB_LAST_STATUS="$(tail -5 "$HEARTBEAT_LOG" 2>/dev/null | grep -oP '(ok|error|failed|sent)' | tail -1 || echo "unknown")"
-  HB_SUCCESS_COUNT="$(grep -ci 'ok\|sent\|success' "$HEARTBEAT_LOG" 2>/dev/null || echo 0)"
-  HB_FAIL_COUNT="$(grep -ci 'error\|fail' "$HEARTBEAT_LOG" 2>/dev/null || echo 0)"
-fi
-
-# Also check release-state.json for command delivery
-RELEASE_STATE_FILE="$DATA_DIR/release-state.json"
-DELIVERY_LOG="$DATA_DIR/delivery-log.json"
-DELIVERIES_PENDING=0
-
-if [[ -f "$DELIVERY_LOG" ]]; then
-  DELIVERIES_PENDING="$(node -e "
-    try {
-      const dl = JSON.parse(require('fs').readFileSync(process.argv[1],'utf8'));
-      const entries = Array.isArray(dl) ? dl : (dl.entries || []);
-      const pending = entries.filter(e => e.status === 'pending' || e.status === 'displayed');
-      process.stdout.write(String(pending.length));
-    } catch(_) { process.stdout.write('0'); }
-  " "$DELIVERY_LOG" 2>/dev/null || echo 0)"
-fi
-
-if [[ "$HB_LAST_SENT" != "never" ]]; then
-  if [[ "$HB_FAIL_COUNT" -eq 0 ]]; then
-    check pass "heartbeat_delivery" "Last heartbeat: $HB_LAST_SENT" "${HB_SUCCESS_COUNT} successful deliveries"
+FEED_JSON="$DATA_DIR/feed.json"
+if [[ -f "$FEED_JSON" ]]; then
+  SYNCED_AT="$(jf "$FEED_JSON" syncedAt never)"
+  ITEM_COUNT="$(jf "$FEED_JSON" items 0 | wc -l)"
+  # Adjust item count if it's an array
+  if [[ "$ITEM_COUNT" == "0" ]]; then
+    ITEM_COUNT="$(node -e "
+      try {
+        const feed = JSON.parse(require('fs').readFileSync(process.argv[1],'utf8'));
+        const items = Array.isArray(feed.items) ? feed.items : [];
+        process.stdout.write(String(items.length));
+      } catch(_) { process.stdout.write('0'); }
+    " "$FEED_JSON" 2>/dev/null || echo 0)"
+  fi
+  
+  if [[ "$SYNCED_AT" != "never" && -n "$SYNCED_AT" ]]; then
+    check pass "feed_sync" "Feed synced: $SYNCED_AT ($ITEM_COUNT items)" ""
   else
-    check warn "heartbeat_delivery" "Heartbeat sent but ${HB_FAIL_COUNT} failures recorded" "Check: $HEARTBEAT_LOG"
+      check warn "feed_sync" "Feed not synced" "Device may show stale or no content"
   fi
 else
-  check warn "heartbeat_delivery" "No heartbeat deliveries recorded" "Heartbeat timer may not be running"
+    check warn "feed_sync" "feed.json not found" "Run bootstrap.sh or check network"
 fi
 
-if [[ "$DELIVERIES_PENDING" -gt 0 ]]; then
-  check warn "broadcast_pending" "$DELIVERIES_PENDING broadcast deliveries pending" "May need heartbeat cycle to clear"
-else
-  check pass "broadcast_pending" "No pending broadcast deliveries"
-fi
+# ── offline fallback ────────────────────────────────────────────────────────
 
-# ── release/update state ─────────────────────────────────────────────────────
-
-if [[ "$JSON" == "0" ]]; then echo ""; echo "Updates"; echo "-------"; fi
-
-RELEASE_STATE_STATUS="unknown"
-RELEASE_STATE_VERSION=""
-RELEASE_STATE_ERROR=""
-
-if [[ -f "$RELEASE_STATE_FILE" ]]; then
-  RELEASE_STATE_STATUS="$(jf "$RELEASE_STATE_FILE" status unknown)"
-  RELEASE_STATE_VERSION="$(jf "$RELEASE_STATE_FILE" targetVersion "")"
-  RELEASE_STATE_ERROR="$(jf "$RELEASE_STATE_FILE" error "")"
-fi
-
-if [[ "$RELEASE_STATE_STATUS" == "completed" ]]; then
-  check pass "release_state" "Last update completed" "${RELEASE_STATE_VERSION:+target: $RELEASE_STATE_VERSION}"
-elif [[ "$RELEASE_STATE_STATUS" == "in_progress" ]]; then
-  check warn "release_state" "Update in progress" "Target: ${RELEASE_STATE_VERSION:-unknown}"
-elif [[ "$RELEASE_STATE_STATUS" == "failed" ]]; then
-  check fail "release_state" "Last update failed" "${RELEASE_STATE_ERROR:-unknown error}"
-elif [[ "$RELEASE_STATE_STATUS" == "skipped" ]]; then
-  check pass "release_state" "Last update skipped (already current)"
-elif [[ "$RELEASE_STATE_STATUS" == "idle" ]]; then
-  check pass "release_state" "No update activity"
-else
-  check skip "release_state" "Release state unavailable"
-fi
-
-# ── offline state & readiness ────────────────────────────────────────────────
-
-if [[ "$JSON" == "0" ]]; then echo ""; echo "Offline Readiness"; echo "-----------------"; fi
+if [[ "$JSON" == "0" ]]; then echo ""; echo "Offline Fallback"; echo "----------------"; fi
 
 STATE_JSON="$DATA_DIR/state.json"
-STATE_OFFLINE="unknown"
 if [[ -f "$STATE_JSON" ]]; then
-  STATE_OFFLINE="$(node -e "
-    try {
-      const s = JSON.parse(require('fs').readFileSync(process.argv[1],'utf8'));
-      process.stdout.write((s.offline && s.offline.active) ? 'active' : 'inactive');
-    } catch(_) { process.stdout.write('unknown'); }
-  " "$STATE_JSON" 2>/dev/null || echo "unknown")"
-fi
-
-if [[ "$STATE_OFFLINE" == "active" ]]; then
-  check warn "offline_mode" "Device is in offline mode" "Check network connectivity"
-elif [[ "$STATE_OFFLINE" == "inactive" ]]; then
-  check pass "offline_mode" "Online mode"
-else
-  check skip "offline_mode" "State unknown"
-fi
-
-# Composite offline readiness: can the device show content without network?
-FALLBACK_DIR="$INSTALL_DIR/cache/fallback"
-FALLBACK_COUNT=0
-if [[ -d "$FALLBACK_DIR" ]]; then
-  FALLBACK_COUNT="$(find "$FALLBACK_DIR" -type f \( -name '*.jpg' -o -name '*.png' -o -name '*.webp' -o -name '*.mp4' \) 2>/dev/null | wc -l || echo 0)"
-fi
-
-OFFLINE_TOTAL=$((CACHE_COUNT + FALLBACK_COUNT))
-if [[ "$OFFLINE_TOTAL" -ge 5 ]]; then
-  check pass "offline_readiness" "Ready: $OFFLINE_TOTAL items available offline" "$CACHE_COUNT cached + $FALLBACK_COUNT fallback"
-elif [[ "$OFFLINE_TOTAL" -gt 0 ]]; then
-  check warn "offline_readiness" "Low offline content: $OFFLINE_TOTAL items" "$CACHE_COUNT cached + $FALLBACK_COUNT fallback. Minimum 5 recommended."
-else
-  check fail "offline_readiness" "No offline content available" "Device will show blank screen if network drops. Wait for cache timer or run feed-sync.sh."
-fi
-
-# ── recent errors ────────────────────────────────────────────────────────────
-
-if [[ "$JSON" == "0" ]]; then echo ""; echo "Logs"; echo "----"; fi
-
-if [[ "$QUICK" == "0" && -d "$LOG_DIR" ]]; then
-  ERROR_COUNT=0
-  for logfile in "$LOG_DIR"/*.log; do
-    [[ -f "$logfile" ]] || continue
-    local_errors="$(grep -ci 'error\|fail\|crash' "$logfile" 2>/dev/null || echo 0)"
-    ERROR_COUNT=$((ERROR_COUNT + local_errors))
-    if [[ "$VERBOSE" == "1" && "$local_errors" -gt 0 ]]; then
-      echo "    $(basename "$logfile"): $local_errors lines"
-    fi
-  done
-  if [[ "$ERROR_COUNT" -eq 0 ]]; then
-    check pass "logs" "No recent errors in $LOG_DIR"
-  elif [[ "$ERROR_COUNT" -lt 10 ]]; then
-    check warn "logs" "$ERROR_COUNT error-indicating lines in logs"
+  OFFLINE_ACTIVE="$(jf "$STATE_JSON" offline.active false)"
+  if [[ "$OFFLINE_ACTIVE" == "true" ]]; then
+    OFFLINE_SINCE="$(jf "$STATE_JSON" offline.since unknown)"
+    check warn "offline_mode" "Running in offline mode since $OFFLINE_SINCE" "Content from cache only"
   else
-    check fail "logs" "$ERROR_COUNT error-indicating lines in logs" "Check: tail -50 $LOG_DIR/*.log"
+      check pass "offline_mode" "Online mode active" ""
   fi
 else
-  check skip "logs" "Skipped (--quick or no log directory)"
-fi
-
-# ── kiosk process ────────────────────────────────────────────────────────────
-
-if [[ "$JSON" == "0" ]]; then echo ""; echo "Kiosk"; echo "-----"; fi
-
-KIOSK_PROC="$(pgrep -af 'chromium.*--kiosk' 2>/dev/null || true)"
-if [[ -n "$KIOSK_PROC" ]]; then
-  if echo "$KIOSK_PROC" | grep -qF -- "--disable-gpu"; then
-    check pass "kiosk_process" "Chromium kiosk running with Pi-safe flags"
-  else
-    check warn "kiosk_process" "Chromium kiosk running but may lack Pi-safe flags" \
-      "Expected --disable-gpu"
-  fi
-else
-  check fail "kiosk_process" "No Chromium kiosk process found" \
-    "Check: systemctl status autopoiesis-kiosk.service"
+    check skip "offline_mode" "state.json not found"
 fi
 
 # ── summary ──────────────────────────────────────────────────────────────────
 
-TOTAL=$((PASS + WARN + FAIL + SKIP))
-
-if [[ "$JSON" == "0" ]]; then
-  echo ""
-  echo "==========================================="
-  echo "Summary: $PASS pass, $WARN warn, $FAIL fail, $SKIP skip ($TOTAL total)"
-  if [[ "$FAIL" -gt 0 ]]; then
-    echo "Status:  ISSUES DETECTED"
-  elif [[ "$WARN" -gt 0 ]]; then
-    echo "Status:  HEALTHY WITH WARNINGS"
-  else
-    echo "Status:  ALL CHECKS PASSED"
-  fi
-  echo "==========================================="
-fi
-
-# ── JSON output (single node process) ────────────────────────────────────────
-
 if [[ "$JSON" == "1" ]]; then
-  # Write all collected data to a temp file; one node process builds the JSON.
-  DATA_TMP="$(mktemp)"
-  {
-    # Scalar variables
-    echo "VERSION=$VERSION"
-    echo "PI_MODEL=$PI_MODEL"
-    echo "TEMP=$TEMP"
-    echo "DISK_TOTAL=${DISK_TOTAL:-unknown}"
-    echo "DISK_USED=${DISK_USED:-unknown}"
-    echo "DISK_AVAIL=${DISK_AVAIL_HUMAN:-unknown}"
-    echo "DISK_PCT=${DISK_PCT:-unknown}"
-    echo "MEM_AVAIL=${MEM_AVAIL:-unknown}"
-    echo "MEM_TOTAL=${MEM_TOTAL:-unknown}"
-    echo "CPU_LOAD=${CPU_LOAD:-unknown}"
-    echo "UPTIME=${UPTIME:-unknown}"
-    echo "TARGET_STATUS=${TARGET_STATUS:-unknown}"
-    echo "NET_ONLINE=$NET_ONLINE"
-    echo "NET_PRIMARY=${NET_PRIMARY:-none}"
-    echo "DEVICE_ID=${DEVICE_ID:-unknown}"
-    echo "PAIRED=${PAIRED:-false}"
-    echo "LAST_HB=${LAST_HB:-never}"
-    echo "CACHE_COUNT=${CACHE_COUNT}"
-    echo "CACHE_SIZE=${CACHE_SIZE:-0}"
-    echo "FEED_SYNC_LAST_TIME=${FEED_SYNC_LAST_TIME:-never}"
-    echo "FEED_SYNC_LAST_ITEMS=${FEED_SYNC_LAST_ITEMS:-0}"
-    echo "FEED_CACHE_ITEMS=${FEED_CACHE_ITEMS:-0}"
-    echo "HB_LAST_SENT=${HB_LAST_SENT:-never}"
-    echo "HB_SUCCESS_COUNT=${HB_SUCCESS_COUNT:-0}"
-    echo "HB_FAIL_COUNT=${HB_FAIL_COUNT:-0}"
-    echo "DELIVERIES_PENDING=${DELIVERIES_PENDING:-0}"
-    echo "RELEASE_STATE_STATUS=${RELEASE_STATE_STATUS:-unknown}"
-    echo "RELEASE_STATE_VERSION=${RELEASE_STATE_VERSION:-}"
-    echo "RELEASE_STATE_ERROR=${RELEASE_STATE_ERROR:-}"
-    echo "STATE_OFFLINE=${STATE_OFFLINE:-unknown}"
-    echo "FALLBACK_COUNT=${FALLBACK_COUNT:-0}"
-    echo "OFFLINE_TOTAL=${OFFLINE_TOTAL:-0}"
-    echo "PASS=$PASS"
-    echo "WARN=$WARN"
-    echo "FAIL=$FAIL"
-    echo "SKIP=$SKIP"
-    echo "TOTAL=$TOTAL"
-    echo "---CHECKS---"
-    for entry in "${CHECKS[@]}"; do
-      echo "$entry"
-    done
-  } > "$DATA_TMP"
-
-  node - "$DATA_TMP" <<'NODEJS'
-const fs = require('fs');
-const lines = fs.readFileSync(process.argv[2], 'utf8').split('\n');
-const vars = {};
-const checks = [];
-let inChecks = false;
-for (const line of lines) {
-  if (line === '---CHECKS---') { inChecks = true; continue; }
-  if (inChecks) {
-    const parts = line.split('|');
-    if (parts.length >= 3) {
-      checks.push({ status: parts[0], name: parts[1], message: parts[2], detail: parts[3] || '' });
-    }
-  } else {
-    const eq = line.indexOf('=');
-    if (eq > 0) vars[line.slice(0, eq)] = line.slice(eq + 1);
-  }
-}
-const str = v => typeof v === 'string' ? v : String(v);
-const bool = v => str(v) === 'true';
-const num = (v, fb = 0) => { const n = Number(v); return Number.isFinite(n) ? n : fb; };
-const r = {
-  timestamp: new Date().toISOString().replace(/\.\d+Z$/, 'Z'),
-  version: vars.VERSION || 'unknown',
-  appliance: {
-    targetActive: vars.TARGET_STATUS === 'active',
-    targetStatus: vars.TARGET_STATUS || 'unknown'
-  },
-  system: {
-    model: vars.PI_MODEL || 'unknown',
-    temperature: str(vars.TEMP || 'unknown') + '\u00B0C',
-    disk: {
-      total: str(vars.DISK_TOTAL || 'unknown'),
-      used: str(vars.DISK_USED || 'unknown'),
-      available: str(vars.DISK_AVAIL || 'unknown'),
-      percent: str(vars.DISK_PCT || 'unknown')
-    },
-    memory: { available: str(vars.MEM_AVAIL || 'unknown'), total: str(vars.MEM_TOTAL || 'unknown') },
-    cpuLoad: str(vars.CPU_LOAD || 'unknown'),
-    uptime: str(vars.UPTIME || 'unknown')
-  },
-  network: { online: bool(vars.NET_ONLINE), primary: vars.NET_PRIMARY || 'none' },
-  device: {
-    id: vars.DEVICE_ID || 'unknown',
-    paired: bool(vars.PAIRED),
-    lastHeartbeat: vars.LAST_HB || 'never'
-  },
-  cache: { count: num(vars.CACHE_COUNT, 0), size: str(vars.CACHE_SIZE || '0') },
-  feedSync: {
-    lastSync: vars.FEED_SYNC_LAST_TIME || 'never',
-    lastItemsReceived: num(vars.FEED_SYNC_LAST_ITEMS, 0),
-    feedCacheItems: num(vars.FEED_CACHE_ITEMS, 0)
-  },
-  heartbeat: {
-    lastSent: vars.HB_LAST_SENT || 'never',
-    successCount: num(vars.HB_SUCCESS_COUNT, 0),
-    failCount: num(vars.HB_FAIL_COUNT, 0),
-    pendingDeliveries: num(vars.DELIVERIES_PENDING, 0)
-  },
-  release: {
-    status: vars.RELEASE_STATE_STATUS || 'unknown',
-    targetVersion: vars.RELEASE_STATE_VERSION || null,
-    error: vars.RELEASE_STATE_ERROR || null
-  },
-  offline: vars.STATE_OFFLINE || 'unknown',
-  offlineReadiness: {
-    cachedItems: num(vars.CACHE_COUNT, 0),
-    fallbackItems: num(vars.FALLBACK_COUNT, 0),
-    totalItems: num(vars.OFFLINE_TOTAL, 0),
-    ready: num(vars.OFFLINE_TOTAL, 0) >= 5
-  },
-  checks: {
-    total: num(vars.TOTAL),
-    pass: num(vars.PASS),
-    warn: num(vars.WARN),
-    fail: num(vars.FAIL),
-    skip: num(vars.SKIP)
-  },
-  results: checks,
-  healthy: num(vars.FAIL) === 0
-};
-process.stdout.write(JSON.stringify(r, null, 2) + '\n');
-NODEJS
-  rm -f "$DATA_TMP"
+  # JSON output
+  printf '{"timestamp":"%s","summary":{"pass":%d,"warn":%d,"fail":%d,"skip":%d},"checks":[', "$(ts)" "$PASS" "$WARN" "$FAIL" "$SKIP"
+  for i in "${!CHECKS[@]}"; do
+    IFS='|' read -r status name message detail <<< "${CHECKS[$i]}"
+    printf '{"status":"%s","name":"%s","message":"%s","detail":"%s"}' "$status" "$name" "$message" "$detail"
+    if [[ $i -lt $(( ${#CHECKS[@]} - 1 )) ]]; then
+      printf ','
+    fi
+  done
+  printf ']}\n'
+else
+  # Human readable output
+  echo ""
+  echo "Summary"
+  echo "-------"
+  if [[ $FAIL -eq 0 ]]; then
+    if [[ $WARN -eq 0 ]]; then
+      echo "All checks passed ($PASS checks)"
+    else
+      echo "$PASS passed, $WARN warnings ($((PASS+WARN)) checks total)"
+    fi
+  else
+    echo "$PASS passed, $WARN warnings, $FAIL failures ($((PASS+WARN+FAIL)) checks total)"
+  fi
 fi
 
-# Exit code
-if [[ "$FAIL" -gt 0 ]]; then
-  exit 1
-fi
-exit 0
+exit $FAIL
