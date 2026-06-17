@@ -90,6 +90,46 @@ function _priorityRank(priority) {
   return 200;
 }
 
+function _mixStreamItemsByPriorityAndCategory(items, limit) {
+  const cappedLimit = Math.max(0, Math.min(Number(limit) || 30, 500));
+  const categoryOrder = ['broadcast', 'curatorial', 'artwork', 'blog', 'news', 'content'];
+  const priorityGroups = new Map();
+
+  for (const item of items) {
+    const rank = _priorityRank(item.priority);
+    if (!priorityGroups.has(rank)) priorityGroups.set(rank, []);
+    priorityGroups.get(rank).push(item);
+  }
+
+  const mixed = [];
+  const ranks = Array.from(priorityGroups.keys()).sort((a, b) => b - a);
+  for (const rank of ranks) {
+    const buckets = new Map(categoryOrder.map(category => [category, []]));
+    for (const item of priorityGroups.get(rank) || []) {
+      const category = item.category || _broadcastTypeToCategory(item.type);
+      if (!buckets.has(category)) buckets.set(category, []);
+      buckets.get(category).push(item);
+    }
+
+    let added = true;
+    while (added && mixed.length < cappedLimit) {
+      added = false;
+      for (const category of categoryOrder) {
+        const bucket = buckets.get(category) || [];
+        const next = bucket.shift();
+        if (!next) continue;
+        mixed.push(next);
+        added = true;
+        if (mixed.length >= cappedLimit) break;
+      }
+    }
+
+    if (mixed.length >= cappedLimit) break;
+  }
+
+  return mixed;
+}
+
 function _deliveryStatus(status) {
   const s = String(status || "received").toLowerCase();
   if (s === "shown") return "displayed";
@@ -297,6 +337,17 @@ class AosDb {
   }
 
   /**
+   * Returns applied migration records keyed by migration name.
+   */
+  getAppliedMigrationRecords() {
+    this.ensureMigrationsTable();
+    const rows = this.db.prepare(
+      "SELECT name, checksum, applied_at, duration_ms FROM aos_migrations ORDER BY name"
+    ).all();
+    return new Map(rows.map(row => [row.name, row]));
+  }
+
+  /**
    * Records a migration as applied.
    * @param {string} name - Migration filename (e.g. '20260607000001_initial')
    * @param {object} [opts]
@@ -342,11 +393,13 @@ class AosDb {
     // If aos_migrations is empty but aos_ tables exist, the database was
     // bootstrapped from the full schema before the migration system existed.
     // Register the initial seed as already applied.
-    const applied = this.getAppliedMigrations();
+    const appliedRecords = this.getAppliedMigrationRecords();
+    const applied = new Set(appliedRecords.keys());
     if (applied.size === 0 && this.isInitialized()) {
       this.recordMigration('seed_initial', { checksum: 'bootstrap' });
       result.skipped.push('seed_initial (existing database)');
       applied.add('seed_initial');
+      appliedRecords.set('seed_initial', { name: 'seed_initial', checksum: 'bootstrap' });
     }
 
     // Read migration files from directory
@@ -362,14 +415,22 @@ class AosDb {
 
     for (const file of files) {
       const name = file.replace(/\.sql$/, '');
-      if (applied.has(name)) {
-        result.skipped.push(name);
-        continue;
-      }
-
       const filePath = path.join(migrationsDir, file);
       const sql = fs.readFileSync(filePath, 'utf-8');
       const checksum = crypto.createHash('sha256').update(sql).digest('hex').slice(0, 16);
+      if (applied.has(name)) {
+        const appliedRecord = appliedRecords.get(name);
+        if (appliedRecord && appliedRecord.checksum && appliedRecord.checksum !== checksum) {
+          result.errors.push({
+            name,
+            error: "Migration checksum mismatch: stored " + appliedRecord.checksum + ", current " + checksum
+          });
+        } else {
+          result.skipped.push(name);
+        }
+        continue;
+      }
+
       const startMs = Date.now();
 
       try {
@@ -1785,6 +1846,136 @@ class AosDb {
     }));
   }
 
+  _emptyDeliveryCounts() {
+    return {
+      total: 0,
+      queued: 0,
+      delivered: 0,
+      displayed: 0,
+      dismissed: 0,
+      acknowledged: 0,
+      completed: 0,
+      failed: 0
+    };
+  }
+
+  _computeDeliveryStats(deliveries, meta = {}) {
+    const delivery = this._emptyDeliveryCounts();
+    let totalReachable = 0;
+    let totalDisplaySeconds = 0;
+    let displaySamples = 0;
+    let deliveredNotDisplayed = 0;
+    let staleInProgress = 0;
+    let terminalOutcomes = 0;
+    const staleThresholdMs = 2 * 60 * 60 * 1000;
+
+    for (const row of deliveries) {
+      totalReachable += 1;
+      delivery.total += 1;
+
+      const status = String(row.status || "").toLowerCase();
+      if (status === "queued") delivery.queued += 1;
+      if (row.deliveredAt || status === "delivered") delivery.delivered += 1;
+      if (row.displayedAt || ["displayed", "dismissed", "acknowledged", "completed"].includes(status)) {
+        delivery.displayed += 1;
+      }
+      if (row.dismissedAt || status === "dismissed") delivery.dismissed += 1;
+      if (row.acknowledgedAt || status === "acknowledged") delivery.acknowledged += 1;
+      if (row.completedAt || status === "completed") delivery.completed += 1;
+      if (status === "failed" || status === "error") delivery.failed += 1;
+
+      const terminal = ["displayed", "dismissed", "acknowledged", "completed", "failed", "error"].includes(status);
+      if (terminal) terminalOutcomes += 1;
+
+      if (status === "delivered" && !row.displayedAt) {
+        deliveredNotDisplayed += 1;
+        const staleSource = row.deliveredAt || row.updatedAt || row.createdAt || null;
+        const staleAt = staleSource ? new Date(staleSource).getTime() : NaN;
+        if (Number.isFinite(staleAt) && (Date.now() - staleAt) >= staleThresholdMs) {
+          staleInProgress += 1;
+        }
+      }
+
+      if (row.deliveredAt && row.displayedAt) {
+        const deliveredAt = new Date(row.deliveredAt).getTime();
+        const displayedAt = new Date(row.displayedAt).getTime();
+        if (Number.isFinite(deliveredAt) && Number.isFinite(displayedAt) && displayedAt >= deliveredAt) {
+          totalDisplaySeconds += (displayedAt - deliveredAt) / 1000;
+          displaySamples += 1;
+        }
+      }
+    }
+
+    const total = delivery.total;
+    const inProgress = Math.max(0, total - terminalOutcomes);
+    const rate = (value) => total > 0 ? Number((value / total).toFixed(2)) : 0;
+
+    return {
+      totalReachable,
+      delivery,
+      outcomes: {
+        deliveredNotDisplayed,
+        staleInProgress,
+        inProgress,
+        terminal: terminalOutcomes
+      },
+      terminalOutcomes,
+      avgTimeToDisplaySeconds: displaySamples > 0 ? Math.round(totalDisplaySeconds / displaySamples) : null,
+      rates: {
+        deliveryRate: rate(delivery.delivered),
+        displayRate: rate(delivery.displayed),
+        dismissalRate: rate(delivery.dismissed),
+        failureRate: rate(delivery.failed)
+      },
+      ...meta
+    };
+  }
+
+  getBroadcastDeliveryStats(broadcastId) {
+    const broadcast = this.getBroadcast(broadcastId);
+    if (!broadcast) return null;
+    const deliveries = this.getBroadcastDeliveries({ broadcastId });
+    return this._computeDeliveryStats(deliveries, {
+      broadcastId,
+      type: broadcast.type,
+      priority: broadcast.priority
+    });
+  }
+
+  getFleetDeliveryStats(filters = {}) {
+    const broadcasts = this.listBroadcasts({
+      type: filters.type,
+      priority: filters.priority,
+      status: filters.status,
+      limit: 1000,
+      offset: 0
+    }).items;
+    const broadcastIds = new Set(broadcasts.map(item => item.id));
+    const deliveries = broadcastIds.size === 0
+      ? []
+      : this.getBroadcastDeliveries({}).filter(item => broadcastIds.has(item.broadcastId));
+    const base = this._computeDeliveryStats(deliveries, {
+      broadcastCount: broadcasts.length,
+      deviceCount: new Set(deliveries.map(item => item.deviceId)).size,
+      totalDeliveries: deliveries.length
+    });
+
+    const byTypeMap = new Map();
+    const byPriorityMap = new Map();
+    for (const broadcast of broadcasts) {
+      const typeKey = broadcast.type || "unknown";
+      const priorityKey = broadcast.priority || "normal";
+      byTypeMap.set(typeKey, (byTypeMap.get(typeKey) || 0) + 1);
+      byPriorityMap.set(priorityKey, (byPriorityMap.get(priorityKey) || 0) + 1);
+    }
+
+    return {
+      ...base,
+      byType: Array.from(byTypeMap.entries()).map(([type, count]) => ({ type, count })),
+      byPriority: Array.from(byPriorityMap.entries()).map(([priority, count]) => ({ priority, count }))
+    };
+  }
+
   /**
    * Record server-side stream delivery intent for content returned to a device.
    *
@@ -2247,7 +2438,7 @@ class AosDb {
     }
 
     // Map rows to stream items with source attribution and delivery dedup
-    const items = categoryFiltered.filter(row => {
+    const candidates = categoryFiltered.filter(row => {
       // Exclude excluded items (queued, delivered, completed, acknowledged, dismissed)
       // Exclude recently displayed items (within cool-down) unless emergency/critical
       if (excludedSet.has(row.id)) {
@@ -2259,7 +2450,7 @@ class AosDb {
         return rank >= 400; // keep emergency (500) and critical (400)
       }
       return true;
-    }).slice(0, limit).map(row => {
+    }).map(row => {
       const category = _broadcastTypeToCategory(row.type);
       const item = {
         id: row.id,
@@ -2301,20 +2492,23 @@ class AosDb {
       return item;
     });
 
-    // Boost artist-matched items within priority groups
+    // Boost artist-matched items within priority/category groups before mixing.
     if (activeArtists.length > 0) {
       const lowerArtists = activeArtists.map(a => String(a).toLowerCase());
-      items.sort((a, b) => {
+      candidates.sort((a, b) => {
         const pa = _priorityRank(a.priority);
         const pb = _priorityRank(b.priority);
         if (pa !== pb) return pb - pa;
+        const ca = a.category || _broadcastTypeToCategory(a.type);
+        const cb = b.category || _broadcastTypeToCategory(b.type);
+        if (ca !== cb) return 0;
         const am = a.artistId && lowerArtists.includes(String(a.artistId).toLowerCase()) ? 1 : 0;
         const bm = b.artistId && lowerArtists.includes(String(b.artistId).toLowerCase()) ? 1 : 0;
         return bm - am;
       });
     }
 
-    return items;
+    return _mixStreamItemsByPriorityAndCategory(candidates, limit);
   }
 
   /**

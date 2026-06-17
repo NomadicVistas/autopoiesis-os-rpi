@@ -37,11 +37,15 @@
  *   PATCH /frames/admin/devices/:id                – Admin: update device properties
  *   GET  /frames/admin/users                       – Admin: list users
  *   GET  /frames/admin/users/:userId               – Admin: get user detail
+ *   GET  /frames/admin/users/:userId/frame-state   – Admin: profile frame-state summary
  *   GET  /frames/admin/users/:userId/preferences   – Admin: get user preferences
  *   PATCH /frames/admin/users/:userId/preferences   – Admin: update user preferences
+ *   GET  /frames/admin/subscribers                 – Admin: subscriber summary read model
  *   GET  /frames/admin/commands                    – Admin: fleet-wide command queue
  *   GET  /frames/admin/command-audits              – Admin: command audit trail
  *   GET  /frames/admin/devices                     – Admin: fleet-wide device listing
+ *   GET  /frames/admin/broadcasts/:id/delivery-stats – Admin: per-broadcast delivery outcomes
+ *   GET  /frames/admin/delivery-stats              – Admin: fleet broadcast delivery outcomes
  *   GET  /frames/me                                 – User: profile summary
  *   GET  /frames/me/devices                         – User: paired devices
  *   GET  /frames/me/preferences                     – User: read preferences
@@ -95,6 +99,7 @@ function ensureDatabase(dbPath) {
     }
     if (migrationResult.errors.length > 0) {
       console.error("[aos-db] Migration errors:", migrationResult.errors);
+      throw new Error("AOS database migration failed; refusing to start with an unsafe schema state");
     }
   }
 
@@ -516,6 +521,24 @@ function computeActionQueueAttention(item, stalePendingHours) {
   }
 
   return { reasons, ageSeconds };
+}
+
+function defaultFramePreferences() {
+  return {
+    activeArtists: [],
+    streamCategories: ["artwork", "curatorial", "blog"],
+    allowImages: true,
+    allowVideos: true,
+    allowSoundWorks: false,
+    allowGenerativeWorks: true,
+    autoplay: true,
+    videoAutoplay: false,
+    soundAutoplay: false,
+    soundEnabled: false,
+    cacheLikedArtworks: true,
+    cacheRecentArtworks: true,
+    offlineFallbackMode: "cached"
+  };
 }
 
 /** Actions requiring device to be online */
@@ -1154,11 +1177,13 @@ function handleStream(db, deviceId, auth) {
           deliveredAt: delivery.deliveredAt || body.generatedAt
         }
       };
+      body.deliveryLog = body.delivery;
     } catch (_) {
       body.delivery = {
         status: "not_recorded",
         reason: "delivery_record_failed"
       };
+      body.deliveryLog = body.delivery;
     }
   }
 
@@ -1314,6 +1339,34 @@ function handleAdminBroadcastDeliveryDetail(db, broadcastId) {
       broadcastId,
       deliveries: deliveries || [],
       total: (deliveries || []).length
+    }
+  };
+}
+
+function handleAdminBroadcastDeliveryStats(db, broadcastId) {
+  const stats = db.getBroadcastDeliveryStats(broadcastId);
+  if (!stats) return { status: 404, body: { ok: false, error: "Broadcast not found" } };
+  return {
+    status: 200,
+    body: {
+      ok: true,
+      broadcastId,
+      stats
+    }
+  };
+}
+
+function handleAdminFleetDeliveryStats(db, queryParams = {}) {
+  const stats = db.getFleetDeliveryStats({
+    type: queryParams.type || null,
+    priority: queryParams.priority || null,
+    status: queryParams.status || "published"
+  });
+  return {
+    status: 200,
+    body: {
+      ok: true,
+      stats
     }
   };
 }
@@ -2253,6 +2306,238 @@ function handleAdminListUsers(db, filters = {}) {
       ok: true,
       kind: "autopoiesis_frames_admin_user_list",
       users: { items: paged, total, page: Math.floor(offset / limit) + 1, pageSize: limit }
+    }
+  };
+}
+
+function handleAdminUserFrameState(db, userId, queryParams = {}) {
+  const actor = getAdminReadActor(queryParams);
+  if (!actor.ok) return { status: actor.status, body: actor.body };
+  const { actorRole, actorId } = actor;
+
+  const sub = db.getSubscription(userId);
+  const deviceCount = db.countDevicesByOwner(userId);
+  const rawPrefs = db.getUserPreferences(userId);
+  const preferences = {
+    ...defaultFramePreferences(),
+    ...((rawPrefs && rawPrefs.preferences) || {})
+  };
+  const likedIds = db.getLikedArtworks(userId);
+  const fleet = db.listDevices({ ownerUserId: userId, pairedOnly: true, limit: 200 });
+
+  const hasProfileData = !!sub ||
+    deviceCount > 0 ||
+    likedIds.length > 0 ||
+    !!(rawPrefs && rawPrefs.updatedAt) ||
+    Object.keys((rawPrefs && rawPrefs.preferences) || {}).length > 0;
+  if (!hasProfileData) {
+    return { status: 404, body: { ok: false, error: "User not found" } };
+  }
+
+  const entitlements = computeEntitlements(sub, deviceCount);
+  const devices = fleet.items.map((d) => {
+    const ownerSub = sub ? { plan: sub.plan, status: sub.status, provider: sub.provider, updatedAt: sub.updatedAt } : null;
+    return {
+      deviceId: d.deviceId,
+      deviceName: d.deviceName,
+      ownerUserId: d.ownerUserId,
+      deviceType: d.deviceType,
+      softwareVersion: d.softwareVersion,
+      updateChannel: d.updateChannel,
+      paired: d.paired,
+      online: d.lastHeartbeatAt
+        ? (Date.now() - new Date(d.lastHeartbeatAt).getTime()) < 300000
+        : false,
+      remoteEnabled: d.remoteEnabled,
+      disabled: !!d.disabled,
+      lastHeartbeatAt: d.lastHeartbeatAt,
+      currentMode: d.currentMode || "display",
+      actionAvailability: buildActionAvailability(d, actorRole, ownerSub)
+    };
+  });
+
+  const actionReadiness = buildFleetActionSummary(devices, actorRole);
+  actionReadiness.scope = "user_devices";
+
+  return {
+    status: 200,
+    body: {
+      ok: true,
+      kind: "autopoiesis_frames_admin_user_frame_state",
+      generatedAt: now(),
+      actor: {
+        actorId,
+        role: actorRole
+      },
+      userId,
+      subscription: sub ? {
+        subscriptionId: sub.subscriptionId,
+        status: sub.status,
+        plan: sub.plan,
+        tier: sub.tier,
+        provider: sub.provider,
+        currentPeriodEnd: sub.currentPeriodEnd,
+        cancelAtPeriodEnd: sub.cancelAtPeriodEnd
+      } : null,
+      entitlements,
+      activeArtists: {
+        items: preferences.activeArtists.map((artistId) => ({ artistId })),
+        total: preferences.activeArtists.length,
+        limit: entitlements.activeArtistsLimit,
+        remaining: entitlements.activeArtistsLimit == null
+          ? null
+          : Math.max(0, entitlements.activeArtistsLimit - preferences.activeArtists.length)
+      },
+      likedArtworks: {
+        items: likedIds.map((artworkId) => ({ artworkId })),
+        total: likedIds.length
+      },
+      cachePreferences: {
+        cacheLikedArtworks: !!preferences.cacheLikedArtworks,
+        cacheRecentArtworks: !!preferences.cacheRecentArtworks,
+        offlineFallbackMode: preferences.offlineFallbackMode,
+        effective: {
+          cacheLikedArtworks: !!preferences.cacheLikedArtworks && !!entitlements.offlineCache,
+          cacheRecentArtworks: !!preferences.cacheRecentArtworks && !!entitlements.offlineCache
+        }
+      },
+      devices: {
+        items: devices,
+        total: devices.length
+      },
+      actionReadiness
+    }
+  };
+}
+
+function handleAdminSubscribers(db, queryParams = {}) {
+  const actor = getAdminReadActor(queryParams);
+  if (!actor.ok) return { status: actor.status, body: actor.body };
+  const { actorRole, actorId } = actor;
+
+  const ownerIds = db.listOwnerUserIds();
+  const subs = db.listSubscriptions({ limit: 1000 });
+  const subMap = new Map(subs.items.map(s => [s.userId, s]));
+  const allUserIds = new Set([...ownerIds, ...subs.items.map(s => s.userId)]);
+
+  const normalizedStatus = queryParams.status || null;
+  const normalizedPlan = queryParams.plan || null;
+  const attentionOnly = queryParams.attentionOnly === true || queryParams.attentionOnly === "true";
+  const devicesByUser = new Map();
+  for (const device of db.listDevices({ pairedOnly: true, limit: 1000 }).items) {
+    if (!device.ownerUserId) continue;
+    const items = devicesByUser.get(device.ownerUserId) || [];
+    items.push(device);
+    devicesByUser.set(device.ownerUserId, items);
+  }
+
+  const rows = [];
+  for (const userId of allUserIds) {
+    const sub = subMap.get(userId) || null;
+    const devices = devicesByUser.get(userId) || [];
+    const rawPrefs = db.getUserPreferences(userId);
+    const preferences = {
+      ...defaultFramePreferences(),
+      ...((rawPrefs && rawPrefs.preferences) || {})
+    };
+    const likedArtworkIds = db.getLikedArtworks(userId);
+    const entitlements = computeEntitlements(sub, devices.length);
+    const cacheBlocked = (!!preferences.cacheLikedArtworks || !!preferences.cacheRecentArtworks) && !entitlements.offlineCache;
+    const noOnlineDevices = devices.length > 0 && devices.every((device) => {
+      if (!device.lastHeartbeatAt) return true;
+      return (Date.now() - new Date(device.lastHeartbeatAt).getTime()) >= 300000;
+    });
+    const activeArtistLimitReached = entitlements.activeArtistsLimit != null &&
+      preferences.activeArtists.length >= entitlements.activeArtistsLimit;
+
+    const attentionFlags = [];
+    if (entitlements.degradedAccess) attentionFlags.push("degraded_subscription");
+    if (!sub) attentionFlags.push("no_subscription");
+    const deviceLimitExceeded = entitlements.deviceLimit != null && devices.length > entitlements.deviceLimit;
+    if (deviceLimitExceeded) attentionFlags.push("device_limit_exceeded");
+    if (cacheBlocked) attentionFlags.push("offline_cache_blocked");
+    if (noOnlineDevices) attentionFlags.push("no_online_devices");
+    if (activeArtistLimitReached) attentionFlags.push("active_artist_limit_reached");
+
+    const status = sub ? sub.status : "none";
+    const plan = sub ? sub.plan : null;
+    if (normalizedStatus && status !== normalizedStatus) continue;
+    if (normalizedPlan && plan !== normalizedPlan) continue;
+    if (attentionOnly && attentionFlags.length === 0) continue;
+
+    rows.push({
+      userId,
+      status,
+      plan,
+      tier: sub ? sub.tier : null,
+      subscriptionId: sub ? sub.subscriptionId : null,
+      deviceCount: devices.length,
+      likedArtworkCount: likedArtworkIds.length,
+      entitlements,
+      cachePreferences: {
+        cacheLikedArtworks: !!preferences.cacheLikedArtworks,
+        cacheRecentArtworks: !!preferences.cacheRecentArtworks,
+        offlineFallbackMode: preferences.offlineFallbackMode,
+        effective: {
+          likedArtworks: !!preferences.cacheLikedArtworks && !!entitlements.offlineCache,
+          recentArtworks: !!preferences.cacheRecentArtworks && !!entitlements.offlineCache
+        }
+      },
+      attentionFlags
+    });
+  }
+
+  const summary = {
+    subscribedUsers: 0,
+    usersWithoutSubscription: 0,
+    byStatus: {},
+    devices: { total: 0, online: 0, offline: 0 },
+    attention: {
+      degraded: 0,
+      deviceLimitExceeded: 0,
+      offlineCacheBlocked: 0,
+      noSubscription: 0,
+      noOnlineDevices: 0,
+      activeArtistLimitReached: 0
+    }
+  };
+
+  for (const row of rows) {
+    summary.byStatus[row.status] = (summary.byStatus[row.status] || 0) + 1;
+    if (row.subscriptionId) summary.subscribedUsers += 1;
+    else summary.usersWithoutSubscription += 1;
+    summary.devices.total += row.deviceCount;
+    const userDevices = devicesByUser.get(row.userId) || [];
+    for (const device of userDevices) {
+      const online = device.lastHeartbeatAt
+        ? (Date.now() - new Date(device.lastHeartbeatAt).getTime()) < 300000
+        : false;
+      if (online) summary.devices.online += 1;
+      else summary.devices.offline += 1;
+    }
+    if (row.attentionFlags.includes("degraded_subscription")) summary.attention.degraded += 1;
+    if (row.attentionFlags.includes("device_limit_exceeded")) summary.attention.deviceLimitExceeded += 1;
+    if (row.attentionFlags.includes("offline_cache_blocked")) summary.attention.offlineCacheBlocked += 1;
+    if (row.attentionFlags.includes("no_subscription")) summary.attention.noSubscription += 1;
+    if (row.attentionFlags.includes("no_online_devices")) summary.attention.noOnlineDevices += 1;
+    if (row.attentionFlags.includes("active_artist_limit_reached")) summary.attention.activeArtistLimitReached += 1;
+  }
+
+  return {
+    status: 200,
+    body: {
+      ok: true,
+      kind: "autopoiesis_frames_admin_subscriber_summary",
+      generatedAt: now(),
+      actor: {
+        actorId,
+        role: actorRole
+      },
+      subscribers: {
+        items: rows,
+        total: rows.length
+      },
+      summary
     }
   };
 }
@@ -3969,6 +4254,18 @@ async function handle(db, req, res) {
 
   // ── Admin user management endpoints ────────────────────────────────────
 
+  // GET /frames/admin/users/:userId/frame-state — Profile > Frames state
+  const adminUserFrameStateMatch = pathname.match(/^\/frames\/admin\/users\/([^/]+)\/frame-state$/);
+  if (method === "GET" && adminUserFrameStateMatch) {
+    const adminAuth = authenticateAdmin(req);
+    if (!adminAuth.ok) return sendJson(res, adminAuth.status, { ok: false, error: adminAuth.error });
+    const url = new URL(req.url, "http://localhost");
+    return sendResult(res, handleAdminUserFrameState(db, adminUserFrameStateMatch[1], {
+      actorRole: url.searchParams.get("actorRole") || undefined,
+      actorId: url.searchParams.get("actorId") || undefined
+    }));
+  }
+
   // GET /frames/admin/users/:userId/preferences — Get user preferences
   const adminUserPrefMatch = pathname.match(/^\/frames\/admin\/users\/([^/]+)\/preferences$/);
   if (method === "GET" && adminUserPrefMatch) {
@@ -4012,6 +4309,20 @@ async function handle(db, req, res) {
     if (url.searchParams.get("subscriptionStatus")) filters.subscriptionStatus = url.searchParams.get("subscriptionStatus");
     if (url.searchParams.get("subscriptionPlan")) filters.subscriptionPlan = url.searchParams.get("subscriptionPlan");
     return sendResult(res, handleAdminListUsers(db, filters));
+  }
+
+  // GET /frames/admin/subscribers — Subscriber summary read model
+  if (method === "GET" && pathname === "/frames/admin/subscribers") {
+    const adminAuth = authenticateAdmin(req);
+    if (!adminAuth.ok) return sendJson(res, adminAuth.status, { ok: false, error: adminAuth.error });
+    const url = new URL(req.url, "http://localhost");
+    return sendResult(res, handleAdminSubscribers(db, {
+      actorRole: url.searchParams.get("actorRole") || undefined,
+      actorId: url.searchParams.get("actorId") || undefined,
+      status: url.searchParams.get("status") || undefined,
+      plan: url.searchParams.get("plan") || undefined,
+      attentionOnly: url.searchParams.get("attentionOnly") || undefined
+    }));
   }
 
   // ── Admin fleet device listing ───────────────────────────────────────
@@ -4095,6 +4406,25 @@ async function handle(db, req, res) {
     if (url.searchParams.get("limit")) filters.limit = parseInt(url.searchParams.get("limit"), 10);
     if (url.searchParams.get("offset")) filters.offset = parseInt(url.searchParams.get("offset"), 10);
     return sendResult(res, handleAdminListCommandAudits(db, filters));
+  }
+
+  const adminBcDeliveryStatsMatch = pathname.match(/^\/frames\/admin\/broadcasts\/([^/]+)\/delivery-stats$/);
+  if (method === "GET" && adminBcDeliveryStatsMatch) {
+    const adminAuth = authenticateAdmin(req);
+    if (!adminAuth.ok) return sendJson(res, adminAuth.status, { ok: false, error: adminAuth.error });
+    return sendResult(res, handleAdminBroadcastDeliveryStats(db, adminBcDeliveryStatsMatch[1]));
+  }
+
+  // GET /frames/admin/delivery-stats — fleet broadcast delivery outcomes
+  if (method === "GET" && pathname === "/frames/admin/delivery-stats") {
+    const adminAuth = authenticateAdmin(req);
+    if (!adminAuth.ok) return sendJson(res, adminAuth.status, { ok: false, error: adminAuth.error });
+    const url = new URL(req.url, "http://localhost");
+    return sendResult(res, handleAdminFleetDeliveryStats(db, {
+      type: url.searchParams.get("type") || undefined,
+      priority: url.searchParams.get("priority") || undefined,
+      status: url.searchParams.get("status") || undefined
+    }));
   }
 
   // ── Admin content management endpoints ─────────────────────────────────
