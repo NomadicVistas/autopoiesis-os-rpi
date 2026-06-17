@@ -2,11 +2,28 @@
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-PORT="${AUTOPOIESIS_SECURITY_SMOKE_PORT:-3130}"
-BASE_URL="http://127.0.0.1:${PORT}"
 SECRET="security-smoke-secret-$$-$(date +%s)"
 TMP_DIR="$(mktemp -d)"
 SERVER_PID=""
+
+find_free_port() {
+  node -e '
+const net = require("net");
+const server = net.createServer();
+server.listen(0, "127.0.0.1", () => {
+  const address = server.address();
+  process.stdout.write(String(address.port));
+  server.close();
+});
+server.on("error", (error) => {
+  process.stderr.write(String(error && error.message ? error.message : error));
+  process.exit(1);
+});
+'
+}
+
+PORT="${AUTOPOIESIS_SECURITY_SMOKE_PORT:-$(find_free_port)}"
+BASE_URL="http://127.0.0.1:${PORT}"
 
 cleanup() {
   if [[ -n "${SERVER_PID:-}" ]] && kill -0 "$SERVER_PID" >/dev/null 2>&1; then

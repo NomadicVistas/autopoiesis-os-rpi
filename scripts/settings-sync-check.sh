@@ -2,13 +2,30 @@
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-PORT="${AUTOPOIESIS_SETTINGS_SYNC_CHECK_PORT:-3138}"
-API_PORT="${AUTOPOIESIS_SETTINGS_SYNC_CHECK_API_PORT:-3139}"
-BASE_URL="http://127.0.0.1:${PORT}"
-API_URL="http://127.0.0.1:${API_PORT}"
 TMP_DIR="$(mktemp -d)"
 SERVER_PID=""
 API_PID=""
+
+find_free_port() {
+  node -e '
+const net = require("net");
+const server = net.createServer();
+server.listen(0, "127.0.0.1", () => {
+  const address = server.address();
+  process.stdout.write(String(address.port));
+  server.close();
+});
+server.on("error", (error) => {
+  process.stderr.write(String(error && error.message ? error.message : error));
+  process.exit(1);
+});
+'
+}
+
+PORT="${AUTOPOIESIS_SETTINGS_SYNC_CHECK_PORT:-$(find_free_port)}"
+API_PORT="${AUTOPOIESIS_SETTINGS_SYNC_CHECK_API_PORT:-$(find_free_port)}"
+BASE_URL="http://127.0.0.1:${PORT}"
+API_URL="http://127.0.0.1:${API_PORT}"
 
 cleanup() {
   if [[ -n "${SERVER_PID:-}" ]] && kill -0 "$SERVER_PID" >/dev/null 2>&1; then
