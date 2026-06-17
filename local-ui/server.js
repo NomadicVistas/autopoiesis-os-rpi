@@ -5145,6 +5145,30 @@ function nextActionSummary(data = status(), frame = publicFrameState(), cache = 
   };
 }
 
+function statusPillsSummary(data = status(), frame = publicFrameState(), cache = publicOfflineCache()) {
+  const networkOnline = Boolean(data.network && data.network.online);
+  const paired = Boolean(data.device && data.device.paired);
+  const playableItems = Number(frame && frame.playableItems ? frame.playableItems : 0);
+  const cachedPlayableItems = Number(cache && cache.playableItems ? cache.playableItems : 0);
+  return [
+    {
+      label: "Network",
+      value: networkOnline ? String((data.network && data.network.primary) || "online").toUpperCase() : "OFFLINE",
+      tone: networkOnline ? "ready" : "needs_attention"
+    },
+    {
+      label: "Pairing",
+      value: paired ? "PAIRED" : "WAITING",
+      tone: paired ? "ready" : "needs_attention"
+    },
+    {
+      label: "Stream",
+      value: playableItems > 0 ? String(playableItems) + " READY" : cachedPlayableItems > 0 ? String(cachedPlayableItems) + " CACHED" : "EMPTY",
+      tone: playableItems > 0 ? "ready" : cachedPlayableItems > 0 ? "degraded" : "needs_attention"
+    }
+  ];
+}
+
 function renderDashboard() {
   const data = status();
   const frame = publicFrameState();
@@ -5153,6 +5177,9 @@ function renderDashboard() {
   const sync = data.device.settingsSync || {};
   const serverUrl = String(data.device.serverUrl || "https://autopoiesis.art").replace(/\/$/, "");
   const nextAction = nextActionSummary(data, frame, cache);
+  const statusPills = statusPillsSummary(data, frame, cache)
+    .map(item => '<div class="status-pill status-pill-' + escapeHtml(item.tone) + '"><span>' + escapeHtml(item.label) + '</span><strong>' + escapeHtml(item.value) + '</strong></div>')
+    .join("");
   return page(
     "Autopoiesis Dashboard",
     `<main class="screen dashboard-screen">
@@ -5160,6 +5187,7 @@ function renderDashboard() {
         <p class="kicker">Autopoiesis OS</p>
         <h1>Dashboard</h1>
         <p class="muted">A fast local control point for pairing, network, stream readiness, and playback.</p>
+        <div class="status-pills">${statusPills}</div>
         <fieldset class="setting-group dashboard-focus dashboard-focus-${escapeHtml(nextAction.status)}">
           <legend>Next step</legend>
           <h2>${escapeHtml(nextAction.title)}</h2>
@@ -5246,6 +5274,7 @@ refreshNetwork();`
 function renderWifiScan() {
   const homeHref = onboardingHomePath();
   const backLabel = homeHref === "/welcome" ? "Back to setup" : "Back to dashboard";
+  const successHref = homeHref === "/welcome" ? "/welcome" : "/network";
   return page(
     "Autopoiesis Wi-Fi",
     `<style>
@@ -5341,8 +5370,8 @@ form.addEventListener('submit', async event => {
   });
   const data = await response.json();
   if (data.ok) {
-    list.innerHTML = '<p>Connected. Returning to network status...</p>';
-    setTimeout(() => { location.href = '/network'; }, 900);
+    list.innerHTML = '<p>Connected. Returning you to the next step...</p>';
+    setTimeout(() => { location.href = '${successHref}'; }, 900);
   } else {
     list.innerHTML = '<p>' + escapeText(data.error || 'Connection failed. Check password and try again.') + '</p>';
     submitBtn.textContent = 'Connect';
@@ -5666,6 +5695,11 @@ function renderWelcome() {
   const nightEnabled = Boolean(preferences.nightMode);
   const nightStart = preferences.nightModeStart || "22:00";
   const nightEnd = preferences.nightModeEnd || "08:00";
+  const frame = publicFrameState();
+  const cache = publicOfflineCache();
+  const statusPills = statusPillsSummary(data, frame, cache)
+    .map(item => '<div class="status-pill status-pill-' + escapeHtml(item.tone) + '"><span>' + escapeHtml(item.label) + '</span><strong>' + escapeHtml(item.value) + '</strong></div>')
+    .join("");
   const allDone = networkOnline && paired;
   const stepsCompleted = [networkOnline, paired].filter(Boolean).length;
   const currentStep = !networkOnline ? 0 : !paired ? 1 : 2;
@@ -5686,6 +5720,7 @@ function renderWelcome() {
           <h1>Autopoiesis Frame</h1>
           <p class="muted">Let\u2019s get your frame set up. This takes about two minutes.</p>
         </div>
+        <div class="status-pills">${statusPills}</div>
 
         <div class="welcome-progress">${dots}</div>
 
@@ -6919,6 +6954,13 @@ body { margin: 0; min-height: 100vh; min-height: 100dvh; background: #101412; }
 h1 { margin: 0 0 18px; font-size: clamp(42px, 8vw, 92px); line-height: 0.95; letter-spacing: 0; }
 p { font-size: 22px; line-height: 1.35; }
 .muted, .note { color: #c8c6bb; }
+.status-pills { display: flex; flex-wrap: wrap; gap: 10px; margin: 18px 0 22px; }
+.status-pill { min-width: 120px; display: grid; gap: 4px; padding: 10px 12px; border: 1px solid #343d39; border-radius: 999px; background: #141b18; }
+.status-pill span { color: #9ad0bb; font-size: 12px; text-transform: uppercase; letter-spacing: 0.06em; }
+.status-pill strong { color: #f4f1e8; font-size: 16px; }
+.status-pill-ready { border-color: #6fae82; }
+.status-pill-degraded { border-color: #c59c4a; }
+.status-pill-needs_attention { border-color: #fb923c; }
 .status { display: grid; gap: 12px; margin: 28px 0; }
 .status div { display: grid; grid-template-columns: 130px 1fr; gap: 18px; padding: 14px 0; border-top: 1px solid #343d39; }
 .status.compact { margin: 16px 0; }
@@ -6992,6 +7034,8 @@ label { display: grid; gap: 8px; color: #c8c6bb; font-size: 18px; }
 .dashboard-screen { align-items: stretch; justify-items: stretch; background: #101412; }
 .dashboard-panel { margin: auto; }
 .dashboard-panel h1 { font-size: clamp(42px, 7vw, 84px); }
+.dashboard-focus h2 { margin: 0 0 8px; font-size: clamp(24px, 4vw, 38px); }
+.dashboard-focus p { margin: 0 0 16px; }
 .dashboard-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); gap: 14px; margin: 26px 0; }
 .dash-tile { min-height: 128px; display: grid; align-content: center; gap: 8px; padding: 20px; border: 1px solid #343d39; border-radius: 8px; background: #141b18; }
 .dash-tile strong { font-size: clamp(30px, 5vw, 52px); color: #d8f3dc; overflow-wrap: anywhere; }
@@ -7187,6 +7231,7 @@ button, .button, input, select {
   flex-wrap: wrap;
   gap: 8px;
 }
+.status-pills { margin: 12px 0 16px; }
 .welcome-dot {
   min-height: 36px;
   padding: 8px 12px;
