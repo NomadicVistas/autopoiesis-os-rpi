@@ -134,6 +134,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Project management layer (`autopoiesis-os-program/`) with rolling log and workstream tracking.
 - README with installation, usage, and architecture documentation.
 
-[Unreleased]: https://github.com/NomadicVistas/autopoiesis-os-rpi/compare/v0.1.1...HEAD
+[Unreleased]: https://github.com/NomadicVistas/autopoiesis-os-rpi/compare/v0.1.2...HEAD
+[0.1.2]: https://github.com/NomadicVistas/autopoiesis-os-rpi/compare/v0.1.1...v0.1.2
 [0.1.1]: https://github.com/NomadicVistas/autopoiesis-os-rpi/compare/v0.1.0...v0.1.1
 [0.1.0]: https://github.com/NomadicVistas/autopoiesis-os-rpi/releases/tag/v0.1.0

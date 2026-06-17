@@ -106,6 +106,9 @@ PREVIOUS_VERSION="$(read_rollback_field previousVersion)"
 PREVIOUS_REVISION="$(read_rollback_field previousRevision)"
 TARGET_VERSION="$(read_rollback_field targetVersion)"
 BACKUP_DIR="$(read_rollback_field backupDir)"
+if [[ -z "$BACKUP_DIR" ]]; then
+  BACKUP_DIR="$(read_rollback_field appBackupDir)"
+fi
 
 if [[ -z "$PREVIOUS_VERSION" ]]; then
   fail "rollback metadata has no previousVersion"

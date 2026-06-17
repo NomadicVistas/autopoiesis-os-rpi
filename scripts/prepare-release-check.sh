@@ -59,13 +59,15 @@ NODE
 section "3" "Dry-run with version bump"
 bash "$ROOT_DIR/scripts/prepare-release.sh" --bump patch --dry-run 2>"$TMP_DIR/bump-err" >"$TMP_DIR/bump-manifest.json" || fail "bump dry-run failed"
 
-node - "$TMP_DIR/bump-manifest.json" <<'NODE' && ok "bump produces bumped version" || fail "bump produces bumped version"
-const m = JSON.parse(require("fs").readFileSync(process.argv[2], "utf8"));
-const version = m.release.version;
-const parts = version.split(".");
-if (parts.length !== 3) throw new Error("not semver: " + version);
-if (parts[2] !== "2") throw new Error("expected patch bump to 0.1.2, got: " + version);
-if (m.release.tag !== "v" + version) throw new Error("tag mismatch");
+node - "$TMP_DIR/bump-manifest.json" "$ROOT_DIR/VERSION" <<'NODE' && ok "bump produces bumped version" || fail "bump produces bumped version"
+const fs = require("fs");
+const m = JSON.parse(fs.readFileSync(process.argv[2], "utf8"));
+const current = fs.readFileSync(process.argv[3], "utf8").trim();
+const match = String(current).match(/^v?(\d+)\.(\d+)\.(\d+)$/);
+if (!match) throw new Error("not semver: " + current);
+const expected = [Number(match[1]), Number(match[2]), Number(match[3]) + 1].join(".");
+if (m.release.version !== expected) throw new Error("expected patch bump to " + expected + ", got: " + m.release.version);
+if (m.release.tag !== "v" + m.release.version) throw new Error("tag mismatch");
 NODE
 
 grep -q "would bump VERSION" "$TMP_DIR/bump-err" && ok "dry-run reports version bump" || fail "dry-run reports version bump"
@@ -208,12 +210,17 @@ cp "$ROOT_DIR/CHANGELOG.md" "$TMP_DIR/changelog-backup"
 bash "$ROOT_DIR/scripts/prepare-release.sh" --bump patch --output "$TMP_DIR/bumped-manifest.json" 2>/dev/null || fail "bump execution failed"
 
 NEW_VERSION="$(cat "$ROOT_DIR/VERSION")"
-node - "$NEW_VERSION" <<'NODE' && ok "VERSION file bumped correctly" || fail "VERSION file bumped correctly"
-const v = process.argv[2];
-if (v !== "0.1.2") throw new Error("expected 0.1.2, got: " + v);
+node - "$NEW_VERSION" "$TMP_DIR/version-backup" <<'NODE' && ok "VERSION file bumped correctly" || fail "VERSION file bumped correctly"
+const fs = require("fs");
+const bumped = process.argv[2];
+const previous = fs.readFileSync(process.argv[3], "utf8").trim();
+const match = String(previous).match(/^v?(\d+)\.(\d+)\.(\d+)$/);
+if (!match) throw new Error("previous version not semver: " + previous);
+const expected = [Number(match[1]), Number(match[2]), Number(match[3]) + 1].join(".");
+if (bumped !== expected) throw new Error("expected " + expected + ", got: " + bumped);
 NODE
 
-node - "$ROOT_DIR/CHANGELOG.md" "0.1.2" <<'NODE' && ok "CHANGELOG has new version section" || fail "CHANGELOG has new version section"
+node - "$ROOT_DIR/CHANGELOG.md" "$NEW_VERSION" <<'NODE' && ok "CHANGELOG has new version section" || fail "CHANGELOG has new version section"
 const fs = require("fs");
 const [file, expectedVersion] = process.argv.slice(2);
 const content = fs.readFileSync(file, "utf8");

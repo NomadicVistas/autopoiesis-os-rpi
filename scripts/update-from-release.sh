@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-set -euo pipefail
+set -Eeuo pipefail
 
 RELEASE_JSON="${1:-}"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -13,6 +13,8 @@ ROLLBACK_BACKUP_DIR=""
 ROLLBACK_FILE="$DATA_DIR/release-rollback.json"
 RELEASE_STATE_FILE="$DATA_DIR/release-state.json"
 RELEASE_LOG_FILE="$DATA_DIR/release-log.json"
+UPDATE_SUCCEEDED=0
+FAILURE_HANDLED=0
 
 # Appliance services that should be stopped during app tree replacement.
 AOS_SERVICES=(
@@ -33,11 +35,30 @@ log() {
 }
 
 fail() {
-  log "FAILED: $*"
-  append_release_event "release_update_failed" "error" "$*"
-  write_release_state "failed" "$*"
+  local message="$*"
+  FAILURE_HANDLED=1
+  log "FAILED: $message"
+  append_release_event "release_update_failed" "error" "$message"
+  if [[ ${#STOPPED_SERVICES[@]} -gt 0 ]]; then
+    log "failure cleanup: restarting previously active services"
+    start_appliance_services
+  fi
+  if [[ -n "${STAGING_DIR:-}" && -d "$STAGING_DIR" ]]; then
+    rm -rf "$STAGING_DIR"
+  fi
+  write_release_state "failed" "$message"
   exit 2
 }
+
+on_err() {
+  local exit_code="$1"
+  local line_no="$2"
+  if [[ "$FAILURE_HANDLED" == "1" ]]; then
+    exit "$exit_code"
+  fi
+  fail "unexpected updater failure at line $line_no (exit $exit_code)"
+}
+trap 'on_err $? $LINENO' ERR
 
 # ── State tracking helpers ───────────────────────────────────────────────
 
@@ -216,9 +237,37 @@ preflight_same_version() {
 # ── Rollback metadata ────────────────────────────────────────────────────
 
 write_rollback_metadata() {
-  node -e "const fs=require(fs);const file=process.argv[1];const previousVersion=process.argv[2];const previousRevision=process.argv[3]||null;const targetVersion=process.argv[4];const appBackupDir=process.argv[5]||null;const dataBackupDir=process.argv[6]||null;const releaseChannel=process.argv[7]||null;const releaseTag=process.argv[8]||null;const releaseId=process.argv[9]||null;fs.writeFileSync(file, JSON.stringify({previousVersion,previousRevision,targetVersion,appBackupDir,dataBackupDir,releaseChannel,releaseTag,releaseId,startedAt:new Date().toISOString()}, null, 2)+
-)"
-  "$ROLLBACK_FILE" "$PREVIOUS_VERSION" "$PREVIOUS_REV" "$VERSION_TARGET" "$ROLLBACK_BACKUP_DIR" "$DATA_BACKUP_DIR" "$RELEASE_CHANNEL" "$RELEASE_TAG" "$RELEASE_ID"
+  node - "$ROLLBACK_FILE" "$PREVIOUS_VERSION" "$PREVIOUS_REV" "$VERSION_TARGET" "$ROLLBACK_BACKUP_DIR" "$DATA_BACKUP_DIR" "$RELEASE_CHANNEL" "$RELEASE_TAG" "$RELEASE_ID" "$METHOD" <<'NODE'
+const fs = require("fs");
+const [file, previousVersion, previousRevision, targetVersion, appBackupDir, dataBackupDir, releaseChannel, releaseTag, releaseId, method] = process.argv.slice(2);
+const metadata = {
+  previousVersion: previousVersion || null,
+  previousRevision: previousRevision || null,
+  targetVersion: targetVersion || null,
+  appBackupDir: appBackupDir || null,
+  dataBackupDir: dataBackupDir || null,
+  backupDir: appBackupDir || null,
+  releaseChannel: releaseChannel || null,
+  releaseTag: releaseTag || null,
+  releaseId: releaseId || null,
+  method: method || null,
+  rollback: {
+    available: Boolean(appBackupDir),
+    backupDir: appBackupDir || null,
+    backupVersion: previousVersion || null,
+    backupEntryCount: 2,
+    command: "sudo /opt/autopoiesis-os/app/scripts/rollback.sh",
+    manualAppRestoreCommand: appBackupDir ? "sudo rsync -a --delete " + appBackupDir + "/ /opt/autopoiesis-os/app/" : null
+  },
+  localStatePreserved: {
+    appBackupAvailable: Boolean(appBackupDir),
+    dataDirManagedSeparately: true,
+    deviceConfigFile: "device.json"
+  },
+  startedAt: new Date().toISOString()
+};
+fs.writeFileSync(file, JSON.stringify(metadata, null, 2) + "\n");
+NODE
 }
 
 if [[ -z "${AUTOPOIESIS_RELEASE_CHANNEL:-}" ]]; then
@@ -295,7 +344,8 @@ if [[ -z "$ARTIFACT_URL" ]]; then
   copy_app_tree "$DATA_DIR" "$DATA_BACKUP_DIR"
 
   # Write rollback metadata
-  node -e "const fs=require('fs');const file=process.argv[1];const previousVersion=process.argv[2];const previousRevision=process.argv[3]||null;const targetVersion=process.argv[4];const appBackupDir=process.argv[5]||null;const dataBackupDir=process.argv[6]||null;const releaseChannel=process.argv[7]||null;const releaseTag=process.argv[8]||null;const releaseId=process.argv[9]||null;fs.writeFileSync(file, JSON.stringify({previousVersion,previousRevision,targetVersion,appBackupDir,dataBackupDir,releaseChannel,releaseTag,releaseId,startedAt:new Date().toISOString()}, null, 2)+'\\n')" "$ROLLBACK_FILE" "$PREVIOUS_VERSION" "$PREVIOUS_REV" "$VERSION_TARGET" "$APP_BACKUP_DIR" "$DATA_BACKUP_DIR" "$RELEASE_CHANNEL" "$RELEASE_TAG" "$RELEASE_ID"
+  ROLLBACK_BACKUP_DIR="$APP_BACKUP_DIR"
+  write_rollback_metadata
 
   git -C "$APP_DIR" fetch origin main
   git -C "$APP_DIR" pull --ff-only origin main
@@ -326,7 +376,6 @@ cleanup() {
   fi
 }
 trap cleanup EXIT
-UPDATE_SUCCEEDED=0
 
 # Download and verify artifact
 log "downloading artifact: $ARTIFACT_URL"
@@ -353,14 +402,14 @@ log "data backup created: $DATA_BACKUP_DIR"
 mkdir -p "$ROLLBACK_DIR/app"
 copy_app_tree "$APP_DIR" "$ROLLBACK_DIR/app"
 ROLLBACK_BACKUP_DIR="$ROLLBACK_DIR/app"
-node -e "const fs=require('fs');const file=process.argv[1];const previousVersion=process.argv[2];const previousRevision=process.argv[3]||null;const targetVersion=process.argv[4];const appBackupDir=process.argv[5]||null;const dataBackupDir=process.argv[6]||null;const releaseChannel=process.argv[7]||null;const releaseTag=process.argv[8]||null;const releaseId=process.argv[9]||null;fs.writeFileSync(file, JSON.stringify({previousVersion,previousRevision,targetVersion,appBackupDir,dataBackupDir,releaseChannel,releaseTag,releaseId,startedAt:new Date().toISOString()}, null, 2)+'\n')" "$ROLLBACK_FILE" "$PREVIOUS_VERSION" "$PREVIOUS_REV" "$VERSION_TARGET" "$ROLLBACK_BACKUP_DIR" "$DATA_BACKUP_DIR" "$RELEASE_CHANNEL" "$RELEASE_TAG" "$RELEASE_ID"
+write_rollback_metadata
 log "rollback backup created: $ROLLBACK_BACKUP_DIR"
 
 # Extract artifact to staging
 rm -rf "$STAGING_DIR"
 mkdir -p "$STAGING_DIR"
 STAGING_WAS_CREATED=1
-tar -xzf "$TMP_ARCHIVE" -C "$STAGING_DIR"
+tar -xzf "$TMP_ARCHIVE" -C "$STAGING_DIR" || fail "artifact extraction failed"
 
 PAYLOAD_DIR="$STAGING_DIR"
 if [[ $(find "$STAGING_DIR" -mindepth 1 -maxdepth 1 -type d | wc -l) -eq 1 && $(find "$STAGING_DIR" -mindepth 1 -maxdepth 1 | wc -l) -eq 1 ]]; then

@@ -402,6 +402,39 @@ NODE
   fi
 fi
 
+# Keep changelog compare links in sync after a bump.
+if [[ -n "$BUMP" ]]; then
+  node - "$CHANGELOG_FILE" "$CURRENT_VERSION" "$TARGET_VERSION" "$GITHUB_REPO" <<'NODE'
+const fs = require("fs");
+const [file, previousVersion, targetVersion, repo] = process.argv.slice(2);
+const compareBase = "https://github.com/" + repo + "/compare/";
+const releaseBase = "https://github.com/" + repo + "/releases/tag/";
+const lines = fs.readFileSync(file, "utf8").replace(/\n?$/, "").split("\n");
+
+function escapeRegex(value) {
+  return value.replace(/[.*+?^\${}()|[\]\\]/g, "\\$&");
+}
+
+function upsertLink(label, value) {
+  const pattern = new RegExp("^\\[" + escapeRegex(label) + "\\]:\\s+.*$");
+  const index = lines.findIndex((line) => pattern.test(line));
+  const entry = "[" + label + "]: " + value;
+  if (index >= 0) lines[index] = entry;
+  else lines.push(entry);
+}
+
+upsertLink("Unreleased", compareBase + "v" + targetVersion + "...HEAD");
+upsertLink(targetVersion, compareBase + "v" + previousVersion + "...v" + targetVersion);
+
+const hasPreviousLink = lines.some((line) => new RegExp("^\\[" + escapeRegex(previousVersion) + "\\]:\\s+").test(line));
+if (!hasPreviousLink) {
+  upsertLink(previousVersion, releaseBase + "v" + previousVersion);
+}
+
+fs.writeFileSync(file, lines.join("\n") + "\n");
+NODE
+fi
+
 # ── Validate manifest against release-manifest-check.sh ──────────────────────
 if [[ -f "$ROOT_DIR/scripts/release-manifest-check.sh" ]]; then
   VALIDATE_TMP="$(mktemp)"
