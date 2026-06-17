@@ -2,7 +2,7 @@ const http = require("http");
 const fs = require("fs");
 const os = require("os");
 const path = require("path");
-const { execFile } = require("child_process");
+const { execFile, execFileSync, spawn } = require("child_process");
 
 const PORT = Number(process.env.AUTOPOIESIS_PORT || 3030);
 const DATA_DIR = process.env.AUTOPOIESIS_DATA_DIR || "/var/lib/autopoiesis-os";
@@ -17,6 +17,11 @@ const LOG_DIR = process.env.AUTOPOIESIS_LOG_DIR || "/var/log/autopoiesis-os";
 const UPDATE_SCRIPT =
   process.env.AUTOPOIESIS_RELEASE_UPDATE_SCRIPT ||
   path.resolve(__dirname, "../scripts/update-from-release.sh");
+const WIFI_CONNECT_SCRIPT =
+  process.env.AUTOPOIESIS_WIFI_CONNECT_SCRIPT ||
+  path.resolve(__dirname, "../scripts/connect-wifi.sh");
+const WIFI_CONNECT_TIMEOUT_MS = Number(process.env.AUTOPOIESIS_WIFI_CONNECT_TIMEOUT_MS || 30000);
+const WIFI_CONNECT_OUTPUT_LIMIT = Number(process.env.AUTOPOIESIS_WIFI_CONNECT_OUTPUT_LIMIT || 4096);
 const REMOTE_AUTH_WINDOW_MS = Number(process.env.AUTOPOIESIS_REMOTE_AUTH_WINDOW_MS || 24 * 60 * 60 * 1000);
 const COMMAND_AUDIT_LIMIT = Number(process.env.AUTOPOIESIS_COMMAND_AUDIT_LIMIT || 100);
 const DELIVERY_LOG_LIMIT = Number(process.env.AUTOPOIESIS_DELIVERY_LOG_LIMIT || 200);
@@ -43,8 +48,28 @@ const RELEASE_LOG_LIMIT = Number(process.env.AUTOPOIESIS_RELEASE_LOG_LIMIT || 10
 const HEARTBEAT_EVENT_LIMIT = Number(process.env.AUTOPOIESIS_HEARTBEAT_EVENT_LIMIT || 10);
 const FEED_QUEUE_LIMIT = Number(process.env.AUTOPOIESIS_FEED_QUEUE_LIMIT || 100);
 const EVENT_CURSOR_OVERLAP_MS = Number(process.env.AUTOPOIESIS_EVENT_CURSOR_OVERLAP_MS || 1000);
+const BROADCAST_MAX_DISPLAY_SECONDS = Number(process.env.AUTOPOIESIS_BROADCAST_MAX_DISPLAY_SECONDS || 120);
+const CATEGORY_DISPLAY_SECONDS = {
+  broadcast: 0,
+  curatorial: 45,
+  artwork: 60,
+  blog: 90,
+  news: 45,
+  content: 60
+};
+const PRIORITY_RANKS = {
+  critical: 5,
+  urgent: 4,
+  high: 3,
+  normal: 2,
+  low: 1
+};
 const INPUT_DEVICES_PATH = process.env.AUTOPOIESIS_INPUT_DEVICES_PATH || "/proc/bus/input/devices";
+const SYSTEMCTL_BIN = process.env.AUTOPOIESIS_SYSTEMCTL_BIN || "systemctl";
 const TIMEDATECTL_BIN = process.env.AUTOPOIESIS_TIMEDATECTL_BIN || "timedatectl";
+const IP_BIN = process.env.AUTOPOIESIS_IP_BIN || "ip";
+const NMCLI_BIN = process.env.AUTOPOIESIS_NMCLI_BIN || "nmcli";
+const SYS_CLASS_NET_DIR = process.env.AUTOPOIESIS_SYS_CLASS_NET_DIR || "/sys/class/net";
 const DEVICE_TREE_MODEL_PATH =
   process.env.AUTOPOIESIS_DEVICE_TREE_MODEL_PATH || "/proc/device-tree/model";
 const VCGENCMD_BIN = process.env.AUTOPOIESIS_VCGENCMD_BIN || "vcgencmd";
@@ -90,7 +115,17 @@ const DIAGNOSTIC_SERVICES = [
   "autopoiesis-command-executor.service",
   "autopoiesis-cache.service",
   "autopoiesis-updater.service",
-  "autopoiesis-watchdog.service"
+  "autopoiesis-watchdog.service",
+  "autopoiesis-night-mode.service"
+];
+
+const DIAGNOSTIC_FAILURE_UNITS = [
+  "autopoiesis-heartbeat.service",
+  "autopoiesis-command-executor.service",
+  "autopoiesis-updater.service",
+  "autopoiesis-cache.service",
+  "autopoiesis-watchdog.service",
+  "autopoiesis-night-mode.service"
 ];
 
 const DIAGNOSTIC_TIMERS = [
@@ -98,7 +133,8 @@ const DIAGNOSTIC_TIMERS = [
   "autopoiesis-command-executor.timer",
   "autopoiesis-cache.timer",
   "autopoiesis-updater.timer",
-  "autopoiesis-watchdog.timer"
+  "autopoiesis-watchdog.timer",
+  "autopoiesis-night-mode.timer"
 ];
 
 function readJson(filePath, fallback) {
@@ -252,66 +288,49 @@ function status() {
   const services = {};
   const timers = {};
   
-  // Collect service and timer status if systemctl is available
+  // Collect service and timer status when systemd is available. The binary is
+  // injectable so fixture checks can exercise the same paths without a real Pi.
   if (typeof process !== "undefined" && process.versions && process.versions.node) {
-    // Note: In the browser environment, we can't access systemctl
-    // This will only work when running in Node.js context (local UI server)
-    try {
-      const { execSync } = require("child_process");
-      const hasSystemctl = !!execSync("which systemctl", { stdio: "ignore" });
-      
-      if (hasSystemctl) {
-        // Get autopoiesis.target status
-        try {
-          const targetStatus = execSync("systemctl is-active autopoiesis.target", { encoding: "utf8" }).trim();
-          services.autopoiesisTarget = targetStatus;
-        } catch (e) {
-          services.autopoiesisTarget = "not_found";
-        }
-        
-        // Get key service statuses
-        const keyServices = [
-          "autopoiesis-setup.service",
-          "autopoiesis-kiosk.service",
-          "autopoiesis-heartbeat.service",
-          "autopoiesis-cache.service",
-          "autopoiesis-command-executor.service",
-          "autopoiesis-updater.service",
-          "autopoiesis-watchdog.service",
-          "autopoiesis-night-mode.service"
-        ];
-        
-        for (const service of keyServices) {
-          try {
-            const status = execSync(`systemctl is-active ${service}`, { encoding: "utf8" }).trim();
-            services[service.replace(".service", "")] = status;
-          } catch (e) {
-            services[service.replace(".service", "")] = "not_found";
-          }
-        }
-        
-        // Get key timer statuses
-        const keyTimers = [
-          "autopoiesis-heartbeat.timer",
-          "autopoiesis-command-executor.timer",
-          "autopoiesis-updater.timer",
-          "autopoiesis-cache.timer",
-          "autopoiesis-watchdog.timer",
-          "autopoiesis-night-mode.timer"
-        ];
-        
-        for (const timer of keyTimers) {
-          try {
-            const status = execSync(`systemctl is-active ${timer}`, { encoding: "utf8" }).trim();
-            timers[timer.replace(".timer", "")] = status;
-          } catch (e) {
-            timers[timer.replace(".timer", "")] = "not_found";
-          }
-        }
+    const systemctlActiveSync = unit => {
+      try {
+        return execFileSync(SYSTEMCTL_BIN, ["is-active", unit], { encoding: "utf8" }).trim() || "unknown";
+      } catch (error) {
+        return ((error.stdout || error.stderr || "").toString().trim()) || "not_found";
       }
-    } catch (e) {
-      // If we can't check systemctl status, leave services/timers empty
-      console.warn("Could not check systemctl status:", e.message);
+    };
+
+    try {
+      services.autopoiesisTarget = systemctlActiveSync("autopoiesis.target");
+
+      const keyServices = [
+        "autopoiesis-setup.service",
+        "autopoiesis-kiosk.service",
+        "autopoiesis-heartbeat.service",
+        "autopoiesis-cache.service",
+        "autopoiesis-command-executor.service",
+        "autopoiesis-updater.service",
+        "autopoiesis-watchdog.service",
+        "autopoiesis-night-mode.service"
+      ];
+
+      for (const service of keyServices) {
+        services[service.replace(".service", "")] = systemctlActiveSync(service);
+      }
+
+      const keyTimers = [
+        "autopoiesis-heartbeat.timer",
+        "autopoiesis-command-executor.timer",
+        "autopoiesis-updater.timer",
+        "autopoiesis-cache.timer",
+        "autopoiesis-watchdog.timer",
+        "autopoiesis-night-mode.timer"
+      ];
+
+      for (const timer of keyTimers) {
+        timers[timer.replace(".timer", "")] = systemctlActiveSync(timer);
+      }
+    } catch (error) {
+      console.warn("Could not check systemctl status:", error.message);
     }
   }
 
@@ -332,6 +351,11 @@ function parseTimestamp(value) {
 function timestampString(value) {
   const timestamp = parseTimestamp(value);
   return timestamp === null ? null : new Date(timestamp).toISOString();
+}
+
+function isExpired(value, now = Date.now()) {
+  const timestamp = parseTimestamp(value);
+  return timestamp !== null && timestamp <= now;
 }
 
 function commandTypeOf(command = {}) {
@@ -369,6 +393,7 @@ function commandExecutionState(commandType, policy = commandPolicy(commandType))
     requiresLocalConfirmation: Boolean(policy.requiresLocalConfirmation)
   };
 }
+
 
 function publicAdminCapabilities() {
   const data = status();
@@ -1352,6 +1377,56 @@ function applyRemoteSettingsPayload(result = {}, source = "settings_sync") {
     ...feedSyncInfo
   };
 }
+
+function normalizedList(value) {
+  if (value === undefined || value === null) return [];
+  const values = Array.isArray(value) ? value : String(value).split(",");
+  return values
+    .flatMap(item => Array.isArray(item) ? item : [item])
+    .map(item => String(item || "").trim().toLowerCase())
+    .filter(Boolean);
+}
+
+function normalizedTargetValues(values) {
+  return (Array.isArray(values) ? values : [values])
+    .flatMap(value => {
+      if (value === undefined || value === null) return [];
+      if (Array.isArray(value)) return value;
+      if (typeof value === "object") return Object.values(value);
+      return String(value).split(",");
+    })
+    .map(value => String(value || "").trim().toLowerCase())
+    .filter(Boolean);
+}
+
+function targetMatches(values, candidates) {
+  const wanted = normalizedTargetValues(values);
+  if (!wanted.length) return false;
+  const actual = normalizedTargetValues(candidates);
+  return wanted.some(value => actual.includes(value));
+}
+
+function targetedByType(type, values, device = {}) {
+  const normalizedType = String(type || "").trim().toLowerCase();
+  const candidatesByType = {
+    device: [device.deviceId, device.id],
+    devices: [device.deviceId, device.id],
+    frame: [device.deviceId, device.id],
+    frames: [device.deviceId, device.id],
+    user: [device.ownerUserId, device.userId],
+    users: [device.ownerUserId, device.userId],
+    owner: [device.ownerUserId, device.userId],
+    owners: [device.ownerUserId, device.userId],
+    subscription: [device.subscriptionStatus, device.subscriberStatus],
+    subscriber: [device.subscriptionStatus, device.subscriberStatus],
+    tier: [device.subscriptionTier, device.tier, device.plan],
+    region: [device.region, device.country, device.locale]
+  };
+  const candidates = candidatesByType[normalizedType] || [];
+  if (!candidates.length) return true;
+  return targetMatches(values, candidates);
+}
+
 function feedItemTargetAllowed(item = {}, device = readJson(paths.device, {})) {
   const targeting = item.visibility || (item.raw || {}).targeting || (item.raw || {}).visibility || null;
   if (!targeting) return true;
@@ -1427,6 +1502,21 @@ function feedItemArtistAllowed(item, preferences = {}) {
   );
 }
 
+function feedItemTypeAllowed(item = {}, preferences = {}) {
+  const type = String(item.type || "").toLowerCase();
+  const mediaUrl = String(item.mediaUrl || item.thumbnailUrl || "").toLowerCase();
+  const isVideo = type.includes("video") || /\.(mp4|webm|mov)(\?|$)/i.test(mediaUrl);
+  const isAudio = type.includes("audio") || type.includes("sound") || /\.(mp3|wav|ogg|m4a)(\?|$)/i.test(mediaUrl);
+  const isGenerative = type.includes("generative");
+  const isImage = !isVideo && !isAudio && (type.includes("image") || type.includes("artwork") || /\.(jpg|jpeg|png|gif|webp|svg|avif)(\?|$)/i.test(mediaUrl));
+
+  if (isVideo && preferences.allowVideos === false) return false;
+  if (isAudio && preferences.allowSoundWorks === false) return false;
+  if (isGenerative && preferences.allowGenerativeWorks === false) return false;
+  if (isImage && preferences.allowImages === false) return false;
+  return true;
+}
+
 function feedItemStreamAllowed(item, preferences = {}) {
   const selectedStreams = normalizedList(preferences.streamCategories || preferences.activeStreams || preferences.streams);
   if (!selectedStreams.length || selectedStreams.includes("all") || selectedStreams.includes("living-stream")) return true;
@@ -1442,6 +1532,39 @@ function feedCategoryCounts(items = []) {
     counts[category] = (counts[category] || 0) + 1;
     return counts;
   }, {});
+}
+
+function feedItemCategory(item = {}) {
+  const source = String(item.source || "").toLowerCase();
+  const type = String(item.type || item.kind || "").toLowerCase();
+  const category = String(item.displayCategory || item.category || item.streamCategory || "").toLowerCase();
+  const candidates = [category, source, type].filter(Boolean);
+  if (candidates.some(value => value.includes("broadcast"))) return "broadcast";
+  if (candidates.some(value => value.includes("curatorial") || value.includes("exhibition"))) return "curatorial";
+  if (candidates.some(value => value.includes("blog") || value.includes("essay"))) return "blog";
+  if (candidates.some(value => value.includes("news") || value.includes("announcement"))) return "news";
+  if (candidates.some(value => value.includes("artwork") || value.includes("image") || value.includes("video") || value.includes("audio"))) {
+    return "artwork";
+  }
+  return "content";
+}
+
+function priorityRank(priority) {
+  return PRIORITY_RANKS[String(priority || "normal").toLowerCase()] || PRIORITY_RANKS.normal;
+}
+
+function categoryDisplaySeconds(category, preferences = {}) {
+  const normalized = String(category || "content").toLowerCase();
+  const overrides = preferences.categoryDurations && typeof preferences.categoryDurations === "object"
+    ? preferences.categoryDurations
+    : {};
+  const override = Number(overrides[normalized]);
+  if (Number.isFinite(override) && override >= 0) {
+    return Math.min(Math.round(override), 86400);
+  }
+  return Object.prototype.hasOwnProperty.call(CATEGORY_DISPLAY_SECONDS, normalized)
+    ? CATEGORY_DISPLAY_SECONDS[normalized]
+    : CATEGORY_DISPLAY_SECONDS.content;
 }
 
 function normalizeFeedItem(raw, source, index = 0) {
@@ -1573,6 +1696,8 @@ function normalizePollingPayload(payload = {}) {
 
 function isoFromMs(value) {
   return Number.isFinite(value) ? new Date(value).toISOString() : null;
+}
+
 function settingsAffectFeedEligibility(newPrefs, oldPrefs) {
   if (!newPrefs && !oldPrefs) return false;
   if (!newPrefs) return !!oldPrefs;
@@ -1583,13 +1708,18 @@ function settingsAffectFeedEligibility(newPrefs, oldPrefs) {
     "allowImages",
     "allowVideos",
     "allowSoundWorks",
-    "allowGenerativeWorks"
+    "allowGenerativeWorks",
+    "cacheLikedArtworks",
+    "cacheRecentArtworks",
+    "offlineFallbackMode"
   ];
   for (const field of feedAffectingFields) {
     const newVal = newPrefs[field];
     const oldVal = oldPrefs[field];
-    if (Array.isArray(newVal) && Array.isArray(oldVal)) {
-      if (JSON.stringify(newVal.sort()) !== JSON.stringify(oldVal.sort())) {
+    if (Array.isArray(newVal) || Array.isArray(oldVal)) {
+      const normalizedNew = normalizedList(newVal).sort();
+      const normalizedOld = normalizedList(oldVal).sort();
+      if (JSON.stringify(normalizedNew) !== JSON.stringify(normalizedOld)) {
         return true;
       }
     } else if (newVal !== oldVal) {
@@ -1597,7 +1727,6 @@ function settingsAffectFeedEligibility(newPrefs, oldPrefs) {
     }
   }
   return false;
-}
 }
 
 function feedPollingSummary(feed = readJson(paths.feed, { syncedAt: null, items: [] }), device = readJson(paths.device, {}), now = Date.now()) {
@@ -3180,16 +3309,22 @@ function runtimeStorageDiagnostics() {
 async function systemdUnitStatus(unitName) {
   const status = {};
   try {
-    const { stdout } = await execFilePromise("systemctl", ["is-active", unitName], { timeout: 2000 });
+    const { stdout } = await execFilePromise(SYSTEMCTL_BIN, ["is-active", unitName], { timeout: 2000 });
     status.active = stdout.trim() || "unknown";
   } catch (error) {
     status.active = (error.stdout || error.stderr || "unavailable").trim();
   }
   try {
-    const { stdout } = await execFilePromise("systemctl", ["is-enabled", unitName], { timeout: 2000 });
+    const { stdout } = await execFilePromise(SYSTEMCTL_BIN, ["is-enabled", unitName], { timeout: 2000 });
     status.enabled = stdout.trim() || "unknown";
   } catch (error) {
     status.enabled = (error.stdout || error.stderr || "unavailable").trim();
+  }
+  try {
+    const { stdout } = await execFilePromise(SYSTEMCTL_BIN, ["is-failed", unitName], { timeout: 2000 });
+    status.failed = stdout.trim() || "unknown";
+  } catch (error) {
+    status.failed = (error.stdout || error.stderr || "unavailable").trim();
   }
   return status;
 }
@@ -3198,13 +3333,29 @@ async function serviceDiagnostics() {
   const services = {};
   for (const serviceName of DIAGNOSTIC_SERVICES) {
     try {
-      const { stdout } = await execFilePromise("systemctl", ["is-active", serviceName], { timeout: 2000 });
+      const { stdout } = await execFilePromise(SYSTEMCTL_BIN, ["is-active", serviceName], { timeout: 2000 });
       services[serviceName] = stdout.trim() || "unknown";
     } catch (error) {
       services[serviceName] = (error.stdout || error.stderr || "unavailable").trim();
     }
   }
   return services;
+}
+
+async function serviceUnitDiagnostics() {
+  const units = {};
+  for (const serviceName of DIAGNOSTIC_SERVICES) {
+    units[serviceName] = await systemdUnitStatus(serviceName);
+  }
+  return units;
+}
+
+async function failureUnitDiagnostics() {
+  const units = {};
+  for (const serviceName of DIAGNOSTIC_FAILURE_UNITS) {
+    units[serviceName] = await systemdUnitStatus(serviceName);
+  }
+  return units;
 }
 
 async function timerDiagnostics() {
@@ -3471,6 +3622,16 @@ async function collectDiagnostics(options = {}) {
   const runtimeStorage = runtimeStorageDiagnostics();
   const clock = await clockDiagnostics();
   const hardware = await hardwareProfileDiagnostics();
+  let services = null;
+  let serviceUnits = null;
+  let failureUnits = null;
+  let timers = null;
+  if (options.includeServices) {
+    services = await serviceDiagnostics();
+    serviceUnits = await serviceUnitDiagnostics();
+    failureUnits = await failureUnitDiagnostics();
+    timers = await timerDiagnostics();
+  }
   const diagnostics = {
     collectedAt: new Date().toISOString(),
     deviceId: data.device.deviceId || null,
@@ -3494,6 +3655,8 @@ async function collectDiagnostics(options = {}) {
     logs: logDiagnostics(),
     mode: data.state.currentMode || "setup",
     services: services || null,
+    serviceUnits: serviceUnits || null,
+    failureUnits: failureUnits || null,
     timers: timers || null,
     network: data.network || null,
     pairing: {
@@ -3581,10 +3744,6 @@ async function collectDiagnostics(options = {}) {
     nightMode: nightModeState(data.preferences),
     offline: (readJson(paths.state, {}).offline || { active: false })
   };
-  if (options.includeServices) {
-    diagnostics.services = await serviceDiagnostics();
-    diagnostics.timers = await timerDiagnostics();
-  }
   diagnostics.health = diagnosticsHealth(diagnostics, data);
   try {
     writeJson(paths.diagnostics, diagnostics);
@@ -4111,6 +4270,141 @@ function healthSummary(diagnostics) {
   };
 }
 
+function readSupportText(filePath) {
+  try {
+    return fs.readFileSync(filePath, "utf8").trim();
+  } catch {
+    return null;
+  }
+}
+
+function supportInterfaceEvidence() {
+  const interfaces = [];
+  try {
+    for (const entry of fs.readdirSync(SYS_CLASS_NET_DIR, { withFileTypes: true })) {
+      if (!entry.isDirectory()) continue;
+      const name = entry.name;
+      interfaces.push({
+        name,
+        wireless: fs.existsSync(path.join(SYS_CLASS_NET_DIR, name, "wireless")),
+        operstate: readSupportText(path.join(SYS_CLASS_NET_DIR, name, "operstate")) || "unknown",
+        carrier: readSupportText(path.join(SYS_CLASS_NET_DIR, name, "carrier")) || null
+      });
+    }
+  } catch {}
+  return {
+    redacted: true,
+    interfaces
+  };
+}
+
+function supportDefaultRouteEvidence() {
+  try {
+    const stdout = execFileSync(IP_BIN, ["route", "show", "default"], { encoding: "utf8" });
+    const routes = stdout.split(/\r?\n/).map(line => line.trim()).filter(Boolean);
+    const first = routes[0] || "";
+    const interfaceMatch = first.match(/\bdev\s+(\S+)/);
+    return {
+      redacted: true,
+      routeCount: routes.length,
+      defaultRoutePresent: routes.length > 0,
+      interface: interfaceMatch ? interfaceMatch[1] : null,
+      gatewayPresent: /\bvia\s+\S+/.test(first),
+      sourceAddressPresent: /\bsrc\s+\S+/.test(first)
+    };
+  } catch {
+    return {
+      redacted: true,
+      routeCount: 0,
+      defaultRoutePresent: false,
+      interface: null,
+      gatewayPresent: false,
+      sourceAddressPresent: false
+    };
+  }
+}
+
+function supportNetworkManagerEvidence() {
+  try {
+    const stdout = execFileSync(NMCLI_BIN, ["-t", "-f", "DEVICE,TYPE,STATE", "device", "status"], { encoding: "utf8" });
+    const devices = stdout
+      .split(/\r?\n/)
+      .filter(Boolean)
+      .map(line => {
+        const [device, type, state] = splitNmcliLine(line);
+        return { device, type, state };
+      });
+    return {
+      redacted: true,
+      devices,
+      connectedCount: devices.filter(item => item.state === "connected").length
+    };
+  } catch {
+    return {
+      redacted: true,
+      devices: [],
+      connectedCount: 0
+    };
+  }
+}
+
+function supportNetworkEvidence(diagnostics) {
+  const interfaces = supportInterfaceEvidence();
+  const defaultRoute = supportDefaultRouteEvidence();
+  const networkManager = supportNetworkManagerEvidence();
+  return {
+    redacted: true,
+    status: diagnostics.network && diagnostics.network.online ? "ready" : "attention",
+    interfaces,
+    defaultRoute,
+    networkManager,
+    summary: {
+      linkUp: interfaces.interfaces.filter(item => item.operstate === "up" || item.carrier === "1").length,
+      defaultRoutePresent: defaultRoute.defaultRoutePresent,
+      defaultRouteInterface: defaultRoute.interface,
+      networkManagerConnected: networkManager.connectedCount
+    }
+  };
+}
+
+function supportCacheEvidence(diagnostics, feed, offlineCache) {
+  const cacheManifest = readJson(paths.feedCache, { generatedAt: null, count: 0, eligibility: {} });
+  const cacheIndex = readJson(paths.cacheIndex, { generatedAt: null, cachedCount: 0, failedCount: 0, items: [] });
+  const preferences = readJson(paths.preferences, {});
+  const totalItems = Array.isArray((readJson(paths.feed, { items: [] }).items)) ? readJson(paths.feed, { items: [] }).items.length : 0;
+  const displayEligibleItems = eligibleFeedItems().length;
+  const offlinePlayableItems = offlineCache.playableItems || 0;
+  const attention = [];
+  if ((cacheIndex.failedCount || 0) > 0) attention.push("cache_failures_present");
+  if ((cacheManifest.count || 0) === 0) attention.push("no_cache_eligible_items");
+  const readyForOfflineFallback = (preferences.offlineFallbackMode || "cached") === "cached" && offlinePlayableItems > 0;
+  return {
+    redacted: true,
+    status: attention.length > 0 ? "attention" : "ready",
+    readyForOfflineFallback,
+    offlineFallbackMode: preferences.offlineFallbackMode || "cached",
+    generatedAt: cacheIndex.generatedAt || null,
+    manifestGeneratedAt: cacheManifest.generatedAt || null,
+    counts: {
+      totalItems,
+      displayEligibleItems,
+      cacheEligibleItems: cacheManifest.count || 0,
+      cacheFilteredItems: (((cacheManifest.eligibility || {}).filteredItems) || 0),
+      cacheIndexedItems: Array.isArray(cacheIndex.items) ? cacheIndex.items.length : 0,
+      cacheCachedItems: cacheIndex.cachedCount || 0,
+      cacheFailedItems: cacheIndex.failedCount || 0,
+      offlinePlayableItems
+    },
+    reasonCounts: {
+      cache: ((cacheManifest.eligibility || {}).reasonCounts) || {}
+    },
+    categories: {
+      cache: ((cacheManifest.eligibility || {}).categories) || {}
+    },
+    attention
+  };
+}
+
 async function supportBundle(options = {}) {
   const diagnostics = await collectDiagnostics({ includeServices: options.includeServices });
   const health = healthSummary(diagnostics);
@@ -4129,6 +4423,8 @@ async function supportBundle(options = {}) {
   const adminCapabilities = publicAdminCapabilities();
   const issueCodes = ((health.health || {}).issues || []).map(issue => issue.code).filter(Boolean);
   const blockers = Array.isArray(readiness.blockers) ? readiness.blockers : [];
+  const networkEvidence = supportNetworkEvidence(diagnostics);
+  const cacheEvidence = supportCacheEvidence(diagnostics, feed, offlineCache);
 
   return {
     ok: true,
@@ -4161,6 +4457,7 @@ async function supportBundle(options = {}) {
             kioskReadiness: diagnostics.display.kioskReadiness || null
           }
         : null,
+      networkEvidence: networkEvidence.summary,
       logs: diagnostics.logs
         ? {
             status: diagnostics.logs.status || null,
@@ -4206,6 +4503,12 @@ async function supportBundle(options = {}) {
       framePlayback: diagnostics.framePlayback || null,
       offlinePlayableItems: offlineCache.playableItems || 0,
       offline: diagnostics.offline || { active: false },
+      cacheEvidence: {
+        status: cacheEvidence.status,
+        readyForOfflineFallback: cacheEvidence.readyForOfflineFallback,
+        counts: cacheEvidence.counts,
+        attention: cacheEvidence.attention
+      },
       commandAudit: {
         totalEntries: commandAudit.count || 0,
         lastStatus: diagnostics.commandAudit ? diagnostics.commandAudit.lastStatus || null : null,
@@ -4233,6 +4536,8 @@ async function supportBundle(options = {}) {
     diagnostics,
     health,
     readiness,
+    networkEvidence,
+    cacheEvidence,
     feed,
     frameState,
     offlineCache,
@@ -5682,22 +5987,83 @@ function scanWifi(callback) {
   });
 }
 
+function redactSecret(value, secret) {
+  const text = String(value || "");
+  if (!secret) return text;
+  return text.split(secret).join("[redacted]");
+}
+
 function connectWifi(ssid, password, callback) {
   if (!ssid) {
     callback(null, { ok: false, error: "Missing SSID" });
     return;
   }
-  const args = ["device", "wifi", "connect", ssid];
-  if (password) args.push("password", password);
-  execFile("nmcli", args, (error, stdout, stderr) => {
-    if (error) {
-      callback(null, { ok: false, error: stderr.trim() || error.message });
+  if (!fs.existsSync(WIFI_CONNECT_SCRIPT)) {
+    callback(null, { ok: false, error: "Wi-Fi connector script is missing." });
+    return;
+  }
+  try {
+    fs.accessSync(WIFI_CONNECT_SCRIPT, fs.constants.X_OK);
+  } catch {
+    callback(null, { ok: false, error: "Wi-Fi connector script is not executable." });
+    return;
+  }
+
+  const args = ["--rescan", "--require-connected", ssid];
+  const passwordText = typeof password === "string" ? password : "";
+  const hasPassword = passwordText.length > 0;
+  if (hasPassword) args.push("-");
+
+  const child = spawn(WIFI_CONNECT_SCRIPT, args, {
+    stdio: ["pipe", "pipe", "pipe"]
+  });
+  let stdout = "";
+  let stderr = "";
+  let timedOut = false;
+  let finished = false;
+  function finish(value) {
+    if (finished) return;
+    finished = true;
+    clearTimeout(timeout);
+    callback(null, value);
+  }
+  const timeout = setTimeout(() => {
+    timedOut = true;
+    child.kill("SIGTERM");
+  }, WIFI_CONNECT_TIMEOUT_MS);
+  child.stdout.on("data", chunk => {
+    stdout = (stdout + chunk.toString()).slice(-WIFI_CONNECT_OUTPUT_LIMIT);
+  });
+  child.stderr.on("data", chunk => {
+    stderr = (stderr + chunk.toString()).slice(-WIFI_CONNECT_OUTPUT_LIMIT);
+  });
+  child.on("error", error => {
+    finish({ ok: false, error: error.message });
+  });
+  child.on("close", code => {
+    const cleanStdout = redactSecret(stdout.trim(), passwordText);
+    const cleanStderr = redactSecret(stderr.trim(), passwordText);
+    if (code !== 0) {
+      finish({
+        ok: false,
+        error: timedOut ? "Wi-Fi connection timed out." : cleanStderr || "Wi-Fi connection failed.",
+        exitCode: code
+      });
       return;
     }
     const device = readJson(paths.device, {});
     writeJson(paths.device, { ...device, wifiConfigured: true });
-    callback(null, { ok: true, message: stdout.trim() });
+    finish({
+      ok: true,
+      message: cleanStdout || "Wi-Fi connected.",
+      verified: true
+    });
   });
+  if (hasPassword) {
+    child.stdin.end(passwordText + "\n");
+  } else {
+    child.stdin.end();
+  }
 }
 
 function connectLan(callback) {
@@ -6032,14 +6398,14 @@ async function executeCommand(command) {
     return { ok: true, cleared: CACHE_DIR };
   }
   if (commandType === "restart_display") {
-    await execFilePromise("systemctl", ["restart", "autopoiesis-kiosk.service"]);
+    await execFilePromise(SYSTEMCTL_BIN, ["restart", "autopoiesis-kiosk.service"]);
     return { ok: true, restarted: "autopoiesis-kiosk.service" };
   }
   if (commandType === "restart_device") {
     if (process.env.AUTOPOIESIS_ALLOW_REBOOT !== "1") {
       return { ok: false, error: "Reboot command refused unless AUTOPOIESIS_ALLOW_REBOOT=1" };
     }
-    await execFilePromise("systemctl", ["reboot"]);
+    await execFilePromise(SYSTEMCTL_BIN, ["reboot"]);
     return { ok: true, rebooting: true };
   }
   if (commandType === "update_device") {
@@ -6414,7 +6780,8 @@ async function handle(req, res) {
       return sendJson(res, await checkRelease());
     }
     if (req.method === "POST" && url.pathname === "/local/release/apply") {
-      return sendJson(res, await checkAndApplyRelease());
+      const body = JSON.parse(await readBody(req) || "{}");
+      return sendJson(res, await checkAndApplyRelease(body));
     }
     if (req.method === "POST" && url.pathname === "/local/system/restart") {
       return sendJson(res, { ok: false, error: "Restart requires privileged systemd wiring in a later milestone." }, 501);
@@ -6736,4 +7103,3 @@ function publicFeedReadiness() {
     }
   };
 }
-
