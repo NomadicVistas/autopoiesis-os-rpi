@@ -5065,6 +5065,86 @@ function renderSettings() {
   );
 }
 
+function onboardingHomePath(data = status()) {
+  if (!data.device.firstRunComplete || !data.device.paired || !data.device.onboardingComplete) {
+    return "/welcome";
+  }
+  return "/dashboard";
+}
+
+function nextActionSummary(data = status(), frame = publicFrameState(), cache = publicOfflineCache()) {
+  const networkOnline = Boolean(data.network && data.network.online);
+  const paired = Boolean(data.device && data.device.paired);
+  const onboardingComplete = Boolean(data.device && data.device.onboardingComplete);
+  const cachedPlayableItems = Number(cache && cache.playableItems ? cache.playableItems : 0);
+  const playableItems = Number(frame && frame.playableItems ? frame.playableItems : 0);
+
+  if (!networkOnline) {
+    return {
+      status: "needs_attention",
+      title: "Connect this frame to the internet",
+      detail: "Wi-Fi or Ethernet is required before the frame can receive new work or pair with your account.",
+      primaryHref: "/local/wifi/scan",
+      primaryLabel: "Choose Wi-Fi",
+      secondaryHref: "/network",
+      secondaryLabel: "Open network"
+    };
+  }
+  if (!paired) {
+    return {
+      status: "needs_attention",
+      title: "Pair this frame to your account",
+      detail: "Open the pairing step and enter the code from autopoiesis.art/profile/frames.",
+      primaryHref: "/welcome",
+      primaryLabel: "Open pairing",
+      secondaryHref: "/network",
+      secondaryLabel: "Check connection"
+    };
+  }
+  if (!onboardingComplete) {
+    return {
+      status: "needs_attention",
+      title: "Finish the last setup step",
+      detail: "Name the device, confirm sound and night mode, then launch the living stream.",
+      primaryHref: "/welcome",
+      primaryLabel: "Finish setup",
+      secondaryHref: "/settings",
+      secondaryLabel: "Open settings"
+    };
+  }
+  if (playableItems > 0) {
+    return {
+      status: "ready",
+      title: "Open the living stream",
+      detail: "The frame has playable items ready now. Open the fullscreen display or tune the stream in settings.",
+      primaryHref: "/frame",
+      primaryLabel: "Open frame",
+      secondaryHref: "/settings",
+      secondaryLabel: "Adjust stream"
+    };
+  }
+  if (cachedPlayableItems > 0) {
+    return {
+      status: "degraded",
+      title: "Run from offline cache",
+      detail: "No fresh stream items are ready yet, but cached works are available so the display does not sit empty.",
+      primaryHref: "/frame",
+      primaryLabel: "Open cached frame",
+      secondaryHref: "/settings",
+      secondaryLabel: "Review preferences"
+    };
+  }
+  return {
+    status: "degraded",
+    title: "Stream is waiting for content",
+    detail: "The frame is online and paired, but no playable or cached items are ready yet.",
+    primaryHref: "/frame",
+    primaryLabel: "Open frame",
+    secondaryHref: "/settings",
+    secondaryLabel: "Review settings"
+  };
+}
+
 function renderDashboard() {
   const data = status();
   const frame = publicFrameState();
@@ -5072,13 +5152,23 @@ function renderDashboard() {
   const playback = frame.playback || {};
   const sync = data.device.settingsSync || {};
   const serverUrl = String(data.device.serverUrl || "https://autopoiesis.art").replace(/\/$/, "");
+  const nextAction = nextActionSummary(data, frame, cache);
   return page(
     "Autopoiesis Dashboard",
     `<main class="screen dashboard-screen">
       <section class="panel wide dashboard-panel">
         <p class="kicker">Autopoiesis OS</p>
         <h1>Dashboard</h1>
-        <p class="muted">A local gateway into the ecosystem: display state, device health, stream progress, exhibitions, and writing.</p>
+        <p class="muted">A fast local control point for pairing, network, stream readiness, and playback.</p>
+        <fieldset class="setting-group dashboard-focus dashboard-focus-${escapeHtml(nextAction.status)}">
+          <legend>Next step</legend>
+          <h2>${escapeHtml(nextAction.title)}</h2>
+          <p>${escapeHtml(nextAction.detail)}</p>
+          <div class="actions">
+            <a class="button primary" href="${escapeHtml(nextAction.primaryHref)}">${escapeHtml(nextAction.primaryLabel)}</a>
+            <a class="button" href="${escapeHtml(nextAction.secondaryHref)}">${escapeHtml(nextAction.secondaryLabel)}</a>
+          </div>
+        </fieldset>
         <div class="dashboard-grid">
           <article class="dash-tile"><strong>${escapeHtml(frame.playableItems)}</strong><span>Playable stream items</span></article>
           <article class="dash-tile"><strong>${escapeHtml(cache.playableItems)}</strong><span>Cached works available offline</span></article>
@@ -5095,7 +5185,9 @@ function renderDashboard() {
         </dl>
         <div class="actions gateway-actions">
           <a class="button primary" href="/frame">Open frame</a>
+          <a class="button" href="/network">Network</a>
           <a class="button" href="/settings">Settings</a>
+          <a class="button" href="/welcome">Setup guide</a>
           <a class="button" href="${escapeHtml(serverUrl)}/blog">Blogs</a>
           <a class="button" href="${escapeHtml(serverUrl)}/exhibitions">Exhibitions</a>
           <a class="button" href="${escapeHtml(serverUrl)}">Gallery</a>
@@ -5106,6 +5198,8 @@ function renderDashboard() {
 }
 
 function renderNetwork() {
+  const homeHref = onboardingHomePath();
+  const backLabel = homeHref === "/welcome" ? "Back to setup" : "Back to dashboard";
   return page(
     "Autopoiesis Network",
     `<main class="screen">
@@ -5117,7 +5211,7 @@ function renderNetwork() {
           <button data-refresh-network>Refresh</button>
           <button data-connect-lan>Use LAN</button>
           <a class="button" href="/local/wifi/scan">Scan Wi-Fi</a>
-          <a class="button primary" href="/setup">Back</a>
+          <a class="button primary" href="${escapeHtml(homeHref)}">${escapeHtml(backLabel)}</a>
         </div>
         <p class="note">LAN uses Ethernet with DHCP through NetworkManager when available.</p>
       </section>
@@ -5150,6 +5244,8 @@ refreshNetwork();`
 }
 
 function renderWifiScan() {
+  const homeHref = onboardingHomePath();
+  const backLabel = homeHref === "/welcome" ? "Back to setup" : "Back to dashboard";
   return page(
     "Autopoiesis Wi-Fi",
     `<style>
@@ -5182,7 +5278,8 @@ function renderWifiScan() {
           <label>Network name <input name="ssid" autocomplete="off" required></label>
           <label>Password <input name="password" type="password" autocomplete="current-password"></label>
           <button class="primary" type="submit">Connect</button>
-          <a class="button" href="/network">Back</a>
+          <a class="button" href="/network">Back to network</a>
+          <a class="button" href="${escapeHtml(homeHref)}">${escapeHtml(backLabel)}</a>
         </form>
       </section>
     </main>`,
