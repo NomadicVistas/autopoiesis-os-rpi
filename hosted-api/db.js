@@ -57,6 +57,18 @@ function jsonStringify(val) {
   return JSON.stringify(val);
 }
 
+function mergePatchWithNullDeletes(current, patch) {
+  const merged = { ...current };
+  for (const [key, value] of Object.entries(patch || {})) {
+    if (value === null) {
+      delete merged[key];
+    } else {
+      merged[key] = value;
+    }
+  }
+  return merged;
+}
+
 function _broadcastTypeToCategory(type) {
   if (!type) return 'content';
   const t = String(type).toLowerCase();
@@ -76,6 +88,116 @@ function _priorityRank(priority) {
   if (p === 'normal') return 200;
   if (p === 'low') return 100;
   return 200;
+}
+
+function _deliveryStatus(status) {
+  const s = String(status || "received").toLowerCase();
+  if (s === "shown") return "displayed";
+  return s;
+}
+
+function _deliveryStatusRank(status) {
+  const s = _deliveryStatus(status);
+  if (s === "queued") return 10;
+  if (s === "received" || s === "delivered") return 20;
+  if (s === "displayed") return 30;
+  if (s === "acknowledged") return 40;
+  if (s === "dismissed") return 50;
+  if (s === "completed" || s === "expired" || s === "failed") return 60;
+  return 20;
+}
+
+function _deliveryStatusTimestamp(delivery, status, fallback) {
+  const candidates = [];
+  if (status === "completed" || status === "expired" || status === "failed") {
+    candidates.push(delivery.completedAt, delivery.updatedAt);
+  } else if (status === "dismissed") {
+    candidates.push(delivery.dismissedAt, delivery.updatedAt);
+  } else if (status === "acknowledged") {
+    candidates.push(delivery.acknowledgedAt, delivery.updatedAt);
+  } else if (status === "displayed") {
+    candidates.push(delivery.displayedAt, delivery.shownAt, delivery.updatedAt);
+  } else {
+    candidates.push(delivery.deliveredAt, delivery.receivedAt, delivery.updatedAt);
+  }
+  candidates.push(
+    delivery.completedAt,
+    delivery.dismissedAt,
+    delivery.acknowledgedAt,
+    delivery.displayedAt,
+    delivery.shownAt,
+    delivery.deliveredAt,
+    delivery.receivedAt,
+    fallback
+  );
+  for (const value of candidates) {
+    if (value) return value;
+  }
+  return fallback;
+}
+
+const ACCEPTED_COMMAND_ACK_STATUSES = [
+  "acknowledged",
+  "processing",
+  "completed",
+  "error",
+  "failed",
+  "denied",
+  "expired"
+];
+
+const COMMAND_TERMINAL_ACK_STATUSES = new Set(["completed", "error", "failed", "denied", "expired"]);
+
+function _commandAckStatus(status) {
+  return String(status || "acknowledged").trim().toLowerCase();
+}
+
+function _commandAckRank(status) {
+  const s = _commandAckStatus(status);
+  if (s === "queued") return 0;
+  if (s === "sent") return 10;
+  if (s === "acknowledged") return 20;
+  if (s === "processing") return 30;
+  if (COMMAND_TERMINAL_ACK_STATUSES.has(s)) return 100;
+  return -1;
+}
+
+function _validIsoTimestamp(value) {
+  if (typeof value !== "string" ||
+      !/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{3})?Z$/.test(value)) {
+    return false;
+  }
+  const parsed = new Date(value);
+  if (!Number.isFinite(parsed.getTime())) return false;
+  const canonical = parsed.toISOString();
+  return canonical === value || canonical.replace(".000Z", "Z") === value;
+}
+
+function _boundedCommandError(error) {
+  if (error === undefined || error === null) return null;
+  const text = String(error);
+  if (!text) return null;
+  return text.slice(0, 2000);
+}
+
+function _mapCommandRow(row) {
+  if (!row) return null;
+  return {
+    commandId: row.id,
+    deviceId: row.device_id,
+    commandType: row.command_type,
+    type: row.command_type,
+    status: row.status,
+    payload: jsonParse(row.payload_json, {}),
+    deliveredAt: row.delivered_at,
+    acknowledgedAt: row.acknowledged_at,
+    completedAt: row.completed_at,
+    lastAckStatus: row.last_ack_status,
+    lastAckAt: row.last_ack_at,
+    error: row.error,
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -187,6 +309,20 @@ class AosDb {
     ).run(name, opts.checksum || null, opts.durationMs != null ? opts.durationMs : null);
   }
 
+  migrationDuplicateColumnIsSafe(sql, errorMessage) {
+    const duplicateMatch = /duplicate column name:\s*([a-zA-Z0-9_]+)/i.exec(String(errorMessage || ""));
+    if (!duplicateMatch) return false;
+    const alterMatch = /ALTER TABLE\s+([a-zA-Z0-9_]+)\s+ADD COLUMN\s+([a-zA-Z0-9_]+)/i.exec(String(sql || ""));
+    if (!alterMatch) return false;
+
+    const tableName = alterMatch[1];
+    const columnName = alterMatch[2];
+    if (columnName.toLowerCase() !== duplicateMatch[1].toLowerCase()) return false;
+
+    const columns = this.db.prepare(`PRAGMA table_info(${tableName})`).all();
+    return columns.some(column => String(column.name || "").toLowerCase() === columnName.toLowerCase());
+  }
+
   /**
    * Runs pending SQLite migrations from the given directory.
    *
@@ -240,8 +376,14 @@ class AosDb {
         // Apply each statement in a transaction
         this.db.exec('BEGIN');
         try {
-          // Split on semicolons, skip empty/trivially-whitespace statements
-          for (const stmt of sql.split(';').map(s => s.trim()).filter(s => s.length > 0 && !s.startsWith('--'))) {
+          // Strip full-line comments before splitting so semicolons inside comments
+          // cannot corrupt the executable migration stream.
+          const executableSql = sql
+            .split(/\r?\n/)
+            .map(line => line.trimStart().startsWith('--') ? '' : line)
+            .join('\n');
+
+          for (const stmt of executableSql.split(';').map(s => s.trim()).filter(s => s.length > 0)) {
             this.db.exec(stmt);
           }
           this.db.exec('COMMIT');
@@ -254,6 +396,12 @@ class AosDb {
         this.recordMigration(name, { checksum, durationMs });
         result.applied.push(name);
       } catch (err) {
+        if (this.migrationDuplicateColumnIsSafe(sql, err.message)) {
+          const durationMs = Date.now() - startMs;
+          this.recordMigration(name, { checksum, durationMs });
+          result.applied.push(name);
+          continue;
+        }
         result.errors.push({ name, error: err.message });
       }
     }
@@ -284,80 +432,87 @@ class AosDb {
     const expiresAt = new Date(Date.now() + 15 * 60 * 1000).toISOString();
     const pairingId = uid("pair");
 
-    // Check if device already exists
-    const existing = this.db.prepare(
-      "SELECT device_id, device_api_key, paired FROM aos_frame_devices WHERE device_id = ?"
-    ).get(deviceId);
+    this.db.exec('BEGIN');
+    try {
+      // Check if device already exists
+      const existing = this.db.prepare(
+        "SELECT device_id, device_api_key, paired FROM aos_frame_devices WHERE device_id = ?"
+      ).get(deviceId);
 
-    let deviceApiKey;
+      let deviceApiKey;
 
-    if (existing) {
-      // Re-registration: keep existing key, refresh pairing code
-      deviceApiKey = existing.device_api_key;
+      if (existing) {
+        // Re-registration: keep existing key, refresh pairing code
+        deviceApiKey = existing.device_api_key;
 
-      this.db.prepare(
-        `UPDATE aos_frame_devices
-         SET software_version = ?, metadata_json = ?, updated_at = ?
-         WHERE device_id = ?`
-      ).run(
-        params.softwareVersion || "0.0.0",
-        jsonStringify(params.metadata),
-        now(),
-        deviceId
-      );
+        this.db.prepare(
+          `UPDATE aos_frame_devices
+           SET software_version = ?, metadata_json = ?, updated_at = ?
+           WHERE device_id = ?`
+        ).run(
+          params.softwareVersion || "0.0.0",
+          jsonStringify(params.metadata),
+          now(),
+          deviceId
+        );
 
-      // Supersede old pairing code and create new one
-      this.db.prepare(
-        "UPDATE aos_frame_pairing_codes SET status = 'superseded' WHERE device_id = ? AND status = 'active'"
-      ).run(deviceId);
+        // Supersede old pairing code and create new one
+        this.db.prepare(
+          "UPDATE aos_frame_pairing_codes SET status = 'superseded' WHERE device_id = ? AND status = 'active'"
+        ).run(deviceId);
 
-      // Delete all pairing codes for this device to free the unique index,
-      // then insert the fresh one. Old codes are already superseded/expired/claimed
-      // so they have no remaining value.
-      this.db.prepare(
-        "DELETE FROM aos_frame_pairing_codes WHERE device_id = ? AND status != 'claimed'"
-      ).run(deviceId);
+        // Delete all pairing codes for this device to free the unique index,
+        // then insert the fresh one. Old codes are already superseded/expired/claimed
+        // so they have no remaining value.
+        this.db.prepare(
+          "DELETE FROM aos_frame_pairing_codes WHERE device_id = ? AND status != 'claimed'"
+        ).run(deviceId);
 
-      this.db.prepare(
-        `INSERT INTO aos_frame_pairing_codes (id, device_id, pairing_code_hash, pairing_code, expires_at, status)
-         VALUES (?, ?, ?, ?, ?, 'active')`
-      ).run(pairingId, deviceId, pairingCodeHash, pairingCode, expiresAt);
-    } else {
-      // New device
-      deviceApiKey = generateDeviceKey();
+        this.db.prepare(
+          `INSERT INTO aos_frame_pairing_codes (id, device_id, pairing_code_hash, pairing_code, expires_at, status)
+           VALUES (?, ?, ?, ?, ?, 'active')`
+        ).run(pairingId, deviceId, pairingCodeHash, pairingCode, expiresAt);
+      } else {
+        // New device
+        deviceApiKey = generateDeviceKey();
 
-      this.db.prepare(
-        `INSERT INTO aos_frame_devices
-          (device_id, device_api_key, device_name, device_type, software_version,
-           paired, metadata_json)
-         VALUES (?, ?, ?, ?, ?, 0, ?)`
-      ).run(
+        this.db.prepare(
+          `INSERT INTO aos_frame_devices
+            (device_id, device_api_key, device_name, device_type, software_version,
+             paired, metadata_json)
+           VALUES (?, ?, ?, ?, ?, 0, ?)`
+        ).run(
+          deviceId,
+          deviceApiKey,
+          params.deviceName || "Autopoiesis Frame",
+          params.deviceType || "raspberry_pi",
+          params.softwareVersion || "0.0.0",
+          jsonStringify(params.metadata)
+        );
+
+        this.db.prepare(
+          `INSERT INTO aos_frame_pairing_codes (id, device_id, pairing_code_hash, pairing_code, expires_at, status)
+           VALUES (?, ?, ?, ?, ?, 'active')`
+        ).run(pairingId, deviceId, pairingCodeHash, pairingCode, expiresAt);
+
+        // Create default settings row
+        this.db.prepare(
+          "INSERT INTO aos_frame_device_settings (device_id, settings_json) VALUES (?, '{}')"
+        ).run(deviceId);
+      }
+
+      this.db.exec('COMMIT');
+      return {
         deviceId,
         deviceApiKey,
-        params.deviceName || "Autopoiesis Frame",
-        params.deviceType || "raspberry_pi",
-        params.softwareVersion || "0.0.0",
-        jsonStringify(params.metadata)
-      );
-
-      this.db.prepare(
-        `INSERT INTO aos_frame_pairing_codes (id, device_id, pairing_code_hash, pairing_code, expires_at, status)
-         VALUES (?, ?, ?, ?, ?, 'active')`
-      ).run(pairingId, deviceId, pairingCodeHash, pairingCode, expiresAt);
-
-      // Create default settings row
-      this.db.prepare(
-        "INSERT INTO aos_frame_device_settings (device_id, settings_json) VALUES (?, '{}')"
-      ).run(deviceId);
+        paired: existing ? !!existing.paired : false,
+        pairingCode,
+        expiresAt,
+      };
+    } catch (err) {
+      this.db.exec('ROLLBACK');
+      throw err;
     }
-
-    return {
-      deviceId,
-      deviceApiKey,
-      paired: existing ? !!existing.paired : false,
-      pairingCode,
-      expiresAt,
-    };
   }
 
   // ── Device Authentication ────────────────────────────────────────────────
@@ -431,6 +586,177 @@ class AosDb {
   }
 
   /**
+   * Refresh the pairing code for an unpaired device.
+   *
+   * This is the admin/operator equivalent of device registration code
+   * generation. It intentionally returns no device API key.
+   *
+   * @param {string} deviceId
+   * @returns {{ ok, deviceId?, pairingCode?, expiresAt?, error?, reason? }}
+   */
+  refreshPairingCode(deviceId) {
+    if (!deviceId) return { ok: false, error: "deviceId required", reason: "device_id_required" };
+
+    const device = this.db.prepare(
+      "SELECT device_id, paired FROM aos_frame_devices WHERE device_id = ?"
+    ).get(deviceId);
+    if (!device) return { ok: false, error: "Device not found", reason: "device_not_found" };
+    if (device.paired) {
+      return {
+        ok: false,
+        error: "Cannot refresh pairing code for a paired device",
+        reason: "device_already_paired"
+      };
+    }
+
+    const pairingCode = generatePairingCode();
+    const pairingCodeHash = hashPairingCode(pairingCode);
+    const expiresAt = new Date(Date.now() + 15 * 60 * 1000).toISOString();
+    const pairingId = uid("pair");
+    const refreshedAt = now();
+
+    this.db.exec('BEGIN');
+    try {
+      this.db.prepare(
+        "UPDATE aos_frame_pairing_codes SET status = 'superseded' WHERE device_id = ? AND status = 'active'"
+      ).run(deviceId);
+
+      this.db.prepare(
+        "DELETE FROM aos_frame_pairing_codes WHERE device_id = ? AND status != 'claimed'"
+      ).run(deviceId);
+
+      this.db.prepare(
+        `INSERT INTO aos_frame_pairing_codes (id, device_id, pairing_code_hash, pairing_code, expires_at, status)
+         VALUES (?, ?, ?, ?, ?, 'active')`
+      ).run(pairingId, deviceId, pairingCodeHash, pairingCode, expiresAt);
+
+      this.db.prepare(
+        "UPDATE aos_frame_devices SET updated_at = ? WHERE device_id = ?"
+      ).run(refreshedAt, deviceId);
+
+      this.db.exec('COMMIT');
+      return { ok: true, deviceId, pairingCode, expiresAt, refreshedAt };
+    } catch (err) {
+      this.db.exec('ROLLBACK');
+      throw err;
+    }
+  }
+
+  /**
+   * List device pairing states for the online admin pairing queue.
+   *
+   * The response intentionally omits device API keys and pairing hashes. Pending
+   * rows expose the short pairing code because operators need it for setup;
+   * expired, claimed, and missing-code rows do not.
+   *
+   * @param {object} [opts]
+   * @param {string} [opts.status] - pending, expired, paired, or no_code
+   * @param {boolean} [opts.attentionOnly] - Only expired/no-code rows
+   * @param {string} [opts.search] - Device id/name/owner search
+   * @param {number} [opts.limit] - Page size
+   * @param {number} [opts.offset] - Page offset
+   * @returns {{ items: Array<object>, total: number, limit: number, offset: number, summary: object }}
+   */
+  listPairingQueue(opts = {}) {
+    const limit = Math.min(Math.max(1, opts.limit || 100), 500);
+    const offset = Math.max(0, opts.offset || 0);
+    const nowIso = opts.now || now();
+    const search = opts.search ? String(opts.search).toLowerCase() : "";
+
+    const rows = this.db.prepare(
+      `SELECT
+         d.device_id, d.owner_user_id, d.device_name, d.device_type,
+         d.software_version, d.paired, d.last_heartbeat_at, d.created_at, d.updated_at,
+         pc.id AS pairing_id, pc.pairing_code, pc.expires_at, pc.status AS pairing_status,
+         pc.claimed_by_user_id, pc.claimed_at, pc.created_at AS pairing_created_at
+       FROM aos_frame_devices d
+       LEFT JOIN aos_frame_pairing_codes pc ON pc.device_id = d.device_id
+       ORDER BY d.created_at DESC`
+    ).all();
+
+    const items = rows.map(row => {
+      const paired = !!row.paired;
+      const hasCode = !!row.pairing_id;
+      const expiresAt = row.expires_at || null;
+      const activeAndFresh = hasCode &&
+        row.pairing_status === "active" &&
+        expiresAt &&
+        Date.parse(expiresAt) > Date.parse(nowIso);
+
+      let status;
+      const attentionReasons = [];
+      if (paired) {
+        status = "paired";
+      } else if (activeAndFresh) {
+        status = "pending";
+      } else if (hasCode) {
+        status = "expired";
+        attentionReasons.push("expired_pairing_code");
+      } else {
+        status = "no_code";
+        attentionReasons.push("missing_pairing_code");
+      }
+
+      const pairing = {
+        status,
+        ...(status === "pending" ? {
+          pairingCode: row.pairing_code || null,
+          expiresAt
+        } : {}),
+        ...(status === "expired" ? { expiresAt } : {}),
+        ...(row.pairing_created_at ? { createdAt: row.pairing_created_at } : {}),
+        ...(row.claimed_at ? { claimedAt: row.claimed_at } : {})
+      };
+
+      return {
+        deviceId: row.device_id,
+        deviceName: row.device_name,
+        deviceType: row.device_type,
+        softwareVersion: row.software_version,
+        ownerUserId: row.owner_user_id || (paired ? row.claimed_by_user_id : null),
+        paired,
+        lastHeartbeatAt: row.last_heartbeat_at,
+        pairing,
+        attentionReasons,
+        createdAt: row.created_at,
+        updatedAt: row.updated_at
+      };
+    }).filter(item => {
+      if (opts.status && item.pairing.status !== opts.status) return false;
+      if (opts.attentionOnly && item.attentionReasons.length === 0) return false;
+      if (search) {
+        const haystack = [
+          item.deviceId,
+          item.deviceName,
+          item.ownerUserId,
+          item.pairing.status
+        ].filter(Boolean).join(" ").toLowerCase();
+        if (!haystack.includes(search)) return false;
+      }
+      return true;
+    });
+
+    const byStatus = { pending: 0, expired: 0, paired: 0, no_code: 0 };
+    let attention = 0;
+    for (const item of items) {
+      byStatus[item.pairing.status] = (byStatus[item.pairing.status] || 0) + 1;
+      if (item.attentionReasons.length > 0) attention++;
+    }
+
+    return {
+      items: items.slice(offset, offset + limit),
+      total: items.length,
+      limit,
+      offset,
+      summary: {
+        total: items.length,
+        attention,
+        byStatus
+      }
+    };
+  }
+
+  /**
    * Claim (pair) a device by pairing code.
    *
    * @param {string} pairingCode
@@ -451,26 +777,46 @@ class AosDb {
       return { ok: false, error: "Invalid or expired pairing code" };
     }
 
-    if (new Date(codeRow.expires_at) <= new Date()) {
+    this.db.exec('BEGIN');
+    try {
+      // Check if code is still valid and not expired inside transaction to prevent race condition
+      const currentCode = this.db.prepare(
+        "SELECT id, device_id, expires_at, status FROM aos_frame_pairing_codes WHERE pairing_code_hash = ? AND status = 'active'"
+      ).get(codeHash);
+
+      if (!currentCode) {
+        // Code was claimed, expired, or superseded by another transaction
+        this.db.exec('COMMIT');
+        return { ok: false, error: "Invalid or expired pairing code" };
+      }
+
+      if (new Date(currentCode.expires_at) <= new Date()) {
+        // Mark code as expired
+        this.db.prepare(
+          "UPDATE aos_frame_pairing_codes SET status = 'expired' WHERE id = ?"
+        ).run(currentCode.id);
+        this.db.exec('COMMIT');
+        return { ok: false, error: "Pairing code expired" };
+      }
+
+      // Mark code as claimed
       this.db.prepare(
-        "UPDATE aos_frame_pairing_codes SET status = 'expired' WHERE id = ?"
-      ).run(codeRow.id);
-      return { ok: false, error: "Pairing code expired" };
+        "UPDATE aos_frame_pairing_codes SET status = 'claimed', claimed_by_user_id = ?, claimed_at = ? WHERE id = ?"
+      ).run(ownerUserId, now(), currentCode.id);
+
+      // Update device
+      this.db.prepare(
+        `UPDATE aos_frame_devices
+         SET paired = 1, owner_user_id = ?, updated_at = ?
+         WHERE device_id = ?`
+      ).run(ownerUserId, now(), currentCode.device_id);
+
+      this.db.exec('COMMIT');
+      return { ok: true, deviceId: currentCode.device_id, paired: true, ownerUserId };
+    } catch (err) {
+      this.db.exec('ROLLBACK');
+      throw err;
     }
-
-    // Mark code as claimed
-    this.db.prepare(
-      "UPDATE aos_frame_pairing_codes SET status = 'claimed', claimed_by_user_id = ?, claimed_at = ? WHERE id = ?"
-    ).run(ownerUserId, now(), codeRow.id);
-
-    // Update device
-    this.db.prepare(
-      `UPDATE aos_frame_devices
-       SET paired = 1, owner_user_id = ?, updated_at = ?
-       WHERE device_id = ?`
-    ).run(ownerUserId, now(), codeRow.device_id);
-
-    return { ok: true, deviceId: codeRow.device_id, paired: true, ownerUserId };
   }
 
   // ── Settings ─────────────────────────────────────────────────────────────
@@ -487,10 +833,11 @@ class AosDb {
     ).get(deviceId);
     if (!row) return { ok: false, error: "Device settings not found" };
 
+    const settings = jsonParse(row.settings_json, {});
     const result = {
       ok: true,
-      settings: jsonParse(row.settings_json, {}),
-      updatedAt: row.updated_at,
+      settings,
+      updatedAt: settings.updatedAt || null,
     };
 
     // Attach owner preferences if device has owner with overrides
@@ -525,23 +872,40 @@ class AosDb {
     if (!current) return { ok: false, error: "Device settings not found" };
 
     const incoming = incomingUpdatedAt || now();
-    const existing = current.updated_at;
+    if (!_validIsoTimestamp(incoming)) {
+      return {
+        ok: false,
+        reason: "invalid_updated_at",
+        error: "updatedAt must be an ISO-8601 UTC timestamp"
+      };
+    }
+    const currentSettings = jsonParse(current.settings_json, {});
+    const existing = currentSettings.updatedAt || null;
 
-    if (existing && incoming < existing) {
+    if (existing && Date.parse(incoming) < Date.parse(existing)) {
       // Stale write: reject with conflict
       return {
         ok: false,
         error: "settings conflict",
         reason: "stale_write",
         conflict: true,
-        settings: jsonParse(current.settings_json, {}),
+        settings: currentSettings,
         incomingSettings: settings,
+        incomingUpdatedAt: incoming,
+        currentUpdatedAt: existing,
+        conflictPolicy: {
+          name: "latest_updatedAt",
+          winner: "stored",
+          ignored: true
+        },
         updatedAt: existing,
       };
     }
 
-    // Newer or equal: merge and write
-    const merged = { ...jsonParse(current.settings_json, {}), ...settings, updatedAt: incoming };
+    // Newer or equal: merge and write. Null values remove keys so clients can
+    // clear stale settings without replacing the whole object.
+    const merged = mergePatchWithNullDeletes(currentSettings, settings);
+    merged.updatedAt = incoming;
     this.db.prepare(
       "UPDATE aos_frame_device_settings SET settings_json = ?, updated_at = ? WHERE device_id = ?"
     ).run(jsonStringify(merged), incoming, deviceId);
@@ -581,7 +945,13 @@ class AosDb {
    */
   setUserPreferences(userId, preferences, incomingUpdatedAt) {
     const ts = now();
-    const json = jsonStringify(preferences);
+    if (incomingUpdatedAt !== null && incomingUpdatedAt !== undefined && !_validIsoTimestamp(incomingUpdatedAt)) {
+      return {
+        ok: false,
+        reason: "invalid_updated_at",
+        error: "updatedAt must be an ISO-8601 UTC timestamp"
+      };
+    }
     const row = this.db.prepare(
       "SELECT preferences_json, updated_at FROM aos_frame_user_preferences WHERE user_id = ?"
     ).get(userId);
@@ -594,23 +964,33 @@ class AosDb {
         reason: "stale_write",
         conflict: true,
         preferences: jsonParse(row.preferences_json, {}),
+        incomingPreferences: preferences,
+        incomingUpdatedAt,
+        currentUpdatedAt: row.updated_at,
+        conflictPolicy: {
+          name: "latest_updatedAt",
+          winner: "stored",
+          ignored: true
+        },
         updatedAt: row.updated_at,
       };
     }
 
     if (row) {
-      // Merge incoming into existing, preserving fields not sent
-      const merged = { ...jsonParse(row.preferences_json, {}), ...preferences };
+      // Merge incoming into existing, preserving fields not sent. Null values
+      // remove keys to support PATCH-style preference deletion.
+      const merged = mergePatchWithNullDeletes(jsonParse(row.preferences_json, {}), preferences);
       const mergedJson = jsonStringify(merged);
       this.db.prepare(
         "UPDATE aos_frame_user_preferences SET preferences_json = ?, updated_at = ? WHERE user_id = ?"
       ).run(mergedJson, ts, userId);
       return { ok: true, preferences: merged, updatedAt: ts };
     } else {
+      const normalized = mergePatchWithNullDeletes({}, preferences);
       this.db.prepare(
         "INSERT INTO aos_frame_user_preferences (user_id, preferences_json, updated_at) VALUES (?, ?, ?)"
-      ).run(userId, json, ts);
-      return { ok: true, preferences, updatedAt: ts };
+      ).run(userId, jsonStringify(normalized), ts);
+      return { ok: true, preferences: normalized, updatedAt: ts };
     }
   }
 
@@ -628,12 +1008,41 @@ class AosDb {
    * @returns {{ ok, heartbeatAt, eventAck?, deliveryAck? }}
    */
   ingestHeartbeat(deviceId, payload) {
-    const ts = now();
+    const ts = payload.heartbeatAt || now();
 
     // Insert heartbeat record
     this.db.prepare(
       "INSERT INTO aos_heartbeats (id, device_id, payload_json) VALUES (?, ?, ?)"
     ).run(uid("hb"), deviceId, jsonStringify(payload));
+
+    const currentDevice = this.db.prepare(
+      "SELECT last_heartbeat_at FROM aos_frame_devices WHERE device_id = ?"
+    ).get(deviceId);
+    const currentHeartbeatAt = currentDevice ? currentDevice.last_heartbeat_at : null;
+    const isStaleHeartbeat = currentHeartbeatAt && Date.parse(ts) < Date.parse(currentHeartbeatAt);
+    const heartbeatAck = isStaleHeartbeat ? {
+      accepted: false,
+      reason: "stale_heartbeat",
+      incomingUpdatedAt: ts,
+      currentUpdatedAt: currentHeartbeatAt,
+      conflict: true,
+      conflictPolicy: {
+        name: "latest_updatedAt",
+        winner: "stored",
+        ignored: true,
+        reason: "stale_heartbeat"
+      }
+    } : {
+      accepted: true,
+      incomingUpdatedAt: ts,
+      currentUpdatedAt: ts,
+      conflict: false,
+      conflictPolicy: {
+        name: "latest_updatedAt",
+        winner: "incoming",
+        ignored: false
+      }
+    };
 
     // Update device status
     // network_online/network_type come from top-level payload fields
@@ -648,38 +1057,40 @@ class AosDb {
     const releaseUpdatedAt = rs ? (rs.updatedAt || ts) : null;
     const releaseError = rs ? (rs.error || null) : null;
 
-    this.db.prepare(
-      `UPDATE aos_frame_devices
-       SET last_heartbeat_at = ?,
-           software_version = COALESCE(?, software_version),
-           current_mode = COALESCE(?, current_mode),
-           current_artwork_id = COALESCE(?, current_artwork_id),
-           network_online = ?,
-           network_type = COALESCE(?, network_type),
-           storage_status_json = ?,
-           release_status = ?,
-           release_target_version = ?,
-           release_channel = COALESCE(?, release_channel),
-           release_updated_at = ?,
-           release_error = ?,
-           updated_at = ?
-       WHERE device_id = ?`
-    ).run(
-      ts,
-      payload.softwareVersion || null,
-      payload.currentMode || null,
-      payload.currentArtworkId || null,
-      networkOnline,
-      networkType,
-      payload.storageStatus ? jsonStringify(payload.storageStatus) : '{}',
-      releaseStatus,
-      releaseTargetVersion,
-      releaseChannel,
-      releaseUpdatedAt,
-      releaseError,
-      ts,
-      deviceId
-    );
+    if (!isStaleHeartbeat) {
+      this.db.prepare(
+        `UPDATE aos_frame_devices
+         SET last_heartbeat_at = ?,
+             software_version = COALESCE(?, software_version),
+             current_mode = COALESCE(?, current_mode),
+             current_artwork_id = COALESCE(?, current_artwork_id),
+             network_online = ?,
+             network_type = COALESCE(?, network_type),
+             storage_status_json = ?,
+             release_status = ?,
+             release_target_version = ?,
+             release_channel = COALESCE(?, release_channel),
+             release_updated_at = ?,
+             release_error = ?,
+             updated_at = ?
+         WHERE device_id = ?`
+      ).run(
+        ts,
+        payload.softwareVersion || null,
+        payload.currentMode || null,
+        payload.currentArtworkId || null,
+        networkOnline,
+        networkType,
+        payload.storageStatus ? jsonStringify(payload.storageStatus) : '{}',
+        releaseStatus,
+        releaseTargetVersion,
+        releaseChannel,
+        releaseUpdatedAt,
+        releaseError,
+        ts,
+        deviceId
+      );
+    }
 
     // Event ingestion
     let eventAck = null;
@@ -727,53 +1138,157 @@ class AosDb {
 
     // Broadcast delivery ingestion
     let deliveryAck = null;
-    const deliveries = payload.broadcastDeliveries && payload.broadcastDeliveries.deliveries;
+    const deliveryEnvelope = payload.broadcastDeliveries;
+    const deliveries = Array.isArray(deliveryEnvelope)
+      ? deliveryEnvelope
+      : (deliveryEnvelope && Array.isArray(deliveryEnvelope.deliveries) ? deliveryEnvelope.deliveries : null);
     if (deliveries && deliveries.length > 0) {
-      const upsertDelivery = this.db.prepare(
+      const selectDelivery = this.db.prepare(
+        `SELECT status, updated_at FROM aos_broadcast_deliveries
+         WHERE broadcast_id = ? AND device_id = ?`
+      );
+      const insertDelivery = this.db.prepare(
         `INSERT INTO aos_broadcast_deliveries
           (id, broadcast_id, device_id, command_id, user_id, status,
-           delivered_at, displayed_at, dismissed_at, acknowledged_at, completed_at, error)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-         ON CONFLICT (broadcast_id, device_id) DO UPDATE SET
-           status = excluded.status,
-           delivered_at = COALESCE(excluded.delivered_at, delivered_at),
-           displayed_at = COALESCE(excluded.displayed_at, displayed_at),
-           dismissed_at = COALESCE(excluded.dismissed_at, dismissed_at),
-           acknowledged_at = COALESCE(excluded.acknowledged_at, acknowledged_at),
-           completed_at = COALESCE(excluded.completed_at, completed_at),
-           updated_at = datetime('now')`
+           delivered_at, displayed_at, dismissed_at, acknowledged_at, completed_at, error, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+      );
+      const updateDelivery = this.db.prepare(
+        `UPDATE aos_broadcast_deliveries
+         SET command_id = COALESCE(?, command_id),
+             user_id = COALESCE(user_id, ?),
+             status = ?,
+             delivered_at = COALESCE(?, delivered_at),
+             displayed_at = COALESCE(?, displayed_at),
+             dismissed_at = COALESCE(?, dismissed_at),
+             acknowledged_at = COALESCE(?, acknowledged_at),
+             completed_at = COALESCE(?, completed_at),
+             error = COALESCE(?, error),
+             updated_at = ?
+         WHERE broadcast_id = ? AND device_id = ?`
       );
 
       const device = this.db.prepare(
         "SELECT owner_user_id FROM aos_frame_devices WHERE device_id = ?"
       ).get(deviceId);
 
-      for (const d of deliveries) {
-        upsertDelivery.run(
-          uid("del"),
-          d.broadcastId,
-          deviceId,
-          d.commandId || null,
-          device ? device.owner_user_id : null,
-          d.status || "received",
-          d.receivedAt || d.deliveredAt || null,
-          d.shownAt || d.displayedAt || null,
-          d.dismissedAt || null,
-          d.acknowledgedAt || null,
-          d.completedAt || null,
-          d.error || null
-        );
-      }
+      const seenKeys = new Set();
+      const acceptedKeys = new Set();
+      const countsByStatus = {};
+      let duplicateCount = 0;
+      let staleCount = 0;
+      let acceptedThroughBroadcastId = null;
+      let acceptedThroughStatus = null;
+      let acceptedThroughUpdatedAt = null;
+
+      const tx = this.db.transaction(() => {
+        for (const d of deliveries) {
+          const broadcastId = d && (d.broadcastId || d.broadcast_id || d.id);
+          const status = _deliveryStatus(d && d.status);
+          countsByStatus[status] = (countsByStatus[status] || 0) + 1;
+
+          if (!broadcastId) {
+            staleCount += 1;
+            continue;
+          }
+
+          const deliveryKey = String(broadcastId);
+          if (seenKeys.has(deliveryKey)) duplicateCount += 1;
+          seenKeys.add(deliveryKey);
+
+          const statusAt = _deliveryStatusTimestamp(d, status, ts);
+          const existing = selectDelivery.get(deliveryKey, deviceId);
+          const existingRank = existing ? _deliveryStatusRank(existing.status) : 0;
+          const nextRank = _deliveryStatusRank(status);
+          const staleTimestamp = existing && existing.updated_at && statusAt < existing.updated_at;
+          const statusRegression = existing && nextRank < existingRank;
+
+          if (staleTimestamp || statusRegression) {
+            staleCount += 1;
+            continue;
+          }
+
+          const deliveredAt = d.receivedAt || d.deliveredAt || null;
+          const displayedAt = d.shownAt || d.displayedAt || null;
+          const dismissedAt = d.dismissedAt || null;
+          const acknowledgedAt = d.acknowledgedAt || null;
+          const completedAt = d.completedAt || null;
+          const error = d.error || null;
+          const ownerUserId = device ? device.owner_user_id : null;
+
+          if (existing) {
+            updateDelivery.run(
+              d.commandId || null,
+              ownerUserId,
+              status,
+              deliveredAt,
+              displayedAt,
+              dismissedAt,
+              acknowledgedAt,
+              completedAt,
+              error,
+              statusAt,
+              deliveryKey,
+              deviceId
+            );
+          } else {
+            insertDelivery.run(
+              uid("del"),
+              deliveryKey,
+              deviceId,
+              d.commandId || null,
+              ownerUserId,
+              status,
+              deliveredAt,
+              displayedAt,
+              dismissedAt,
+              acknowledgedAt,
+              completedAt,
+              error,
+              statusAt
+            );
+          }
+
+          acceptedKeys.add(deliveryKey);
+          acceptedThroughBroadcastId = deliveryKey;
+          acceptedThroughStatus = status;
+          acceptedThroughUpdatedAt = statusAt;
+        }
+      });
+      tx();
 
       deliveryAck = {
+        status: "accepted",
         accepted: true,
-        acceptedCount: deliveries.length,
+        acceptedAt: ts,
+        submittedCount: deliveries.length,
+        acceptedCount: acceptedKeys.size,
+        duplicateCount,
+        staleCount,
+        acceptedThroughBroadcastId,
+        acceptedThroughStatus,
+        acceptedThroughUpdatedAt,
+        counts: {
+          submitted: deliveries.length,
+          accepted: acceptedKeys.size,
+          deduplicated: duplicateCount,
+          stale: staleCount,
+          byStatus: countsByStatus,
+        },
+        cursor: {
+          status: "accepted",
+          acceptedAt: ts,
+          acceptedThroughBroadcastId,
+          acceptedThroughStatus,
+          acceptedThroughUpdatedAt,
+        },
       };
     }
 
     return {
       ok: true,
       heartbeatAt: ts,
+      heartbeatAck,
       eventAck,
       deliveryAck,
     };
@@ -838,22 +1353,34 @@ class AosDb {
    * @param {string} deviceId
    * @returns {Array}
    */
-  getPendingCommands(deviceId) {
+  getPendingCommands(deviceId, opts = {}) {
+    const markDelivered = opts.markDelivered !== false;
     const rows = this.db.prepare(
       `SELECT * FROM aos_device_commands
        WHERE device_id = ? AND status IN ('queued', 'sent')
        ORDER BY created_at ASC`
     ).all(deviceId);
 
-    return rows.map(r => ({
-      commandId: r.id,
-      commandType: r.command_type,
-      type: r.command_type,
-      status: r.status,
-      payload: jsonParse(r.payload_json, {}),
-      createdAt: r.created_at,
-      updatedAt: r.updated_at,
-    }));
+    if (!markDelivered || rows.length === 0) {
+      return rows.map(_mapCommandRow);
+    }
+
+    const deliveredAt = now();
+    const markSent = this.db.prepare(
+      `UPDATE aos_device_commands
+       SET status = 'sent', delivered_at = ?, updated_at = ?
+       WHERE id = ? AND status = 'queued' AND delivered_at IS NULL`
+    );
+
+    return rows.map(row => {
+      if (row.status === "queued" && !row.delivered_at) {
+        markSent.run(deliveredAt, deliveredAt, row.id);
+        row.status = "sent";
+        row.delivered_at = deliveredAt;
+        row.updated_at = deliveredAt;
+      }
+      return _mapCommandRow(row);
+    });
   }
 
   /**
@@ -878,20 +1405,102 @@ class AosDb {
    * @param {string} ackStatus
    * @returns {{ ok, commandId, status, error? }}
    */
-  acknowledgeCommand(deviceId, commandId, ackStatus = "acknowledged") {
+  acknowledgeCommand(deviceId, commandId, ackStatus = "acknowledged", updatedAt = null, error = null) {
+    const incomingStatus = _commandAckStatus(ackStatus);
+    if (!ACCEPTED_COMMAND_ACK_STATUSES.includes(incomingStatus)) {
+      return {
+        ok: false,
+        reason: "invalid_ack_status",
+        error: "Invalid command acknowledgement status",
+        acceptedStatuses: ACCEPTED_COMMAND_ACK_STATUSES
+      };
+    }
+
+    if (updatedAt !== null && updatedAt !== undefined && !_validIsoTimestamp(updatedAt)) {
+      return {
+        ok: false,
+        reason: "invalid_updated_at",
+        error: "updatedAt must be an ISO-8601 UTC timestamp"
+      };
+    }
+
     const cmd = this.db.prepare(
-      "SELECT id, status FROM aos_device_commands WHERE id = ? AND device_id = ?"
+      "SELECT * FROM aos_device_commands WHERE id = ? AND device_id = ?"
     ).get(commandId, deviceId);
     if (!cmd) return { ok: false, error: "Command not found" };
 
-    const ts = now();
+    const ts = updatedAt || now();
+    const incomingRank = _commandAckRank(incomingStatus);
+    const currentRank = _commandAckRank(cmd.status);
+    const currentUpdatedAt = cmd.updated_at || cmd.last_ack_at || cmd.created_at || null;
+    const currentLastAckAt = cmd.last_ack_at || null;
+
+    const ignoredConflict = (reason) => ({
+      ok: true,
+      commandId,
+      status: cmd.status,
+      ignored: true,
+      conflict: true,
+      reason,
+      incomingStatus,
+      incomingUpdatedAt: ts,
+      currentStatus: cmd.status,
+      currentUpdatedAt,
+      lastAckStatus: cmd.last_ack_status,
+      lastAckAt: currentLastAckAt,
+      acknowledgedAt: cmd.acknowledged_at,
+      completedAt: cmd.completed_at,
+      error: cmd.error,
+      updatedAt: currentUpdatedAt,
+      conflictPolicy: {
+        name: "monotonic_command_ack",
+        winner: "stored",
+        ignored: true,
+        reason,
+        incomingStatus,
+        currentStatus: cmd.status
+      }
+    });
+
+    if (currentLastAckAt && Date.parse(ts) < Date.parse(currentLastAckAt)) {
+      return ignoredConflict("stale_ack");
+    }
+
+    if (currentRank > incomingRank && !(COMMAND_TERMINAL_ACK_STATUSES.has(cmd.status) && incomingStatus === cmd.status)) {
+      return ignoredConflict("status_regression");
+    }
+
+    if (COMMAND_TERMINAL_ACK_STATUSES.has(cmd.status) && incomingStatus !== cmd.status) {
+      return ignoredConflict("status_regression");
+    }
+
+    const isTerminal = COMMAND_TERMINAL_ACK_STATUSES.has(incomingStatus);
+    const safeError = isTerminal && incomingStatus !== "completed" ? _boundedCommandError(error) : null;
+    const completedAt = isTerminal ? (cmd.completed_at || ts) : null;
+
     this.db.prepare(
       `UPDATE aos_device_commands
-       SET status = ?, last_ack_status = ?, last_ack_at = ?, acknowledged_at = ?, updated_at = ?
+       SET status = ?,
+           last_ack_status = ?,
+           last_ack_at = ?,
+           acknowledged_at = COALESCE(acknowledged_at, ?),
+           completed_at = COALESCE(completed_at, ?),
+           error = ?,
+           updated_at = ?
        WHERE id = ?`
-    ).run(ackStatus, ackStatus, ts, ts, ts, commandId);
+    ).run(incomingStatus, incomingStatus, ts, ts, completedAt, safeError, ts, commandId);
 
-    return { ok: true, commandId, status: ackStatus, updatedAt: ts };
+    return {
+      ok: true,
+      commandId,
+      status: incomingStatus,
+      lastAckStatus: incomingStatus,
+      lastAckAt: ts,
+      acknowledgedAt: cmd.acknowledged_at || ts,
+      completedAt,
+      error: safeError,
+      updatedAt: ts
+    };
   }
 
   /**
@@ -904,15 +1513,7 @@ class AosDb {
       "SELECT * FROM aos_device_commands WHERE id = ?"
     ).get(commandId);
     if (!row) return null;
-    return {
-      commandId: row.id,
-      commandType: row.command_type,
-      deviceId: row.device_id,
-      status: row.status,
-      payload: jsonParse(row.payload_json, {}),
-      createdAt: row.created_at,
-      updatedAt: row.updated_at,
-    };
+    return _mapCommandRow(row);
   }
 
   /**
@@ -1184,6 +1785,63 @@ class AosDb {
     }));
   }
 
+  /**
+   * Record server-side stream delivery intent for content returned to a device.
+   *
+   * Heartbeat delivery acknowledgements still own displayed/dismissed/completed
+   * lifecycle transitions; this marker makes admin delivery logs and stream
+   * deduplication reflect the hosted API response immediately.
+   *
+   * @param {object} params
+   * @param {string} params.deviceId
+   * @param {string|null} [params.ownerUserId]
+   * @param {Array<object>} [params.items]
+   * @param {string} [params.deliveredAt]
+   * @returns {{status:string, recordedCount:number, deliveredAt:string}}
+   */
+  recordStreamDeliveries(params = {}) {
+    const deviceId = params.deviceId;
+    const deliveredAt = params.deliveredAt || now();
+    if (!deviceId) return { status: "skipped", recordedCount: 0, deliveredAt };
+
+    const ownerUserId = params.ownerUserId || null;
+    const broadcastIds = Array.from(new Set((params.items || [])
+      .map(item => item && (item.id || item.broadcastId))
+      .filter(Boolean)
+      .map(id => String(id))));
+
+    if (broadcastIds.length === 0) {
+      return { status: "skipped", recordedCount: 0, deliveredAt };
+    }
+
+    const upsert = this.db.prepare(
+      `INSERT INTO aos_broadcast_deliveries
+        (id, broadcast_id, device_id, user_id, status, delivered_at)
+       VALUES (?, ?, ?, ?, 'delivered', ?)
+       ON CONFLICT (broadcast_id, device_id) DO UPDATE SET
+         user_id = COALESCE(user_id, excluded.user_id),
+         status = CASE
+           WHEN status IN ('displayed', 'dismissed', 'acknowledged', 'completed') THEN status
+           ELSE excluded.status
+         END,
+         delivered_at = COALESCE(delivered_at, excluded.delivered_at),
+         updated_at = datetime('now')`
+    );
+
+    const tx = this.db.transaction(() => {
+      for (const broadcastId of broadcastIds) {
+        upsert.run(uid("del"), broadcastId, deviceId, ownerUserId, deliveredAt);
+      }
+    });
+    tx();
+
+    return {
+      status: "recorded",
+      recordedCount: broadcastIds.length,
+      deliveredAt,
+    };
+  }
+
   // ── Releases ─────────────────────────────────────────────────────────────
 
   /**
@@ -1228,22 +1886,22 @@ class AosDb {
     const params = [];
 
     if (opts.releaseId) {
-      conditions.push("release_id = ?");
+      conditions.push("r.release_id = ?");
       params.push(opts.releaseId);
     }
     if (opts.deviceId) {
-      conditions.push("device_id = ?");
+      conditions.push("r.device_id = ?");
       params.push(opts.deviceId);
     }
     if (opts.status) {
-      conditions.push("status = ?");
+      conditions.push("r.status = ?");
       params.push(opts.status);
     }
 
     const where = conditions.length > 0 ? "WHERE " + conditions.join(" AND ") : "";
 
     const countRow = this.db.prepare(
-      `SELECT COUNT(*) AS cnt FROM aos_release_rollouts ${where}`
+      `SELECT COUNT(*) AS cnt FROM aos_release_rollouts r ${where}`
     ).get(...params);
     const total = countRow ? countRow.cnt : 0;
 
@@ -1490,17 +2148,34 @@ class AosDb {
     const limit = context.limit || 30;
     const nowISO = now();
 
+    // Cool-down period for displayed content (6 hours)
+    const COOL_DOWN_HOURS = 6;
+    const coolDownCutoff = new Date(Date.now() - COOL_DOWN_HOURS * 60 * 60 * 1000).toISOString();
+
     // Build set of excluded broadcast IDs for this device (dedup)
-    // Exclude broadcasts that are queued, delivered, displayed, completed, acknowledged, or dismissed
+    // Exclude broadcasts that are queued, delivered, completed, acknowledged, or dismissed
     // Emergency and critical priority items bypass this exclusion
     const excludedSet = new Set();
     if (deviceId) {
       try {
         const excluded = this.db.prepare(
           `SELECT broadcast_id FROM aos_broadcast_deliveries
-           WHERE device_id = ? AND status IN ('queued', 'delivered', 'displayed', 'completed', 'acknowledged', 'dismissed')`
+           WHERE device_id = ? AND status IN ('queued', 'delivered', 'completed', 'acknowledged', 'dismissed')`
         ).all(deviceId);
         for (const row of excluded) excludedSet.add(row.broadcast_id);
+      } catch (_) { /* table may not exist in fresh bootstrap */ }
+    }
+
+    // Build set of recently displayed broadcast IDs for this device (within cool-down period)
+    // Emergency and critical priority items bypass this cool-down
+    const recentlyDisplayedSet = new Set();
+    if (deviceId) {
+      try {
+        const recentlyDisplayed = this.db.prepare(
+          `SELECT broadcast_id FROM aos_broadcast_deliveries
+           WHERE device_id = ? AND displayed_at >= ?`
+        ).all(deviceId, coolDownCutoff);
+        for (const row of recentlyDisplayed) recentlyDisplayedSet.add(row.broadcast_id);
       } catch (_) { /* table may not exist in fresh bootstrap */ }
     }
 
@@ -1573,8 +2248,13 @@ class AosDb {
 
     // Map rows to stream items with source attribution and delivery dedup
     const items = categoryFiltered.filter(row => {
-      // Exclude excluded items (unless they are emergency/critical priority)
+      // Exclude excluded items (queued, delivered, completed, acknowledged, dismissed)
+      // Exclude recently displayed items (within cool-down) unless emergency/critical
       if (excludedSet.has(row.id)) {
+        const rank = _priorityRank(row.priority);
+        return rank >= 400; // keep emergency (500) and critical (400)
+      }
+      if (recentlyDisplayedSet.has(row.id)) {
         const rank = _priorityRank(row.priority);
         return rank >= 400; // keep emergency (500) and critical (400)
       }
@@ -1588,6 +2268,7 @@ class AosDb {
         category,
         title: row.title,
         priority: row.priority || 'normal',
+        cacheAllowed: !!row.cache_allowed,
         cacheEligible: !!row.cache_allowed,
         soundRequired: !!(row.sound_allowed && row.type === 'video'),
       };

@@ -27,6 +27,8 @@
  *   GET  /frames/admin/bundle                       – Online admin dashboard bundle
  *   GET  /frames/admin/broadcast-deliveries         – Admin: list broadcast deliveries
  *   GET  /frames/admin/broadcast-deliveries/:id     – Admin: per-broadcast delivery detail
+ *   GET  /frames/admin/pairing-queue                – Admin: read pairing setup queue
+ *   POST /frames/admin/devices/:id/pairing-code     – Admin: refresh setup pairing code
  *   POST /frames/admin/subscriptions               – Admin: create subscription
  *   GET  /frames/admin/subscriptions/:userId       – Admin: get subscription + entitlements
  *   PATCH /frames/admin/subscriptions/:userId      – Admin: update subscription
@@ -103,6 +105,17 @@ function ensureDatabase(dbPath) {
 
 function now() {
   return new Date().toISOString();
+}
+
+function isValidIsoTimestamp(value) {
+  if (typeof value !== "string" ||
+      !/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{3})?Z$/.test(value)) {
+    return false;
+  }
+  const parsed = new Date(value);
+  if (!Number.isFinite(parsed.getTime())) return false;
+  const canonical = parsed.toISOString();
+  return canonical === value || canonical.replace(".000Z", "Z") === value;
 }
 
 function extractPath(url) {
@@ -376,6 +389,135 @@ const ROLE_ACTION_MATRIX = [
   }
 ];
 
+function acceptedActorRoles() {
+  return ROLE_ACTION_MATRIX.map(r => r.role);
+}
+
+function getAdminReadActor(queryParams = {}) {
+  const actorRole = queryParams.actorRole || "admin";
+  const actorId = queryParams.actorId || "admin";
+  const roleRow = ROLE_ACTION_MATRIX.find(r => r.role === actorRole);
+  if (!roleRow) {
+    return {
+      ok: false,
+      status: 400,
+      body: {
+        ok: false,
+        error: "Invalid actorRole: " + actorRole,
+        acceptedActorRoles: acceptedActorRoles()
+      }
+    };
+  }
+  return { ok: true, actorRole, actorId };
+}
+
+function getAdminWriteActor(body = {}, allowedRoles = ["admin"]) {
+  const actorRole = body.actorRole || "admin";
+  const actorId = body.actorId || "admin";
+  const roleRow = ROLE_ACTION_MATRIX.find(r => r.role === actorRole);
+  if (!roleRow) {
+    return {
+      ok: false,
+      status: 400,
+      body: {
+        ok: false,
+        error: "Invalid actorRole: " + actorRole,
+        acceptedActorRoles: acceptedActorRoles()
+      }
+    };
+  }
+  if (allowedRoles.includes(actorRole)) {
+    return { ok: true, actorRole, actorId };
+  }
+
+  const readOnlyRoles = new Set(["support", "curator"]);
+  return {
+    ok: false,
+    status: 409,
+    body: {
+      ok: false,
+      error: readOnlyRoles.has(actorRole)
+        ? actorRole + " role is read-only for this action"
+        : actorRole + " role cannot perform this action",
+      reasonCode: readOnlyRoles.has(actorRole) ? "role_readonly" : "role_insufficient",
+      actorId,
+      actorRole,
+      acceptedActorRoles: allowedRoles
+    }
+  };
+}
+
+function normalizeCommandStatus(status) {
+  return String(status || "queued").trim().toLowerCase();
+}
+
+function normalizeCommandAckStatus(status) {
+  return String(status || "").trim().toLowerCase();
+}
+
+function isTerminalCommandLifecycle(command) {
+  const status = normalizeCommandStatus(command.status);
+  const ackStatus = normalizeCommandAckStatus(command.lastAckStatus);
+  return ["completed", "failed", "error", "denied", "expired"].includes(status) ||
+    ["completed", "failed", "error", "denied", "expired"].includes(ackStatus);
+}
+
+function buildActionQueueLifecycle(command) {
+  const delivered = !!command.deliveredAt;
+  const acknowledged = !!(command.acknowledgedAt || command.lastAckAt);
+  const terminal = isTerminalCommandLifecycle(command);
+  const ackStatus = normalizeCommandAckStatus(command.lastAckStatus);
+  const status = normalizeCommandStatus(command.status);
+
+  let phase = "queued";
+  if (terminal) {
+    phase = "terminal";
+  } else if (ackStatus === "processing") {
+    phase = "processing";
+  } else if (acknowledged || delivered || status === "sent" || status === "acknowledged" || status === "processing") {
+    phase = "processing";
+  }
+
+  return {
+    phase,
+    delivered,
+    acknowledged,
+    terminal,
+    awaitingDelivery: !terminal && !delivered,
+    awaitingTerminal: !terminal && acknowledged,
+    status,
+    lastAckStatus: ackStatus || null
+  };
+}
+
+function secondsSince(ts) {
+  if (!ts) return 0;
+  const parsed = new Date(ts).getTime();
+  if (!Number.isFinite(parsed)) return 0;
+  return Math.max(0, Math.floor((Date.now() - parsed) / 1000));
+}
+
+function computeActionQueueAttention(item, stalePendingHours) {
+  const reasons = [];
+  const staleThresholdSeconds = Math.max(0, Number(stalePendingHours || 2)) * 3600;
+  const ageSeconds = secondsSince(item.createdAt);
+
+  if (!item.lifecycle.terminal && item.device && item.device.online === false) {
+    reasons.push("offline_target");
+  }
+  if (item.error) {
+    reasons.push("command_error");
+  }
+  if (!item.lifecycle.terminal && ["high", "critical"].includes(String(item.risk || "").toLowerCase())) {
+    reasons.push("high_risk_pending");
+  }
+  if (!item.lifecycle.terminal && ageSeconds >= staleThresholdSeconds) {
+    reasons.push("stale_pending");
+  }
+
+  return { reasons, ageSeconds };
+}
+
 /** Actions requiring device to be online */
 const ONLINE_REQUIRED_ACTIONS = new Set([
   "sync_settings", "clear_cache", "restart_display",
@@ -542,7 +684,7 @@ function handleGetSettings(db, deviceId) {
   const response = {
     ok: true,
     settings: result.settings || {},
-    updatedAt: result.updatedAt || now()
+    updatedAt: result.updatedAt || null
   };
 
   // Include owner preferences if device has an owner with cascade overrides
@@ -577,6 +719,18 @@ function handleGetEffectivePreferences(db, deviceId, auth) {
     if (ownerPrefsResult && ownerPrefsResult.preferences && Object.keys(ownerPrefsResult.preferences).length > 0) {
       ownerPreferences = ownerPrefsResult.preferences;
       ownerPreferencesUpdatedAt = ownerPrefsResult.updatedAt || null;
+    }
+  }
+
+  // Subscription and entitlements
+  let subscription = null;
+  let entitlements = null;
+  let deviceCount = 0;
+  if (record.ownerUserId) {
+    subscription = db.getSubscription(record.ownerUserId);
+    if (subscription) {
+      deviceCount = db.countDevicesByOwner(record.ownerUserId);
+      entitlements = computeEntitlements(subscription, deviceCount);
     }
   }
 
@@ -640,6 +794,8 @@ function handleGetEffectivePreferences(db, deviceId, auth) {
       deviceSettings: deviceSettings,
       ownerPreferences: ownerPreferences,
       ownerPreferencesUpdatedAt: ownerPreferencesUpdatedAt,
+      subscription: subscription,
+      entitlements: entitlements,
       updatedAt: now()
     }
   };
@@ -652,8 +808,21 @@ function handleGetEffectivePreferences(db, deviceId, auth) {
 function handlePushSettings(db, deviceId, body, auth) {
   const incoming = body.settings || {};
   const incomingUpdated = incoming.updatedAt || now();
+  if (incoming.updatedAt !== undefined && !isValidIsoTimestamp(incoming.updatedAt)) {
+    return {
+      status: 400,
+      body: {
+        ok: false,
+        error: "settings.updatedAt must be an ISO-8601 UTC timestamp",
+        reason: "invalid_updated_at"
+      }
+    };
+  }
 
   const result = db.pushSettings(deviceId, incoming, incomingUpdated);
+  if (!result.ok && result.reason === "invalid_updated_at") {
+    return { status: 400, body: { ok: false, error: result.error, reason: result.reason } };
+  }
 
   if (result.conflict) {
     return {
@@ -664,6 +833,10 @@ function handlePushSettings(db, deviceId, body, auth) {
         reason: "stale_write",
         conflict: true,
         settings: result.settings,
+        incomingSettings: result.incomingSettings,
+        incomingUpdatedAt: result.incomingUpdatedAt,
+        currentUpdatedAt: result.currentUpdatedAt,
+        conflictPolicy: result.conflictPolicy,
         updatedAt: result.updatedAt
       }
     };
@@ -674,6 +847,7 @@ function handlePushSettings(db, deviceId, body, auth) {
     body: {
       ok: true,
       settings: result.settings,
+      incomingSettings: result.incomingSettings,
       updatedAt: result.updatedAt
     }
   };
@@ -685,9 +859,23 @@ function handlePushSettings(db, deviceId, body, auth) {
  */
 function handleHeartbeat(db, deviceId, body, auth) {
   const record = auth.record;
+  const receivedAt = now();
+  const heartbeatAt = body.heartbeatAt || receivedAt;
+
+  if (body.heartbeatAt !== undefined && !isValidIsoTimestamp(body.heartbeatAt)) {
+    return {
+      status: 400,
+      body: {
+        ok: false,
+        error: "heartbeatAt must be an ISO-8601 UTC timestamp",
+        reason: "invalid_heartbeat_at"
+      }
+    };
+  }
 
   // Ingest heartbeat
   const heartbeatPayload = {
+    heartbeatAt,
     softwareVersion: body.softwareVersion || record.softwareVersion,
     currentMode: body.currentMode || "setup",
     currentArtworkId: body.currentArtworkId || null,
@@ -716,13 +904,14 @@ function handleHeartbeat(db, deviceId, body, auth) {
 
   const deliveryAck = hbResult.deliveryAck || null;
 
-  // Return pending commands
+  // Return pending commands and record delivery evidence for newly polled rows.
   const pendingCommands = db.getPendingCommands(deviceId);
 
   // Build response
   const response = {
     ok: true,
-    heartbeatAt: now(),
+    heartbeatAt: hbResult.heartbeatAt || heartbeatAt,
+    heartbeatAck: hbResult.heartbeatAck || null,
     eventAck,
     deliveryAck,
     commands: pendingCommands.length > 0 ? { items: pendingCommands } : undefined
@@ -733,6 +922,14 @@ function handleHeartbeat(db, deviceId, body, auth) {
     const ownerPrefs = db.getUserPreferences(record.ownerUserId);
     if (ownerPrefs && ownerPrefs.preferences && Object.keys(ownerPrefs.preferences).length > 0) {
       response.ownerPreferences = ownerPrefs.preferences;
+    }
+
+    // Include subscription and entitlements for integrated profile data
+    const subscription = db.getSubscription(record.ownerUserId);
+    if (subscription) {
+      const deviceCount = db.countDevicesByOwner(record.ownerUserId);
+      response.subscription = subscription;
+      response.entitlements = computeEntitlements(subscription, deviceCount);
     }
   }
 
@@ -802,16 +999,129 @@ function handleStream(db, deviceId, auth) {
   });
 
   // Add cacheEligible flag to each item for downstream cache eligibility logic
-  const itemsWithCacheEligibility = items.map(item => ({
-    ...item,
-    cacheEligible: !!(item.cache_allowed && item.media_url && item.media_url.trim() !== '')
-  }));
+  const itemsWithCacheEligibility = items.map(item => {
+    const mediaUrl = typeof item.mediaUrl === "string" ? item.mediaUrl.trim() : "";
+    const cacheAllowed = item.cacheAllowed !== undefined ? item.cacheAllowed : item.cacheEligible;
+    // Base eligibility: cache permission and media URL present
+    const baseEligible = !!cacheAllowed && mediaUrl !== "";
+
+    // Additional: if the item has an expiry, it should be sufficiently far in the future
+    // to be worth caching (e.g., more than 30 minutes from now)
+    const now = Date.now();
+    let expiryEligible = true;
+    if (item.expiresAt) {
+      const expiryTime = new Date(item.expiresAt).getTime();
+      // If expires in less than 30 minutes, not ideal for caching
+      expiryEligible = (expiryTime - now) > 30 * 60 * 1000;
+    }
+
+    return {
+      ...item,
+      cacheEligible: baseEligible && expiryEligible
+    };
+  });
+
+  // Adaptive polling logic based on content priority and expiry
+  const nowMs = Date.now();
+  let hasEmergency = false;
+  let hasCritical = false;
+  let hasHigh = false;
+  let soonestExpiryMs = Infinity;
+  let soonestExpiryItemId = null;
+
+  for (const item of itemsWithCacheEligibility) {
+    if (item.priority === 'emergency') {
+      hasEmergency = true;
+    } else if (item.priority === 'critical') {
+      hasCritical = true;
+    } else if (item.priority === 'high') {
+      hasHigh = true;
+    }
+    if (item.expiresAt) {
+      const expiryTime = new Date(item.expiresAt).getTime();
+      const timeToExpiry = expiryTime - nowMs;
+      if (timeToExpiry > 0 && timeToExpiry < soonestExpiryMs) {
+        soonestExpiryMs = timeToExpiry;
+        soonestExpiryItemId = item.id || null;
+      }
+    }
+  }
+
+  // Start with subscription-tier-based polling baseline
+  let adaptiveInterval = polling.intervalSeconds;
+  let adaptiveIdle = polling.idleSeconds;
+
+  // Override based on content priority
+  if (hasEmergency) {
+    adaptiveInterval = 30;  // Poll every 30 seconds for emergency content
+    adaptiveIdle = 60;      // Shorter idle time for emergency
+  } else if (hasCritical) {
+    adaptiveInterval = 60;  // Poll every 60 seconds for critical content
+    adaptiveIdle = 120;     // Shorter idle time for critical
+  } else if (hasHigh) {
+    adaptiveInterval = Math.min(adaptiveInterval, 90);
+    adaptiveIdle = Math.min(adaptiveIdle, 180);
+  } else {
+    // Adjust for expiring content: poll frequently enough to catch items before expiry
+    // Aim to poll at least twice before expiry, but don't exceed subscription-based interval
+    if (soonestExpiryMs !== Infinity) {
+      const maxIntervalForExpiry = Math.ceil(soonestExpiryMs / 1000 / 2); // seconds to poll at least twice before expiry
+      if (maxIntervalForExpiry < adaptiveInterval) {
+        adaptiveInterval = Math.max(30, maxIntervalForExpiry); // Minimum 30 seconds to avoid excessive polling
+        adaptiveIdle = Math.max(60, adaptiveInterval * 2);    // Idle time at least 2x interval
+      }
+    }
+  }
+
+  // Ensure polling values are within reasonable bounds
+  polling.intervalSeconds = Math.max(30, Math.min(adaptiveInterval, 1800)); // Between 30s and 30min
+  polling.idleSeconds = Math.max(60, Math.min(adaptiveIdle, 3600));         // Between 60s and 1h
+
+  const generatedAt = now();
+  const generatedAtMs = Date.parse(generatedAt);
+  const nextPollAt = new Date(generatedAtMs + polling.intervalSeconds * 1000).toISOString();
+  const staleAfter = new Date(generatedAtMs + polling.idleSeconds * 1000).toISOString();
+  const streamCategoriesPresent = Array.from(new Set(itemsWithCacheEligibility.map(item => item.category).filter(Boolean)));
+  const streamPriorityCounts = itemsWithCacheEligibility.reduce((counts, item) => {
+    const priority = item.priority || "normal";
+    counts[priority] = (counts[priority] || 0) + 1;
+    return counts;
+  }, {});
+  const cacheEligibleItems = itemsWithCacheEligibility.filter(item => item.cacheEligible).length;
+  const pollingReason = hasEmergency
+    ? "emergency_content"
+    : hasCritical
+      ? "critical_content"
+      : hasHigh
+        ? "high_priority_content"
+        : soonestExpiryMs !== Infinity && polling.intervalSeconds < ((ownerTier === "frames_premium" || ownerTier === "frames_enterprise") ? 180 : ownerTier === "frames_trial" ? 600 : 300)
+          ? "expiry_pressure"
+          : "subscription_baseline";
 
   const body = {
+    schemaVersion: 1,
     ok: true,
-    generatedAt: now(),
+    generatedAt,
+    stream: {
+      source: "hosted",
+      profile: ownerTier || "anonymous",
+      deviceId,
+      ownerUserId: record.ownerUserId || null,
+      itemCount: itemsWithCacheEligibility.length,
+      categories: streamCategoriesPresent,
+      priorityCounts: streamPriorityCounts,
+      cacheEligibleItems,
+      soonestExpiryItemId,
+      soonestExpiryAt: soonestExpiryMs !== Infinity ? new Date(nowMs + soonestExpiryMs).toISOString() : null
+    },
     items: itemsWithCacheEligibility,
-    polling,
+    polling: {
+      ...polling,
+      pollAfterSeconds: polling.intervalSeconds,
+      nextPollAt,
+      staleAfter,
+      reason: pollingReason
+    },
     settings: {
       displayMode: (settings.settings && settings.settings.displayMode) || "shuffle",
       shuffleInterval: (settings.settings && settings.settings.shuffleInterval) || 30
@@ -824,6 +1134,31 @@ function handleStream(db, deviceId, auth) {
     if (ownerPrefs && ownerPrefs.preferences && Object.keys(ownerPrefs.preferences).length > 0) {
       body.ownerPreferences = ownerPrefs.preferences;
       body.ownerPreferencesUpdatedAt = ownerPrefs.updatedAt || null;
+    }
+  }
+
+  if (typeof db.recordStreamDeliveries === "function") {
+    try {
+      const delivery = db.recordStreamDeliveries({
+        deviceId,
+        ownerUserId: record.ownerUserId || null,
+        items: itemsWithCacheEligibility,
+        deliveredAt: body.generatedAt
+      });
+      const deliveredIds = itemsWithCacheEligibility.map(item => item.id).filter(Boolean);
+      body.delivery = {
+        ...delivery,
+        deliveredIds,
+        cursor: {
+          deliveredThroughBroadcastId: deliveredIds.length ? deliveredIds[deliveredIds.length - 1] : null,
+          deliveredAt: delivery.deliveredAt || body.generatedAt
+        }
+      };
+    } catch (_) {
+      body.delivery = {
+        status: "not_recorded",
+        reason: "delivery_record_failed"
+      };
     }
   }
 
@@ -844,17 +1179,32 @@ function handleFeed(db, deviceId, auth) {
  */
 function handleCommandAck(db, deviceId, commandId, body, auth) {
   const ackStatus = body.status || "acknowledged";
-  const result = db.acknowledgeCommand(deviceId, commandId, ackStatus);
+  const result = db.acknowledgeCommand(deviceId, commandId, ackStatus, body.updatedAt || body.updated_at || null, body.error || null);
 
-  if (!result) {
+  if (!result || (result.ok === false && result.error === "Command not found")) {
     return { status: 404, body: { ok: false, error: "Command not found" } };
   }
 
+  if (result.ok === false) {
+    const status = result.reason === "invalid_ack_status" || result.reason === "invalid_updated_at" ? 400 : 409;
+    return {
+      status,
+      body: {
+        ok: false,
+        error: result.error || "Command acknowledgement rejected",
+        reason: result.reason,
+        acceptedStatuses: result.acceptedStatuses
+      }
+    };
+  }
+
   // Update admin audit trail with acknowledgement status
-  try {
-    db.updateCommandAuditStatus(commandId, ackStatus, body.error || null);
-  } catch (auditErr) {
-    process.stderr.write("[audit] updateCommandAuditStatus failed: " + auditErr.message + "\n");
+  if (!result.ignored) {
+    try {
+      db.updateCommandAuditStatus(commandId, result.status, result.error || null);
+    } catch (auditErr) {
+      process.stderr.write("[audit] updateCommandAuditStatus failed: " + auditErr.message + "\n");
+    }
   }
 
   return {
@@ -863,7 +1213,20 @@ function handleCommandAck(db, deviceId, commandId, body, auth) {
       ok: true,
       commandId,
       status: result.status,
-      updatedAt: result.updatedAt || now()
+      updatedAt: result.updatedAt || now(),
+      ignored: result.ignored || undefined,
+      conflict: result.conflict || undefined,
+      reason: result.reason || undefined,
+      incomingStatus: result.incomingStatus || undefined,
+      incomingUpdatedAt: result.incomingUpdatedAt || undefined,
+      currentStatus: result.currentStatus || undefined,
+      currentUpdatedAt: result.currentUpdatedAt || undefined,
+      lastAckStatus: result.lastAckStatus || undefined,
+      lastAckAt: result.lastAckAt || undefined,
+      acknowledgedAt: result.acknowledgedAt || undefined,
+      completedAt: result.completedAt || undefined,
+      error: result.error || undefined,
+      conflictPolicy: result.conflictPolicy || undefined
     }
   };
 }
@@ -1015,6 +1378,9 @@ function handleAdminGetBroadcast(db, id) {
  * Create a new subscription for a user.
  */
 function handleAdminCreateSubscription(db, body) {
+  const actor = getAdminWriteActor(body, ["admin"]);
+  if (!actor.ok) return { status: actor.status, body: actor.body };
+  const { actorRole, actorId } = actor;
   if (!body.userId) return { status: 400, body: { ok: false, error: "userId is required" } };
   const validPlans = Object.keys(PLAN_LIMITS);
   if (body.plan && !validPlans.includes(body.plan)) {
@@ -1034,7 +1400,7 @@ function handleAdminCreateSubscription(db, body) {
     status: body.status || "trial",
     provider: body.provider || "manual"
   });
-  return { status: 201, body: { ok: true, created: true, subscription: result.subscription } };
+  return { status: 201, body: { ok: true, created: true, actorId, actorRole, subscription: result.subscription } };
 }
 
 /**
@@ -1042,6 +1408,9 @@ function handleAdminCreateSubscription(db, body) {
  * Update a user's subscription (plan, status, provider).
  */
 function handleAdminUpdateSubscription(db, userId, body) {
+  const actor = getAdminWriteActor(body, ["admin"]);
+  if (!actor.ok) return { status: actor.status, body: actor.body };
+  const { actorRole, actorId } = actor;
   const existing = db.getSubscription(userId);
   if (!existing) return { status: 404, body: { ok: false, error: "Subscription not found for user " + userId } };
 
@@ -1059,14 +1428,17 @@ function handleAdminUpdateSubscription(db, userId, body) {
     status: body.status || existing.status,
     provider: body.provider || existing.provider
   });
-  return { status: 200, body: { ok: true, updated: true, subscription: result.subscription } };
+  return { status: 200, body: { ok: true, updated: true, actorId, actorRole, subscription: result.subscription } };
 }
 
 /**
  * POST /frames/admin/subscriptions/:userId/cancel
  * Cancel a user's subscription (sets status to 'cancelled').
  */
-function handleAdminCancelSubscription(db, userId) {
+function handleAdminCancelSubscription(db, userId, body = {}) {
+  const actor = getAdminWriteActor(body, ["admin"]);
+  if (!actor.ok) return { status: actor.status, body: actor.body };
+  const { actorRole, actorId } = actor;
   const existing = db.getSubscription(userId);
   if (!existing) return { status: 404, body: { ok: false, error: "Subscription not found for user " + userId } };
   if (existing.status === "cancelled") {
@@ -1077,25 +1449,93 @@ function handleAdminCancelSubscription(db, userId) {
     status: "cancelled",
     provider: existing.provider
   });
-  return { status: 200, body: { ok: true, cancelled: true, subscription: result.subscription } };
+  return { status: 200, body: { ok: true, cancelled: true, actorId, actorRole, subscription: result.subscription } };
 }
 
 /**
  * GET /frames/admin/subscriptions/:userId
  * Get a single user's subscription details with entitlements.
  */
-function handleAdminGetSubscription(db, userId) {
+function handleAdminGetSubscription(db, userId, queryParams = {}) {
+  const actor = getAdminReadActor(queryParams);
+  if (!actor.ok) return { status: actor.status, body: actor.body };
+  const { actorRole, actorId } = actor;
+
   const sub = db.getSubscription(userId);
   if (!sub) return { status: 404, body: { ok: false, error: "Subscription not found for user " + userId } };
   const deviceCount = db.countDevicesByOwner(userId);
   const entitlements = computeEntitlements(sub, deviceCount);
   return {
     status: 200,
-    body: { ok: true, subscription: sub, entitlements }
+    body: { ok: true, actorId, actorRole, subscription: sub, entitlements }
   };
 }
 
 // ── Admin Device Fleet Action Endpoints ─────────────────────────────────────
+
+/**
+ * GET /frames/admin/devices/:id/actions
+ * Preview remote-action policy for a device without queueing commands.
+ */
+function handleAdminDeviceActionPolicy(db, deviceId, queryParams = {}) {
+  const actor = getAdminReadActor(queryParams);
+  if (!actor.ok) return { status: actor.status, body: actor.body };
+  const { actorRole, actorId } = actor;
+
+  const device = db.getDevice(deviceId);
+  if (!device) return { status: 404, body: { ok: false, error: "Device not found" } };
+
+  let ownerSubscription = null;
+  let entitlements = null;
+  if (device.ownerUserId) {
+    const sub = db.getSubscription(device.ownerUserId);
+    ownerSubscription = sub ? { plan: sub.plan, status: sub.status, provider: sub.provider, updatedAt: sub.updatedAt } : null;
+    entitlements = computeEntitlements(sub, db.countDevicesByOwner(device.ownerUserId));
+  }
+
+  const pendingCommands = db.getPendingCommands(deviceId, { markDelivered: false });
+  const actionAvailability = buildActionAvailability(device, actorRole, ownerSubscription, pendingCommands.length);
+
+  return {
+    status: 200,
+    body: {
+      ok: true,
+      kind: "autopoiesis_frames_admin_device_action_policy",
+      generatedAt: now(),
+      actor: {
+        actorId,
+        role: actorRole
+      },
+      device: {
+        deviceId: device.deviceId,
+        deviceName: device.deviceName,
+        ownerUserId: device.ownerUserId,
+        deviceType: device.deviceType,
+        paired: device.paired,
+        remoteEnabled: device.remoteEnabled,
+        disabled: device.disabled,
+        lastHeartbeatAt: device.lastHeartbeatAt,
+        currentMode: device.currentMode,
+        networkOnline: device.networkOnline
+      },
+      subscription: ownerSubscription,
+      entitlements,
+      pendingCommands: {
+        total: pendingCommands.length,
+        items: pendingCommands.map(cmd => ({
+          commandId: cmd.commandId,
+          commandType: cmd.commandType,
+          status: cmd.status,
+          deliveredAt: cmd.deliveredAt,
+          createdAt: cmd.createdAt,
+          updatedAt: cmd.updatedAt
+        }))
+      },
+      actionAvailability,
+      acceptedActorRoles: acceptedActorRoles()
+    }
+  };
+}
 
 /**
  * POST /frames/admin/devices/:id/actions
@@ -1104,11 +1544,25 @@ function handleAdminGetSubscription(db, userId) {
 function handleAdminDeviceAction(db, deviceId, body) {
   if (!body.action) return { status: 400, body: { ok: false, error: "action is required" } };
 
+  const actorRole = body.actorRole || "admin";
+  const actorId = body.actorId || "admin";
+  const roleRow = ROLE_ACTION_MATRIX.find(r => r.role === actorRole);
+  if (!roleRow) {
+    return {
+      status: 400,
+      body: {
+        ok: false,
+        error: "Invalid actorRole: " + actorRole,
+        acceptedActorRoles: acceptedActorRoles()
+      }
+    };
+  }
+
   const device = db.getDevice(deviceId);
   if (!device) return { status: 404, body: { ok: false, error: "Device not found" } };
   if (!device.paired) return { status: 400, body: { ok: false, error: "Device is not paired" } };
 
-  // Validate action against admin role in the action matrix
+  // Validate the action against the full action matrix before role/device gates.
   const adminRole = ROLE_ACTION_MATRIX.find(r => r.role === "admin");
   if (!adminRole || !adminRole.actions[body.action]) {
     return { status: 400, body: { ok: false, error: "Unknown action: " + body.action } };
@@ -1120,8 +1574,8 @@ function handleAdminDeviceAction(db, deviceId, body) {
     const sub = db.getSubscription(device.ownerUserId);
     ownerSubscription = sub ? { plan: sub.plan, status: sub.status } : null;
   }
-  const pendingCommands = db.getPendingCommands(deviceId);
-  const availability = buildActionAvailability(device, "admin", ownerSubscription, pendingCommands.length);
+  const pendingCommands = db.getPendingCommands(deviceId, { markDelivered: false });
+  const availability = buildActionAvailability(device, actorRole, ownerSubscription, pendingCommands.length);
   const actionAvail = availability.actions[body.action];
 
   if (actionAvail && !actionAvail.allowed) {
@@ -1179,8 +1633,8 @@ function handleAdminDeviceAction(db, deviceId, body) {
       deviceId,
       commandType,
       risk: riskMap[commandType] || "medium",
-      actorId: "admin",          // TODO: real actor ID when multi-admin is supported
-      actorRole: "admin",
+      actorId,
+      actorRole,
       reason: body.reason || null,
       payloadSummary: { action: body.action, payloadKeys: Object.keys(payload || {}) },
       authorization: {
@@ -1204,6 +1658,8 @@ function handleAdminDeviceAction(db, deviceId, body) {
       commandType,
       risk: riskMap[commandType] || "medium",
       deviceId,
+      actorId,
+      actorRole,
       queuedAt: now(),
       deviceState: availability.deviceState
     }
@@ -1215,6 +1671,9 @@ function handleAdminDeviceAction(db, deviceId, body) {
  * Update device properties (e.g. disabled, remoteEnabled, deviceName).
  */
 function handleAdminUpdateDevice(db, deviceId, body) {
+  const actor = getAdminWriteActor(body, ["admin"]);
+  if (!actor.ok) return { status: actor.status, body: actor.body };
+  const { actorRole, actorId } = actor;
   const device = db.getDevice(deviceId);
   if (!device) return { status: 404, body: { ok: false, error: "Device not found" } };
 
@@ -1250,7 +1709,7 @@ function handleAdminUpdateDevice(db, deviceId, body) {
   const { deviceApiKey, ...safeDevice } = updated;
   return {
     status: 200,
-    body: { ok: true, updated: true, device: safeDevice }
+    body: { ok: true, updated: true, actorId, actorRole, device: safeDevice }
   };
 }
 
@@ -1271,7 +1730,64 @@ function handleAdminUpdateDevice(db, deviceId, body) {
  *   limit         – page size (default 50)
  *   offset        – page offset
  */
+function buildFleetActionSummary(devices, actorRole) {
+  const summary = {
+    scope: "current_page",
+    actorRole,
+    devices: {
+      total: devices.length,
+      online: 0,
+      offline: 0,
+      disabled: 0,
+      remoteDisabled: 0
+    },
+    devicesWithAllowedRemoteAction: 0,
+    devicesWithBlockedRemoteActionsOnly: 0,
+    allowedActionCount: 0,
+    blockedActionCount: 0,
+    byBlocker: {},
+    actions: {}
+  };
+
+  for (const device of devices) {
+    if (device.online) summary.devices.online++;
+    else summary.devices.offline++;
+    if (device.disabled) summary.devices.disabled++;
+    if (device.remoteEnabled === false) summary.devices.remoteDisabled++;
+
+    let hasAllowed = false;
+    let hasBlocked = false;
+    const actions = (device.actionAvailability && device.actionAvailability.actions) || {};
+    for (const [actionKey, actionResult] of Object.entries(actions)) {
+      if (!summary.actions[actionKey]) {
+        summary.actions[actionKey] = { allowed: 0, blocked: 0, reasonCodes: {} };
+      }
+      if (actionResult.allowed) {
+        hasAllowed = true;
+        summary.allowedActionCount++;
+        summary.actions[actionKey].allowed++;
+      } else {
+        hasBlocked = true;
+        summary.blockedActionCount++;
+        summary.actions[actionKey].blocked++;
+        const reasonCode = actionResult.reasonCode || "unknown";
+        summary.byBlocker[reasonCode] = (summary.byBlocker[reasonCode] || 0) + 1;
+        summary.actions[actionKey].reasonCodes[reasonCode] =
+          (summary.actions[actionKey].reasonCodes[reasonCode] || 0) + 1;
+      }
+    }
+    if (hasAllowed) summary.devicesWithAllowedRemoteAction++;
+    else if (hasBlocked) summary.devicesWithBlockedRemoteActionsOnly++;
+  }
+
+  return summary;
+}
+
 function handleAdminListDevices(db, queryParams) {
+  const actor = getAdminReadActor(queryParams);
+  if (!actor.ok) return { status: actor.status, body: actor.body };
+  const { actorRole, actorId } = actor;
+
   const {
     ownerUserId, paired, online, disabled, deviceType, updateChannel, search,
     limit: rawLimit, offset: rawOffset
@@ -1328,7 +1844,7 @@ function handleAdminListDevices(db, queryParams) {
         tier: ownerSub.tier
       } : null,
       entitlements: computeEntitlements(ownerSub, db.countDevicesByOwner(device.ownerUserId)),
-      actionAvailability: buildActionAvailability(device, "admin", ownerSubscription, pendingCommandCount)
+      actionAvailability: buildActionAvailability(device, actorRole, ownerSubscription, pendingCommandCount)
     };
   });
 
@@ -1348,6 +1864,12 @@ function handleAdminListDevices(db, queryParams) {
     body: {
       ok: true,
       kind: "autopoiesis_frames_admin_device_list",
+      actor: {
+        actorId,
+        role: actorRole
+      },
+      summary: buildFleetActionSummary(filtered, actorRole),
+      acceptedActorRoles: acceptedActorRoles(),
       devices: { items: filtered, total, limit, offset }
     }
   };
@@ -1410,7 +1932,19 @@ function handleAdminListCommands(db, filters = {}) {
     limit: filters.limit ? Number(filters.limit) : undefined,
     offset: filters.offset ? Number(filters.offset) : undefined,
   });
-  return { status: 200, body: { ok: true, ...result } };
+  return {
+    status: 200,
+    body: {
+      ok: true,
+      ...result,
+      actionQueue: {
+        items: result.items,
+        total: result.total,
+        limit: result.limit,
+        offset: result.offset
+      }
+    }
+  };
 }
 
 /**
@@ -1429,6 +1963,239 @@ function handleAdminListCommandAudits(db, filters = {}) {
     offset: filters.offset ? Number(filters.offset) : undefined,
   });
   return { status: 200, body: { ok: true, ...result } };
+}
+
+function handleAdminActionQueue(db, filters = {}) {
+  const actor = getAdminReadActor(filters);
+  if (!actor.ok) return { status: actor.status, body: actor.body };
+  const { actorRole, actorId } = actor;
+
+  const acceptedStatuses = ["queued", "sent", "acknowledged", "processing", "completed", "failed", "error", "denied", "expired"];
+  const acceptedRisks = ["low", "medium", "high", "critical"];
+  if (filters.status && !acceptedStatuses.includes(filters.status)) {
+    return {
+      status: 400,
+      body: {
+        ok: false,
+        error: "Invalid status: " + filters.status,
+        acceptedStatuses
+      }
+    };
+  }
+  if (filters.risk && !acceptedRisks.includes(filters.risk)) {
+    return {
+      status: 400,
+      body: {
+        ok: false,
+        error: "Invalid risk: " + filters.risk,
+        acceptedRisks
+      }
+    };
+  }
+  if (filters.queuedByRole && !acceptedActorRoles().includes(filters.queuedByRole)) {
+    return {
+      status: 400,
+      body: {
+        ok: false,
+        error: "Invalid queuedByRole: " + filters.queuedByRole,
+        acceptedActorRoles: acceptedActorRoles()
+      }
+    };
+  }
+
+  const stalePendingHours = filters.stalePendingHours != null && filters.stalePendingHours !== ""
+    ? Number(filters.stalePendingHours)
+    : 2;
+  if (!Number.isFinite(stalePendingHours) || stalePendingHours <= 0) {
+    return {
+      status: 400,
+      body: {
+        ok: false,
+        error: "stalePendingHours must be a positive number",
+        acceptedStalePendingHours: {
+          minExclusive: 0,
+          default: 2
+        }
+      }
+    };
+  }
+
+  const commandResult = db.listAllCommands({
+    deviceId: filters.deviceId,
+    status: filters.status,
+    commandType: filters.commandType,
+    limit: filters.limit ? Number(filters.limit) : 200,
+    offset: filters.offset ? Number(filters.offset) : 0
+  });
+
+  const auditResult = db.listCommandAudits({
+    deviceId: filters.deviceId,
+    commandType: filters.commandType,
+    actorId: filters.queuedByActorId,
+    actorRole: filters.queuedByRole,
+    risk: filters.risk,
+    limit: 500,
+    offset: 0
+  });
+
+  const latestAuditByCommandId = new Map();
+  for (const audit of auditResult.items) {
+    if (!latestAuditByCommandId.has(audit.commandId)) {
+      latestAuditByCommandId.set(audit.commandId, audit);
+    }
+  }
+
+  const items = [];
+  for (const command of commandResult.items) {
+    const audit = latestAuditByCommandId.get(command.commandId) || null;
+    const device = db.getDevice(command.deviceId);
+    if (!device) continue;
+    if (filters.ownerUserId && device.ownerUserId !== filters.ownerUserId) continue;
+    if (filters.risk && (!audit || audit.risk !== filters.risk)) continue;
+    if (filters.queuedByRole && (!audit || audit.actorRole !== filters.queuedByRole)) continue;
+    if (filters.queuedByActorId && (!audit || audit.actorId !== filters.queuedByActorId)) continue;
+
+    const online = device.lastHeartbeatAt
+      ? (Date.now() - new Date(device.lastHeartbeatAt).getTime()) < 300000
+      : false;
+    const lifecycle = buildActionQueueLifecycle(command);
+    const item = {
+      commandId: command.commandId,
+      commandType: command.commandType,
+      status: command.status,
+      risk: audit?.risk || null,
+      actorId: audit?.actorId || null,
+      actorRole: audit?.actorRole || null,
+      reason: audit?.reason || null,
+      payloadSummary: audit?.payloadSummary || {},
+      authorization: audit?.authorization || {},
+      error: command.error || audit?.error || null,
+      createdAt: command.createdAt,
+      updatedAt: command.updatedAt,
+      deliveredAt: command.deliveredAt,
+      acknowledgedAt: command.acknowledgedAt,
+      completedAt: command.completedAt,
+      lastAckStatus: command.lastAckStatus,
+      lastAckAt: command.lastAckAt,
+      lifecycle,
+      device: {
+        deviceId: device.deviceId,
+        deviceName: device.deviceName,
+        ownerUserId: device.ownerUserId,
+        online,
+        paired: device.paired,
+        disabled: device.disabled,
+        remoteEnabled: device.remoteEnabled !== false,
+        lastHeartbeatAt: device.lastHeartbeatAt
+      }
+    };
+    const attention = computeActionQueueAttention(item, stalePendingHours);
+    item.ageSeconds = attention.ageSeconds;
+    item.attentionReasons = attention.reasons;
+    item.needsAttention = attention.reasons.length > 0;
+    items.push(item);
+  }
+
+  const allMatchingBeforeAttentionFilter = items.length;
+  const filteredItems = filters.attentionOnly ? items.filter(item => item.needsAttention) : items;
+
+  const summary = {
+    attention: 0,
+    inProgress: 0,
+    terminal: 0,
+    byRisk: {},
+    byActorRole: {},
+    byAttentionReason: {},
+    stalePendingHours,
+    byLifecyclePhase: {},
+    lifecycle: {
+      delivered: 0,
+      acknowledged: 0,
+      terminal: 0,
+      awaitingDelivery: 0,
+      awaitingTerminal: 0,
+      maxAgeSeconds: 0
+    },
+    devices: {
+      total: 0,
+      online: 0,
+      offline: 0,
+      withAttention: 0,
+      withInProgress: 0,
+      withTerminal: 0
+    },
+    allMatchingBeforeAttentionFilter
+  };
+
+  const deviceSummary = new Map();
+  for (const item of filteredItems) {
+    if (item.needsAttention) summary.attention += 1;
+    if (item.lifecycle.terminal) summary.terminal += 1;
+    else summary.inProgress += 1;
+    if (item.risk) summary.byRisk[item.risk] = (summary.byRisk[item.risk] || 0) + 1;
+    if (item.actorRole) summary.byActorRole[item.actorRole] = (summary.byActorRole[item.actorRole] || 0) + 1;
+    for (const reason of item.attentionReasons) {
+      summary.byAttentionReason[reason] = (summary.byAttentionReason[reason] || 0) + 1;
+    }
+    summary.byLifecyclePhase[item.lifecycle.phase] = (summary.byLifecyclePhase[item.lifecycle.phase] || 0) + 1;
+    if (item.lifecycle.delivered) summary.lifecycle.delivered += 1;
+    if (item.lifecycle.acknowledged) summary.lifecycle.acknowledged += 1;
+    if (item.lifecycle.terminal) summary.lifecycle.terminal += 1;
+    if (item.lifecycle.awaitingDelivery) summary.lifecycle.awaitingDelivery += 1;
+    if (item.lifecycle.awaitingTerminal) summary.lifecycle.awaitingTerminal += 1;
+    summary.lifecycle.maxAgeSeconds = Math.max(summary.lifecycle.maxAgeSeconds, item.ageSeconds || 0);
+
+    const existing = deviceSummary.get(item.device.deviceId) || {
+      online: item.device.online,
+      needsAttention: false,
+      hasInProgress: false,
+      hasTerminal: false
+    };
+    existing.online = item.device.online;
+    existing.needsAttention = existing.needsAttention || item.needsAttention;
+    existing.hasInProgress = existing.hasInProgress || !item.lifecycle.terminal;
+    existing.hasTerminal = existing.hasTerminal || item.lifecycle.terminal;
+    deviceSummary.set(item.device.deviceId, existing);
+  }
+
+  summary.devices.total = deviceSummary.size;
+  for (const device of deviceSummary.values()) {
+    if (device.online) summary.devices.online += 1;
+    else summary.devices.offline += 1;
+    if (device.needsAttention) summary.devices.withAttention += 1;
+    if (device.hasInProgress) summary.devices.withInProgress += 1;
+    if (device.hasTerminal) summary.devices.withTerminal += 1;
+  }
+
+  return {
+    status: 200,
+    body: {
+      ok: true,
+      kind: "autopoiesis_frames_admin_action_queue",
+      generatedAt: now(),
+      actor: {
+        actorId,
+        role: actorRole
+      },
+      filters: {
+        deviceId: filters.deviceId || null,
+        ownerUserId: filters.ownerUserId || null,
+        status: filters.status || null,
+        commandType: filters.commandType || null,
+        risk: filters.risk || null,
+        queuedByRole: filters.queuedByRole || null,
+        queuedByActorId: filters.queuedByActorId || null,
+        stalePendingHours
+      },
+      actionQueue: {
+        total: filteredItems.length,
+        limit: commandResult.limit,
+        offset: commandResult.offset,
+        items: filteredItems
+      },
+      summary
+    }
+  };
 }
 
 // ── Admin User Management Handlers ─────────────────────────────────────────
@@ -1516,6 +2283,119 @@ function handleAdminListReleaseRollouts(db, queryParams) {
 }
 
 /**
+ * GET /frames/admin/pairing-queue
+ *
+ * Read-only pairing setup queue for Admin/Profile > Frames setup views.
+ */
+function handleAdminPairingQueue(db, queryParams = {}) {
+  const actor = getAdminReadActor(queryParams);
+  if (!actor.ok) return { status: actor.status, body: actor.body };
+
+  const acceptedStatuses = ["pending", "expired", "paired", "no_code"];
+  const status = queryParams.status || null;
+  if (status && !acceptedStatuses.includes(status)) {
+    return {
+      status: 400,
+      body: {
+        ok: false,
+        error: "Invalid status: " + status,
+        acceptedStatuses
+      }
+    };
+  }
+
+  const limit = queryParams.limit ? parseInt(queryParams.limit, 10) : 100;
+  const offset = queryParams.offset ? parseInt(queryParams.offset, 10) : 0;
+  const result = db.listPairingQueue({
+    status,
+    attentionOnly: queryParams.attentionOnly === "true" || queryParams.attentionOnly === true,
+    search: queryParams.search || null,
+    limit,
+    offset
+  });
+
+  return {
+    status: 200,
+    body: {
+      ok: true,
+      kind: "autopoiesis_frames_admin_pairing_queue",
+      generatedAt: now(),
+      actor: {
+        actorId: actor.actorId,
+        role: actor.actorRole
+      },
+      pairings: {
+        items: result.items,
+        total: result.total,
+        limit: result.limit,
+        offset: result.offset
+      },
+      summary: result.summary,
+      filters: {
+        acceptedStatuses,
+        status,
+        attentionOnly: queryParams.attentionOnly === "true" || queryParams.attentionOnly === true,
+        search: queryParams.search || null
+      }
+    }
+  };
+}
+
+/**
+ * POST /frames/admin/devices/:id/pairing-code
+ *
+ * Role-gated operator path for refreshing expired or missing setup codes.
+ */
+function handleAdminRefreshPairingCode(db, deviceId, body = {}) {
+  const actor = getAdminWriteActor(body, ["admin", "maintainer"]);
+  if (!actor.ok) return { status: actor.status, body: actor.body };
+
+  const record = db.getDevice(deviceId);
+  if (!record) return { status: 404, body: { ok: false, error: "Device not found", reason: "device_not_found" } };
+  if (record.paired) {
+    return {
+      status: 409,
+      body: {
+        ok: false,
+        error: "Cannot refresh pairing code for a paired device",
+        reason: "device_already_paired",
+        actorId: actor.actorId,
+        actorRole: actor.actorRole
+      }
+    };
+  }
+
+  const result = db.refreshPairingCode(deviceId);
+  if (!result.ok) {
+    const status = result.reason === "device_not_found" ? 404 : 409;
+    return { status, body: { ok: false, error: result.error, reason: result.reason } };
+  }
+
+  return {
+    status: 200,
+    body: {
+      ok: true,
+      kind: "autopoiesis_frames_admin_pairing_code_refreshed",
+      generatedAt: now(),
+      actorId: actor.actorId,
+      actorRole: actor.actorRole,
+      device: {
+        deviceId,
+        deviceName: record.deviceName,
+        deviceType: record.deviceType,
+        paired: false
+      },
+      pairing: {
+        status: "pending",
+        pairingCode: result.pairingCode,
+        expiresAt: result.expiresAt,
+        refreshedAt: result.refreshedAt
+      }
+    }
+  };
+}
+
+/**
  * GET /frames/admin/readiness
  * Admin endpoint: platform-level readiness snapshot for Admin > Frames dashboard.
  * Returns a comprehensive view of system health and readiness across users, devices, subscriptions, and actions.
@@ -1529,7 +2409,8 @@ function handleAdminListReleaseRollouts(db, queryParams) {
  * @returns {{ status: number, body: object }}
  */
 function handleAdminReadiness(db, queryParams) {
-  const { actorRole, actorId } = queryParams;
+  const actorRole = queryParams.actorRole || "admin";
+  const actorId = queryParams.actorId || "admin";
 
   // Validate actorRole
   const validRoles = ["admin", "owner", "maintainer", "support", "curator"];
@@ -1538,7 +2419,8 @@ function handleAdminReadiness(db, queryParams) {
       status: 400,
       body: {
         ok: false,
-        error: `Invalid actorRole. Must be one of: ${validRoles.join(", ")}`
+        error: `Invalid actorRole. Must be one of: ${validRoles.join(", ")}`,
+        acceptedActorRoles: validRoles
       }
     };
   }
@@ -1644,13 +2526,15 @@ function handleAdminReadiness(db, queryParams) {
   }
 
   // ── Pairing state statistics ──────────────────────────────────────────────
-  // Note: For a real implementation, we'd need to check pending/expired pairing codes
-  // For now, we'll compute based on devices that have owners vs those that don't
-  // A more complete implementation would query aos_pairing_codes or similar
+  const pairingQueue = db.listPairingQueue({ limit: 10000 });
+  const pairingByStatus = pairingQueue.summary.byStatus;
   const pairingStats = {
-    pending: 0,   // Would come from checking unclaimed pairing codes
-    expired: 0,   // Would come from checking expired pairing codes
-    paired: fleetStats.paired
+    pending: pairingByStatus.pending || 0,
+    expired: pairingByStatus.expired || 0,
+    paired: pairingByStatus.paired || 0,
+    noCode: pairingByStatus.no_code || 0,
+    attention: pairingQueue.summary.attention || 0,
+    byStatus: pairingByStatus
   };
 
   // ── Settings and preferences readiness ────────────────────────────────────
@@ -1666,8 +2550,12 @@ function handleAdminReadiness(db, queryParams) {
   // Users who have caching enabled (cacheLikedArtworks or cacheRecentArtworks)
   const cacheEnabledUsers = [];
   const cacheDisabledUsers = [];
+  const cacheBlockedUsers = [];
   
   for (const userId of allUserIds) {
+    const sub = subMap.get(userId);
+    const deviceCount = db.countDevicesByOwner(userId);
+    const entitlements = computeEntitlements(sub, deviceCount);
     const prefs = db.getUserPreferences(userId);
     const cacheLiked = prefs && prefs.preferences && prefs.preferences.cacheLikedArtworks === true;
     const cacheRecent = prefs && prefs.preferences && prefs.preferences.cacheRecentArtworks === true;
@@ -1676,6 +2564,9 @@ function handleAdminReadiness(db, queryParams) {
       cacheEnabledUsers.push(userId);
     } else {
       cacheDisabledUsers.push(userId);
+    }
+    if (!entitlements.offlineCache) {
+      cacheBlockedUsers.push(userId);
     }
   }
 
@@ -1697,7 +2588,7 @@ function handleAdminReadiness(db, queryParams) {
   const stalePendingDevices = new Set();
   
   for (const device of fleet.items) {
-    const pendingCommands = db.getPendingCommands(device.deviceId);
+    const pendingCommands = db.getPendingCommands(device.deviceId, { markDelivered: false });
     for (const cmd of pendingCommands) {
       const createdAt = new Date(cmd.createdAt || cmd.updatedAt || now());
       const ageHours = (nowMs - createdAt.getTime()) / (1000 * 60 * 60);
@@ -1727,7 +2618,7 @@ function handleAdminReadiness(db, queryParams) {
     // Check each device
     for (const device of fleet.items) {
       const ownerSub = device.ownerUserId ? subMap.get(device.ownerUserId) : null;
-      const ownerSubscription = ownerSub ? { plan: ownerSub.plan, status: sub.status } : null;
+      const ownerSubscription = ownerSub ? { plan: ownerSub.plan, status: ownerSub.status } : null;
       const pendingCommandCount = db.getPendingCommandCount(device.deviceId);
       
       const availability = buildActionAvailability(
@@ -1767,37 +2658,38 @@ function handleAdminReadiness(db, queryParams) {
     return "needs_attention";
   };
 
-  const surfaces = {
-    profile: computeSurfaceStatus(
-      usersWithPreferences.length, 
-      users.length
-    ),
+  const surfaceStatus = {
+    profile: computeSurfaceStatus(usersWithPreferences.length, users.length),
     pairing: computeSurfaceStatus(
-      pairingStats.paired, 
-      pairingStats.paired + pairingStats.pending + pairingStats.expired
+      pairingStats.paired,
+      pairingStats.paired + pairingStats.pending + pairingStats.expired + pairingStats.noCode
     ),
-    settings: computeSurfaceStatus(
-      usersWithPreferences.length, 
-      users.length
-    ),
-    cache: computeReadinessStatus(
-      cacheEnabledUsers.length, 
-      users.length
-    ),
+    settings: computeSurfaceStatus(usersWithPreferences.length, users.length),
+    cachePreferences: computeReadinessStatus(cacheEnabledUsers.length, users.length),
     subscribers: computeSurfaceStatus(
-      allUserIds.size - ownerIds.size, // Users with subscriptions but no devices
+      allUserIds.size - ownerIds.size,
       allUserIds.size
     ),
     subscriptions: degradedSubscriptionCount === 0 ? "ready" : "needs_attention",
-    fleet: computeReadinessStatus(
-      fleetStats.online, 
-      fleetStats.total
-    ),
+    fleet: computeReadinessStatus(fleetStats.online, fleetStats.total),
     roleGatedActions: computeReadinessStatus(
-      // Count actions where all devices are allowed
-      Object.values(actionAvailability).filter(a => a.blockedDevices === 0).length,
-      Object.keys(actionAvailability).length
+      roleActionMatrixRow
+        ? Object.values(roleActionMatrixRow.actions).filter(a => a.allowed).length
+        : 0,
+      roleActionMatrixRow ? Object.keys(roleActionMatrixRow.actions).length : 0
     )
+  };
+
+  const surfaces = {
+    profile: { status: surfaceStatus.profile },
+    pairing: { status: surfaceStatus.pairing },
+    settings: { status: surfaceStatus.settings },
+    cache: { status: surfaceStatus.cachePreferences },
+    cachePreferences: { status: surfaceStatus.cachePreferences },
+    subscribers: { status: surfaceStatus.subscribers },
+    subscriptions: { status: surfaceStatus.subscriptions },
+    fleet: { status: surfaceStatus.fleet },
+    roleGatedActions: { status: surfaceStatus.roleGatedActions }
   };
 
   // ── Summary counts ───────────────────────────────────────────────────────
@@ -1822,22 +2714,28 @@ function handleAdminReadiness(db, queryParams) {
       offline: fleetStats.offline,
       disabled: fleetStats.disabled,
       remoteEnabled: fleetStats.remoteEnabled,
-      remoteDisabled: fleetStats.remoteDisabled
+      remoteDisabled: fleetStats.remoteDisabled,
+      withStalePendingCommands: stalePendingDevices.size
     },
     pairing: {
       pending: pairingStats.pending,
       expired: pairingStats.expired,
-      paired: pairingStats.paired
+      paired: pairingStats.paired,
+      noCode: pairingStats.noCode,
+      attention: pairingStats.attention,
+      byStatus: pairingStats.byStatus
     },
     cache: {
       enabledUsers: cacheEnabledUsers.length,
-      disabledUsers: cacheDisabledUsers.length
+      disabledUsers: cacheDisabledUsers.length,
+      blockedUsers: cacheBlockedUsers.length
     },
     actions: {
       totalActions: Object.keys(actionAvailability).length,
       allowedDevices: {}, // Will fill below
       blockedDevices: {}, // Will fill below
-      byAction: {}
+      byAction: {},
+      byBlocker: {}
     },
     attentionReasons: {
       // Count of devices blocked for each reason across all actions
@@ -1858,8 +2756,13 @@ function handleAdminReadiness(db, queryParams) {
     summary.actions.byAction[actionKey] = {
       allowed: actionData.allowedDevices,
       blocked: actionData.blockedDevices,
+      allowedDevices: actionData.allowedDevices,
+      blockedDevices: actionData.blockedDevices,
       blockerCounts: actionData.blockerCounts
     };
+    for (const [reasonCode, count] of Object.entries(actionData.blockerCounts)) {
+      summary.actions.byBlocker[reasonCode] = (summary.actions.byBlocker[reasonCode] || 0) + count;
+    }
   }
 
   // ── Filters info ───────────────────────────────────────────────────────
@@ -1895,7 +2798,11 @@ function handleAdminReadiness(db, queryParams) {
  * @param {string} userId
  * @returns {{ status: number, body: object }}
  */
-function handleAdminGetUser(db, userId) {
+function handleAdminGetUser(db, userId, queryParams = {}) {
+  const actor = getAdminReadActor(queryParams);
+  if (!actor.ok) return { status: actor.status, body: actor.body };
+  const { actorRole, actorId } = actor;
+
   // Verify the user exists (has devices or a subscription)
   const deviceCount = db.countDevicesByOwner(userId);
   const sub = db.getSubscription(userId);
@@ -1925,7 +2832,7 @@ function handleAdminGetUser(db, userId) {
       lastHeartbeatAt: d.lastHeartbeatAt,
       currentMode: d.currentMode || "display",
       releaseStatus: d.releaseStatus || 'idle',
-      actionAvailability: buildActionAvailability(d, "admin", ownerSub)
+      actionAvailability: buildActionAvailability(d, actorRole, ownerSub)
     };
   });
 
@@ -1957,6 +2864,10 @@ function handleAdminGetUser(db, userId) {
       ok: true,
       kind: "autopoiesis_frames_admin_user_detail",
       generatedAt: now(),
+      actor: {
+        actorId,
+        role: actorRole
+      },
       user: {
         userId,
         deviceCount,
@@ -1994,7 +2905,11 @@ function handleAdminGetUser(db, userId) {
  * @param {string} userId
  * @returns {{ status: number, body: object }}
  */
-function handleAdminGetUserPreferences(db, userId) {
+function handleAdminGetUserPreferences(db, userId, queryParams = {}) {
+  const actor = getAdminReadActor(queryParams);
+  if (!actor.ok) return { status: actor.status, body: actor.body };
+  const { actorRole, actorId } = actor;
+
   const rawPrefs = db.getUserPreferences(userId);
   if (!rawPrefs || !rawPrefs.preferences || Object.keys(rawPrefs.preferences).length === 0) {
     // Return defaults for users without explicit preferences
@@ -2002,6 +2917,8 @@ function handleAdminGetUserPreferences(db, userId) {
       status: 200,
       body: {
         ok: true,
+        actorId,
+        actorRole,
         userId,
         preferences: {
           activeArtists: [],
@@ -2026,6 +2943,8 @@ function handleAdminGetUserPreferences(db, userId) {
     status: 200,
     body: {
       ok: true,
+      actorId,
+      actorRole,
       userId,
       preferences: rawPrefs.preferences,
       updatedAt: rawPrefs.updatedAt
@@ -2045,7 +2964,12 @@ function handleAdminGetUserPreferences(db, userId) {
  * @returns {{ status: number, body: object }}
  */
 function handleAdminUpdateUserPreferences(db, userId, body) {
+  const actor = getAdminWriteActor(body, ["admin"]);
+  if (!actor.ok) return { status: actor.status, body: actor.body };
+  const { actorRole, actorId } = actor;
   const VALID_KEYS = new Set([
+    "actorId",
+    "actorRole",
     "activeArtists",
     "streamCategories",
     "allowImages",
@@ -2068,7 +2992,7 @@ function handleAdminUpdateUserPreferences(db, userId, body) {
     return { status: 400, body: { ok: false, error: "Unknown preference keys: " + unknownKeys.join(", "), validKeys: [...VALID_KEYS] } };
   }
 
-  const preferenceKeys = Object.keys(body).filter(k => k !== "updatedAt");
+  const preferenceKeys = Object.keys(body).filter(k => !["updatedAt", "actorId", "actorRole"].includes(k));
   if (preferenceKeys.length === 0) {
     return { status: 400, body: { ok: false, error: "No preferences to update. Send at least one preference key." } };
   }
@@ -2086,9 +3010,21 @@ function handleAdminUpdateUserPreferences(db, userId, body) {
 
   // Extract client's last-seen updatedAt for conflict detection
   const clientUpdatedAt = body.updatedAt || null;
+  if (body.updatedAt !== undefined && !isValidIsoTimestamp(body.updatedAt)) {
+    return {
+      status: 400,
+      body: {
+        ok: false,
+        error: "updatedAt must be an ISO-8601 UTC timestamp",
+        reason: "invalid_updated_at"
+      }
+    };
+  }
 
   // Build the preference patch (strip updatedAt — it's metadata, not a preference)
   const patch = { ...body };
+  delete patch.actorId;
+  delete patch.actorRole;
   delete patch.updatedAt;
 
   const result = db.setUserPreferences(userId, patch, clientUpdatedAt);
@@ -2102,6 +3038,10 @@ function handleAdminUpdateUserPreferences(db, userId, body) {
         reason: "stale_write",
         conflict: true,
         preferences: result.preferences,
+        incomingPreferences: result.incomingPreferences,
+        incomingUpdatedAt: result.incomingUpdatedAt,
+        currentUpdatedAt: result.currentUpdatedAt,
+        conflictPolicy: result.conflictPolicy,
         updatedAt: result.updatedAt
       }
     };
@@ -2112,6 +3052,8 @@ function handleAdminUpdateUserPreferences(db, userId, body) {
     body: {
       ok: true,
       updated: true,
+      actorId,
+      actorRole,
       userId,
       preferences: result.preferences,
       updatedAt: result.updatedAt
@@ -2132,7 +3074,11 @@ function handleAdminUpdateUserPreferences(db, userId, body) {
  * @param {string} [profileUserId] - User ID for profile section (defaults to admin)
  * @returns {{ status: number, body: object }}
  */
-function handleAdminBundle(db, profileUserId) {
+function handleAdminBundle(db, profileUserId, queryParams = {}) {
+  const actor = getAdminReadActor(queryParams);
+  if (!actor.ok) return { status: actor.status, body: actor.body };
+  const { actorRole, actorId } = actor;
+
   const generatedAt = now();
 
   // ── Fleet devices ──────────────────────────────────────────────────────
@@ -2202,7 +3148,7 @@ function handleAdminBundle(db, profileUserId) {
       releaseStatus: device.releaseStatus || 'idle',
       releaseTargetVersion: device.releaseTargetVersion || null,
       releaseError: device.releaseError || null,
-      actionAvailability: buildActionAvailability(device, "admin", ownerSubscription)
+      actionAvailability: buildActionAvailability(device, actorRole, ownerSubscription)
     };
   });
 
@@ -2293,15 +3239,15 @@ function handleAdminBundle(db, profileUserId) {
       },
       adminFrames: {
         actor: {
-          actorId: "admin",
+          actorId,
           userId: effectiveUserId,
-          role: "admin"
+          role: actorRole
         },
         users: { items: usersItems, total: usersItems.length, page: 1, pageSize: 50 },
         subscriptions: { items: subs.items, total: subs.total, page: 1, pageSize: 50 },
         devices: { items: fleetDevices, total: fleetDevices.length, page: 1, pageSize: 50 },
         remoteActions: {
-          acceptedActorRoles: ["admin", "owner", "maintainer", "support", "curator"],
+          acceptedActorRoles: acceptedActorRoles(),
           authorizationWindowSeconds: 300,
           highRiskRequiresAuditId: true,
           criticalRiskRequiresAuditId: true,
@@ -2323,7 +3269,11 @@ function handleAdminBundle(db, profileUserId) {
  * @param {string} deviceId
  * @returns {{ status: number, body: object }}
  */
-function handleAdminDeviceSnapshot(db, deviceId) {
+function handleAdminDeviceSnapshot(db, deviceId, queryParams = {}) {
+  const actor = getAdminReadActor(queryParams);
+  if (!actor.ok) return { status: actor.status, body: actor.body };
+  const { actorRole, actorId } = actor;
+
   const device = db.getDevice(deviceId);
   if (!device) return { status: 404, body: { ok: false, error: "Device not found" } };
 
@@ -2341,10 +3291,9 @@ function handleAdminDeviceSnapshot(db, deviceId) {
   const events = db.getDeviceEvents(deviceId, 20);
 
   // Pending commands
-  const pendingCommands = db.getPendingCommands(deviceId);
+  const pendingCommands = db.getPendingCommands(deviceId, { markDelivered: false });
 
-  // Action availability (from admin perspective)
-  const actionAvailability = buildActionAvailability(device, "admin", ownerSubscription, pendingCommands.length);
+  const actionAvailability = buildActionAvailability(device, actorRole, ownerSubscription, pendingCommands.length);
 
   return {
     status: 200,
@@ -2352,6 +3301,10 @@ function handleAdminDeviceSnapshot(db, deviceId) {
       ok: true,
       kind: "autopoiesis_frames_admin_device_snapshot",
       generatedAt: now(),
+      actor: {
+        actorId,
+        role: actorRole
+      },
       device: {
         deviceId: device.deviceId,
         deviceName: device.deviceName,
@@ -2574,6 +3527,16 @@ function handleMeUpdatePreferences(db, userId, body) {
   ]);
 
   const incomingUpdatedAt = body.updatedAt || null;
+  if (body.updatedAt !== undefined && !isValidIsoTimestamp(body.updatedAt)) {
+    return {
+      status: 400,
+      body: {
+        ok: false,
+        error: "updatedAt must be an ISO-8601 UTC timestamp",
+        reason: "invalid_updated_at"
+      }
+    };
+  }
   const patch = { ...body };
   delete patch.updatedAt;
 
@@ -2589,7 +3552,7 @@ function handleMeUpdatePreferences(db, userId, body) {
 
   const result = db.setUserPreferences(userId, patch, incomingUpdatedAt);
   if (!result.ok) {
-    return { status: 409, body: { ok: false, error: "Preferences conflict", reason: result.reason, conflict: true, preferences: result.preferences, updatedAt: result.updatedAt } };
+    return { status: 409, body: { ok: false, error: "Preferences conflict", reason: result.reason, conflict: true, preferences: result.preferences, incomingPreferences: result.incomingPreferences, incomingUpdatedAt: result.incomingUpdatedAt, currentUpdatedAt: result.currentUpdatedAt, conflictPolicy: result.conflictPolicy, updatedAt: result.updatedAt } };
   }
 
   return {
@@ -2872,7 +3835,10 @@ async function handle(db, req, res) {
     if (!adminAuth.ok) return sendJson(res, adminAuth.status, { ok: false, error: adminAuth.error });
     const url = new URL(req.url, "http://localhost");
     const profileUserId = url.searchParams.get("userId") || null;
-    return sendResult(res, handleAdminBundle(db, profileUserId));
+    return sendResult(res, handleAdminBundle(db, profileUserId, {
+      actorRole: url.searchParams.get("actorRole") || undefined,
+      actorId: url.searchParams.get("actorId") || undefined
+    }));
   }
 
   // GET /frames/admin/readiness — Online admin readiness snapshot
@@ -2880,7 +3846,32 @@ async function handle(db, req, res) {
     const adminAuth = authenticateAdmin(req);
     if (!adminAuth.ok) return sendJson(res, adminAuth.status, { ok: false, error: adminAuth.error });
     const url = new URL(req.url, "http://localhost");
-    return sendResult(res, handleAdminReadiness(db, url.searchParams));
+    return sendResult(res, handleAdminReadiness(db, {
+      actorRole: url.searchParams.get("actorRole") || undefined,
+      actorId: url.searchParams.get("actorId") || undefined
+    }));
+  }
+
+  // GET /frames/admin/pairing-queue — read-only setup queue for pairing UI
+  if (method === "GET" && pathname === "/frames/admin/pairing-queue") {
+    const adminAuth = authenticateAdmin(req);
+    if (!adminAuth.ok) return sendJson(res, adminAuth.status, { ok: false, error: adminAuth.error });
+    const url = new URL(req.url, "http://localhost");
+    const queryParams = {};
+    for (const key of ["actorRole", "actorId", "status", "attentionOnly", "search", "limit", "offset"]) {
+      const val = url.searchParams.get(key);
+      if (val !== null) queryParams[key] = val;
+    }
+    return sendResult(res, handleAdminPairingQueue(db, queryParams));
+  }
+
+  // POST /frames/admin/devices/:id/pairing-code — refresh expired/missing setup code
+  const adminPairingCodeMatch = pathname.match(/^\/frames\/admin\/devices\/([^/]+)\/pairing-code$/);
+  if (method === "POST" && adminPairingCodeMatch) {
+    const adminAuth = authenticateAdmin(req);
+    if (!adminAuth.ok) return sendJson(res, adminAuth.status, { ok: false, error: adminAuth.error });
+    const body = JSON.parse((await readBody(req)) || "{}");
+    return sendResult(res, handleAdminRefreshPairingCode(db, adminPairingCodeMatch[1], body));
   }
 
   // ── Device admin snapshot ───────────────────────────────────────────────
@@ -2890,7 +3881,11 @@ async function handle(db, req, res) {
   if (method === "GET" && adminSnapshotMatch) {
     const adminAuth = authenticateAdmin(req);
     if (!adminAuth.ok) return sendJson(res, adminAuth.status, { ok: false, error: adminAuth.error });
-    return sendResult(res, handleAdminDeviceSnapshot(db, adminSnapshotMatch[1]));
+    const url = new URL(req.url, "http://localhost");
+    return sendResult(res, handleAdminDeviceSnapshot(db, adminSnapshotMatch[1], {
+      actorRole: url.searchParams.get("actorRole") || undefined,
+      actorId: url.searchParams.get("actorId") || undefined
+    }));
   }
 
   // ── Admin subscription management endpoints ────────────────────────────
@@ -2908,7 +3903,11 @@ async function handle(db, req, res) {
   if (method === "GET" && adminSubMatch) {
     const adminAuth = authenticateAdmin(req);
     if (!adminAuth.ok) return sendJson(res, adminAuth.status, { ok: false, error: adminAuth.error });
-    return sendResult(res, handleAdminGetSubscription(db, adminSubMatch[1]));
+    const url = new URL(req.url, "http://localhost");
+    return sendResult(res, handleAdminGetSubscription(db, adminSubMatch[1], {
+      actorRole: url.searchParams.get("actorRole") || undefined,
+      actorId: url.searchParams.get("actorId") || undefined
+    }));
   }
 
   // PATCH /frames/admin/subscriptions/:userId — Update subscription
@@ -2924,13 +3923,25 @@ async function handle(db, req, res) {
   if (method === "POST" && adminSubCancelMatch) {
     const adminAuth = authenticateAdmin(req);
     if (!adminAuth.ok) return sendJson(res, adminAuth.status, { ok: false, error: adminAuth.error });
-    return sendResult(res, handleAdminCancelSubscription(db, adminSubCancelMatch[1]));
+    const body = JSON.parse((await readBody(req)) || "{}");
+    return sendResult(res, handleAdminCancelSubscription(db, adminSubCancelMatch[1], body));
   }
 
   // ── Admin device fleet action endpoints ──────────────────────────────────
 
-  // POST /frames/admin/devices/:id/actions — Queue remote action
+  // GET /frames/admin/devices/:id/actions — Preview remote action policy
   const adminDevActionMatch = pathname.match(/^\/frames\/admin\/devices\/([^/]+)\/actions$/);
+  if (method === "GET" && adminDevActionMatch) {
+    const adminAuth = authenticateAdmin(req);
+    if (!adminAuth.ok) return sendJson(res, adminAuth.status, { ok: false, error: adminAuth.error });
+    const url = new URL(req.url, "http://localhost");
+    return sendResult(res, handleAdminDeviceActionPolicy(db, adminDevActionMatch[1], {
+      actorRole: url.searchParams.get("actorRole") || undefined,
+      actorId: url.searchParams.get("actorId") || undefined
+    }));
+  }
+
+  // POST /frames/admin/devices/:id/actions — Queue remote action
   if (method === "POST" && adminDevActionMatch) {
     const adminAuth = authenticateAdmin(req);
     if (!adminAuth.ok) return sendJson(res, adminAuth.status, { ok: false, error: adminAuth.error });
@@ -2963,7 +3974,11 @@ async function handle(db, req, res) {
   if (method === "GET" && adminUserPrefMatch) {
     const adminAuth = authenticateAdmin(req);
     if (!adminAuth.ok) return sendJson(res, adminAuth.status, { ok: false, error: adminAuth.error });
-    return sendResult(res, handleAdminGetUserPreferences(db, adminUserPrefMatch[1]));
+    const url = new URL(req.url, "http://localhost");
+    return sendResult(res, handleAdminGetUserPreferences(db, adminUserPrefMatch[1], {
+      actorRole: url.searchParams.get("actorRole") || undefined,
+      actorId: url.searchParams.get("actorId") || undefined
+    }));
   }
 
   // PATCH /frames/admin/users/:userId/preferences — Update user preferences
@@ -2979,7 +3994,11 @@ async function handle(db, req, res) {
   if (method === "GET" && adminUserMatch) {
     const adminAuth = authenticateAdmin(req);
     if (!adminAuth.ok) return sendJson(res, adminAuth.status, { ok: false, error: adminAuth.error });
-    return sendResult(res, handleAdminGetUser(db, adminUserMatch[1]));
+    const url = new URL(req.url, "http://localhost");
+    return sendResult(res, handleAdminGetUser(db, adminUserMatch[1], {
+      actorRole: url.searchParams.get("actorRole") || undefined,
+      actorId: url.searchParams.get("actorId") || undefined
+    }));
   }
 
   // GET /frames/admin/users — List users
@@ -3003,7 +4022,7 @@ async function handle(db, req, res) {
     if (!adminAuth.ok) return sendJson(res, adminAuth.status, { ok: false, error: adminAuth.error });
     const url = new URL(req.url, "http://localhost");
     const queryParams = {};
-    for (const key of ["ownerUserId", "paired", "online", "disabled", "deviceType", "updateChannel", "search", "limit", "offset"]) {
+    for (const key of ["ownerUserId", "paired", "online", "disabled", "deviceType", "updateChannel", "search", "limit", "offset", "actorRole", "actorId"]) {
       const val = url.searchParams.get(key);
       if (val !== null) queryParams[key] = val;
     }
@@ -3037,6 +4056,28 @@ async function handle(db, req, res) {
     if (url.searchParams.get("limit")) filters.limit = parseInt(url.searchParams.get("limit"), 10);
     if (url.searchParams.get("offset")) filters.offset = parseInt(url.searchParams.get("offset"), 10);
     return sendResult(res, handleAdminListCommands(db, filters));
+  }
+
+  // GET /frames/admin/action-queue — summarized remote-action queue read model
+  if (method === "GET" && pathname === "/frames/admin/action-queue") {
+    const adminAuth = authenticateAdmin(req);
+    if (!adminAuth.ok) return sendJson(res, adminAuth.status, { ok: false, error: adminAuth.error });
+    const url = new URL(req.url, "http://localhost");
+    const filters = {};
+    if (url.searchParams.get("actorRole")) filters.actorRole = url.searchParams.get("actorRole");
+    if (url.searchParams.get("actorId")) filters.actorId = url.searchParams.get("actorId");
+    if (url.searchParams.get("deviceId")) filters.deviceId = url.searchParams.get("deviceId");
+    if (url.searchParams.get("ownerUserId")) filters.ownerUserId = url.searchParams.get("ownerUserId");
+    if (url.searchParams.get("status")) filters.status = url.searchParams.get("status");
+    if (url.searchParams.get("commandType")) filters.commandType = url.searchParams.get("commandType");
+    if (url.searchParams.get("risk")) filters.risk = url.searchParams.get("risk");
+    if (url.searchParams.get("queuedByRole")) filters.queuedByRole = url.searchParams.get("queuedByRole");
+    if (url.searchParams.get("queuedByActorId")) filters.queuedByActorId = url.searchParams.get("queuedByActorId");
+    if (url.searchParams.get("attentionOnly")) filters.attentionOnly = url.searchParams.get("attentionOnly") === "true";
+    if (url.searchParams.get("stalePendingHours")) filters.stalePendingHours = Number(url.searchParams.get("stalePendingHours"));
+    if (url.searchParams.get("limit")) filters.limit = parseInt(url.searchParams.get("limit"), 10);
+    if (url.searchParams.get("offset")) filters.offset = parseInt(url.searchParams.get("offset"), 10);
+    return sendResult(res, handleAdminActionQueue(db, filters));
   }
 
   // GET /frames/admin/command-audits — Admin command audit trail
@@ -3138,7 +4179,45 @@ async function handle(db, req, res) {
 
   if (method === "POST" && pathname === "/frames/device/register") {
     const body = JSON.parse((await readBody(req)) || "{}");
-    return sendResult(res, handleRegister(db, body));
+    const deviceId = body.deviceId;
+    if (!deviceId) {
+      const result = handleRegister(db, body);
+      return sendResult(res, {
+        status: result.status,
+        body: { ...result.body, registrationStatus: "created" }
+      });
+    }
+    const existing = db.getDevice(deviceId);
+    if (!existing) {
+      // New device registration
+      const result = handleRegister(db, body);
+      return sendResult(res, {
+        status: result.status,
+        body: { ...result.body, registrationStatus: "created" }
+      });
+    }
+    // Existing device: require authentication
+    const deviceKey = req.headers["x-frame-device-key"];
+    const authenticated = deviceKey ? db.authenticateDevice(deviceId, deviceKey) : null;
+    if (!authenticated) {
+      // Return 409 with safe fields
+      return sendResult(res, {
+        status: 409,
+        body: {
+          ok: false,
+          error: "registration_auth_required",
+          reason: "registration_auth_required",
+          deviceId,
+          paired: !!existing.paired,
+        }
+      });
+    }
+    // Valid key: treat as refresh
+    const result = handleRegister(db, body);
+    return sendResult(res, {
+      status: result.status,
+      body: { ...result.body, registrationStatus: "refreshed" }
+    });
   }
 
   // ── Pairing status ────────────────────────────────────────────────────
@@ -3160,6 +4239,14 @@ async function handle(db, req, res) {
     if (!auth.ok) return sendJson(res, auth.status, { ok: false, error: auth.error });
     const body = JSON.parse((await readBody(req)) || "{}");
     return sendResult(res, handlePushSettings(db, deviceId, body, auth));
+  }
+
+  const effectivePreferencesMatch = pathname.match(/^\/frames\/device\/([^/]+)\/effective-preferences$/);
+  if (method === "GET" && effectivePreferencesMatch) {
+    const deviceId = effectivePreferencesMatch[1];
+    const auth = authenticateDevice(db, req, deviceId);
+    if (!auth.ok) return sendJson(res, auth.status, { ok: false, error: auth.error });
+    return sendResult(res, handleGetEffectivePreferences(db, deviceId, auth));
   }
 
   // ── Heartbeat ─────────────────────────────────────────────────────────
@@ -3301,11 +4388,18 @@ function main() {
  * Queue the same action on multiple devices. Validates each device individually
  * against role-action matrix and device-state gates.
  *
- * Expects: { deviceIds: string[], action: string, payload?: object, reason?: string }
+ * Expects: { deviceIds: string[], action: string, payload?: object, reason?: string, actorRole?: string, actorId?: string }
  * Returns: Results for each device with success/failure status
  */
 function handleAdminBulkDeviceActions(db, body) {
-  const { deviceIds = [], action, payload = {}, reason = null } = body;
+  const {
+    deviceIds = [],
+    action,
+    payload = {},
+    reason = null,
+    actorRole = "admin",
+    actorId = "admin"
+  } = body;
 
   // Validate required fields
   if (!Array.isArray(deviceIds) || deviceIds.length === 0) {
@@ -3316,6 +4410,18 @@ function handleAdminBulkDeviceActions(db, body) {
   }
   if (deviceIds.length > 100) {
     return { status: 400, body: { ok: false, error: "Cannot process more than 100 devices per request" } };}
+
+  const roleRow = ROLE_ACTION_MATRIX.find(r => r.role === actorRole);
+  if (!roleRow) {
+    return {
+      status: 400,
+      body: {
+        ok: false,
+        error: "Invalid actorRole: " + actorRole,
+        acceptedActorRoles: ROLE_ACTION_MATRIX.map(r => r.role)
+      }
+    };
+  }
 
   // Validate action against admin role in the action matrix
   const adminRole = ROLE_ACTION_MATRIX.find(r => r.role === "admin");
@@ -3388,8 +4494,8 @@ function handleAdminBulkDeviceActions(db, body) {
         const sub = db.getSubscription(device.ownerUserId);
         ownerSubscription = sub ? { plan: sub.plan, status: sub.status } : null;
       }
-      const pendingCommands = db.getPendingCommands(deviceId);
-      const availability = buildActionAvailability(device, "admin", ownerSubscription, pendingCommands.length);
+      const pendingCommands = db.getPendingCommands(deviceId, { markDelivered: false });
+      const availability = buildActionAvailability(device, actorRole, ownerSubscription, pendingCommands.length);
       const actionAvail = availability.actions[action];
 
       if (actionAvail && !actionAvail.allowed) {
@@ -3414,8 +4520,8 @@ function handleAdminBulkDeviceActions(db, body) {
           deviceId,
           commandType,
           risk: riskMap[commandType] || "medium",
-          actorId: "admin",
-          actorRole: "admin",
+          actorId,
+          actorRole,
           reason: reason || null,
           payloadSummary: { action, payloadKeys: Object.keys(payload || {}) },
           authorization: {
@@ -3436,6 +4542,8 @@ function handleAdminBulkDeviceActions(db, body) {
         action,
         actionType: commandType,
         risk: riskMap[commandType] || "medium",
+        actorId,
+        actorRole,
         queuedAt: now(),
         deviceState: availability.deviceState
       });
@@ -3462,6 +4570,8 @@ function handleAdminBulkDeviceActions(db, body) {
     status: statusCode,
     body: {
       ok: statusCode < 400,
+      actorId,
+      actorRole,
       ...results
     }
   };
