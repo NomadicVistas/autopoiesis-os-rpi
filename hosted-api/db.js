@@ -57,6 +57,17 @@ function jsonStringify(val) {
   return JSON.stringify(val);
 }
 
+function canonicalTimestamp(value) {
+  if (!value) return null;
+  if (_validIsoTimestamp(value)) return value;
+  const raw = String(value);
+  if (/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/.test(raw)) {
+    return raw.replace(" ", "T") + ".000Z";
+  }
+  const parsed = new Date(raw);
+  return Number.isFinite(parsed.getTime()) ? parsed.toISOString() : null;
+}
+
 function mergePatchWithNullDeletes(current, patch) {
   const merged = { ...current };
   for (const [key, value] of Object.entries(patch || {})) {
@@ -128,6 +139,69 @@ function _mixStreamItemsByPriorityAndCategory(items, limit) {
   }
 
   return mixed;
+}
+
+function _streamMediaAllowed(item = {}, mediaPreferences = null) {
+  if (!mediaPreferences || typeof mediaPreferences !== "object") return true;
+  const type = String(item.type || "").toLowerCase();
+  const mediaUrl = String(item.mediaUrl || item.media_url || item.thumbnailUrl || item.thumbnail_url || "").toLowerCase();
+  const isVideo = type.includes("video") || /\.(mp4|webm|mov)(\?|$)/i.test(mediaUrl);
+  const isAudio = type.includes("audio") || type.includes("sound") || /\.(mp3|wav|ogg|m4a)(\?|$)/i.test(mediaUrl);
+  const isGenerative = type.includes("generative");
+  const isImage = !isVideo && !isAudio && (type.includes("image") || type.includes("artwork") || /\.(jpg|jpeg|png|gif|webp|svg|avif)(\?|$)/i.test(mediaUrl));
+  if (isVideo && mediaPreferences.allowVideos === false) return false;
+  if (isAudio && mediaPreferences.allowSoundWorks === false) return false;
+  if (isGenerative && mediaPreferences.allowGenerativeWorks === false) return false;
+  if (isImage && mediaPreferences.allowImages === false) return false;
+  return true;
+}
+
+function _streamTargetAllowed(row = {}, context = {}) {
+  const targetType = row.target_type;
+  if (!targetType || targetType === 'all') return true;
+
+  const values = String(row.target_value || '')
+    .split(',')
+    .map(value => value.trim())
+    .filter(Boolean);
+  if (values.length === 0) return true;
+
+  const {
+    deviceId = null,
+    ownerUserId = null,
+    subscriptionTier = null,
+    activeArtists = []
+  } = context;
+  const activeArtistSet = new Set(
+    (Array.isArray(activeArtists) ? activeArtists : [])
+      .map(value => String(value).toLowerCase())
+      .filter(Boolean)
+  );
+
+  switch (targetType) {
+    case 'device':
+    case 'device_id':
+      return deviceId ? values.includes(deviceId) : false;
+    case 'owner':
+    case 'user_id':
+      return ownerUserId ? values.includes(ownerUserId) : false;
+    case 'tier':
+    case 'subscription_tier':
+      return subscriptionTier ? values.includes(subscriptionTier) : false;
+    case 'artist':
+    case 'artist_id':
+      return values.some(value => activeArtistSet.has(String(value).toLowerCase()));
+    case 'exclude_device':
+      return deviceId ? !values.includes(deviceId) : true;
+    case 'exclude_owner':
+    case 'exclude_user':
+      return ownerUserId ? !values.includes(ownerUserId) : true;
+    case 'exclude_artist':
+    case 'exclude_artist_id':
+      return !values.some(value => activeArtistSet.has(String(value).toLowerCase()));
+    default:
+      return true;
+  }
 }
 
 function _deliveryStatus(status) {
@@ -222,7 +296,7 @@ function _boundedCommandError(error) {
 
 function _mapCommandRow(row) {
   if (!row) return null;
-  return {
+  const mapped = {
     commandId: row.id,
     deviceId: row.device_id,
     commandType: row.command_type,
@@ -238,6 +312,10 @@ function _mapCommandRow(row) {
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   };
+  if (row.delivery_recorded === true) {
+    mapped.deliveryRecorded = true;
+  }
+  return mapped;
 }
 
 // ---------------------------------------------------------------------------
@@ -474,7 +552,8 @@ class AosDb {
 
   /**
    * Register a new device or re-register an existing one.
-   * On re-registration, generates a fresh pairing code.
+   * On unpaired re-registration, generates a fresh pairing code. Paired
+   * devices keep their owner binding and do not mint a new setup code.
    *
    * @param {object} params
    * @param {string} params.deviceId
@@ -488,10 +567,8 @@ class AosDb {
     const { deviceId } = params;
     if (!deviceId) throw new Error("registerDevice: deviceId required");
 
-    const pairingCode = generatePairingCode();
-    const pairingCodeHash = hashPairingCode(pairingCode);
-    const expiresAt = new Date(Date.now() + 15 * 60 * 1000).toISOString();
-    const pairingId = uid("pair");
+    let pairingCode = null;
+    let expiresAt = null;
 
     this.db.exec('BEGIN');
     try {
@@ -503,7 +580,8 @@ class AosDb {
       let deviceApiKey;
 
       if (existing) {
-        // Re-registration: keep existing key, refresh pairing code
+        // Re-registration: keep existing key. Unpaired devices get a fresh
+        // setup code; paired devices keep the historical claimed code row.
         deviceApiKey = existing.device_api_key;
 
         this.db.prepare(
@@ -517,25 +595,36 @@ class AosDb {
           deviceId
         );
 
-        // Supersede old pairing code and create new one
-        this.db.prepare(
-          "UPDATE aos_frame_pairing_codes SET status = 'superseded' WHERE device_id = ? AND status = 'active'"
-        ).run(deviceId);
+        if (!existing.paired) {
+          pairingCode = generatePairingCode();
+          const pairingCodeHash = hashPairingCode(pairingCode);
+          expiresAt = new Date(Date.now() + 15 * 60 * 1000).toISOString();
+          const pairingId = uid("pair");
 
-        // Delete all pairing codes for this device to free the unique index,
-        // then insert the fresh one. Old codes are already superseded/expired/claimed
-        // so they have no remaining value.
-        this.db.prepare(
-          "DELETE FROM aos_frame_pairing_codes WHERE device_id = ? AND status != 'claimed'"
-        ).run(deviceId);
+          // Supersede old setup codes and create one active replacement.
+          this.db.prepare(
+            "UPDATE aos_frame_pairing_codes SET status = 'superseded' WHERE device_id = ? AND status = 'active'"
+          ).run(deviceId);
 
-        this.db.prepare(
-          `INSERT INTO aos_frame_pairing_codes (id, device_id, pairing_code_hash, pairing_code, expires_at, status)
-           VALUES (?, ?, ?, ?, ?, 'active')`
-        ).run(pairingId, deviceId, pairingCodeHash, pairingCode, expiresAt);
+          // Delete all unclaimed pairing codes for this device to free the
+          // unique index. Claimed rows only exist after pairing, and paired
+          // devices do not mint replacement setup codes.
+          this.db.prepare(
+            "DELETE FROM aos_frame_pairing_codes WHERE device_id = ? AND status != 'claimed'"
+          ).run(deviceId);
+
+          this.db.prepare(
+            `INSERT INTO aos_frame_pairing_codes (id, device_id, pairing_code_hash, pairing_code, expires_at, status)
+             VALUES (?, ?, ?, ?, ?, 'active')`
+          ).run(pairingId, deviceId, pairingCodeHash, pairingCode, expiresAt);
+        }
       } else {
         // New device
         deviceApiKey = generateDeviceKey();
+        pairingCode = generatePairingCode();
+        const pairingCodeHash = hashPairingCode(pairingCode);
+        expiresAt = new Date(Date.now() + 15 * 60 * 1000).toISOString();
+        const pairingId = uid("pair");
 
         this.db.prepare(
           `INSERT INTO aos_frame_devices
@@ -556,10 +645,12 @@ class AosDb {
            VALUES (?, ?, ?, ?, ?, 'active')`
         ).run(pairingId, deviceId, pairingCodeHash, pairingCode, expiresAt);
 
-        // Create default settings row
+        // Create default settings row with the same durable sync clock exposed
+        // through both the row metadata and JSON payload.
+        const settingsCreatedAt = now();
         this.db.prepare(
-          "INSERT INTO aos_frame_device_settings (device_id, settings_json) VALUES (?, '{}')"
-        ).run(deviceId);
+          "INSERT INTO aos_frame_device_settings (device_id, settings_json, updated_at) VALUES (?, ?, ?)"
+        ).run(deviceId, jsonStringify({ updatedAt: settingsCreatedAt }), settingsCreatedAt);
       }
 
       this.db.exec('COMMIT');
@@ -639,7 +730,7 @@ class AosDb {
       pairing: code
         ? {
             pairingCode: code.pairing_code,
-            expiresAt: code.expires_at,
+            expiresAt: canonicalTimestamp(code.expires_at),
             status: code.status === "active" && new Date(code.expires_at) > new Date() ? "pending" : "expired",
           }
         : { status: "none" },
@@ -895,10 +986,14 @@ class AosDb {
     if (!row) return { ok: false, error: "Device settings not found" };
 
     const settings = jsonParse(row.settings_json, {});
+    const updatedAt = canonicalTimestamp(settings.updatedAt) || canonicalTimestamp(row.updated_at) || null;
+    if (updatedAt && settings.updatedAt !== updatedAt) {
+      settings.updatedAt = updatedAt;
+    }
     const result = {
       ok: true,
       settings,
-      updatedAt: settings.updatedAt || null,
+      updatedAt,
     };
 
     // Attach owner preferences if device has owner with overrides
@@ -911,7 +1006,7 @@ class AosDb {
       ).get(device.owner_user_id);
       if (prefs && prefs.preferences_json && prefs.preferences_json !== "{}") {
         result.ownerPreferences = jsonParse(prefs.preferences_json, {});
-        result.ownerPreferencesUpdatedAt = prefs.updated_at;
+        result.ownerPreferencesUpdatedAt = canonicalTimestamp(prefs.updated_at);
       }
     }
 
@@ -941,9 +1036,10 @@ class AosDb {
       };
     }
     const currentSettings = jsonParse(current.settings_json, {});
-    const existing = currentSettings.updatedAt || null;
+    const existing = canonicalTimestamp(currentSettings.updatedAt) || canonicalTimestamp(current.updated_at) || null;
+    const hasStoredSettings = Object.keys(currentSettings).some(key => key !== "updatedAt");
 
-    if (existing && Date.parse(incoming) < Date.parse(existing)) {
+    if (hasStoredSettings && existing && Date.parse(incoming) < Date.parse(existing)) {
       // Stale write: reject with conflict
       return {
         ok: false,
@@ -990,7 +1086,18 @@ class AosDb {
       "SELECT preferences_json, updated_at FROM aos_frame_user_preferences WHERE user_id = ?"
     ).get(userId);
     if (!row) return { preferences: {}, updatedAt: null };
-    return { preferences: jsonParse(row.preferences_json, {}), updatedAt: row.updated_at };
+    return { preferences: jsonParse(row.preferences_json, {}), updatedAt: canonicalTimestamp(row.updated_at) }
+  }
+
+  /**
+   * List unique user IDs that have Profile > Frames preferences.
+   * @returns {Array<string>}
+   */
+  listUserPreferenceUserIds() {
+    const rows = this.db.prepare(
+      "SELECT DISTINCT user_id FROM aos_frame_user_preferences WHERE user_id IS NOT NULL ORDER BY user_id ASC"
+    ).all();
+    return rows.map(r => r.user_id);
   }
 
   /**
@@ -1018,7 +1125,9 @@ class AosDb {
     ).get(userId);
 
     // Conflict check: reject stale writes when the existing row is newer
-    if (row && incomingUpdatedAt && row.updated_at && incomingUpdatedAt < row.updated_at) {
+    const rowUpdatedAt = row ? canonicalTimestamp(row.updated_at) : null;
+
+    if (row && incomingUpdatedAt && rowUpdatedAt && Date.parse(incomingUpdatedAt) < Date.parse(rowUpdatedAt)) {
       return {
         ok: false,
         error: "preferences conflict",
@@ -1027,13 +1136,13 @@ class AosDb {
         preferences: jsonParse(row.preferences_json, {}),
         incomingPreferences: preferences,
         incomingUpdatedAt,
-        currentUpdatedAt: row.updated_at,
+        currentUpdatedAt: rowUpdatedAt,
         conflictPolicy: {
           name: "latest_updatedAt",
           winner: "stored",
           ignored: true
         },
-        updatedAt: row.updated_at,
+        updatedAt: rowUpdatedAt,
       };
     }
 
@@ -1155,44 +1264,108 @@ class AosDb {
 
     // Event ingestion
     let eventAck = null;
-    if (payload.events && payload.events.length > 0) {
-      const upsertEvent = this.db.prepare(
-        `INSERT INTO aos_device_events (id, device_id, event_key, source, event_type, status, observed_at, event_json)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-         ON CONFLICT (device_id, event_key) DO UPDATE SET
-           status = excluded.status,
-           event_json = excluded.event_json,
-           updated_at = datetime('now')`
+    const eventEnvelope = payload.events;
+    const events = Array.isArray(eventEnvelope)
+      ? eventEnvelope
+      : (eventEnvelope && Array.isArray(eventEnvelope.events) ? eventEnvelope.events : null);
+    if (events && events.length > 0) {
+      const selectEvent = this.db.prepare(
+        "SELECT observed_at, updated_at FROM aos_device_events WHERE device_id = ? AND event_key = ?"
+      );
+      const insertEvent = this.db.prepare(
+        `INSERT INTO aos_device_events
+          (id, device_id, event_key, source, event_type, status, observed_at, event_json, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
+      );
+      const updateEvent = this.db.prepare(
+        `UPDATE aos_device_events
+         SET source = ?,
+             event_type = ?,
+             status = ?,
+             observed_at = ?,
+             event_json = ?,
+             updated_at = ?
+         WHERE device_id = ? AND event_key = ?`
       );
 
-      let lastObserved = null;
-      let lastKey = null;
-      for (const evt of payload.events) {
-        const key = evt.eventKey || uid("evt");
-        upsertEvent.run(
-          uid("evt"),
-          deviceId,
-          key,
-          evt.source || "heartbeat",
-          evt.eventType || "unknown",
-          evt.status || "observed",
-          evt.observedAt || ts,
-          jsonStringify(evt)
-        );
-        lastObserved = evt.observedAt || ts;
-        lastKey = key;
-      }
+      const seenKeys = new Set();
+      const acceptedKeys = new Set();
+      let duplicateCount = 0;
+      let staleCount = 0;
+      let acceptedThroughObservedAt = null;
+      let acceptedThroughEventKey = null;
+
+      const tx = this.db.transaction(() => {
+        for (const evt of events) {
+          const key = evt && evt.eventKey ? String(evt.eventKey) : uid("evt");
+          const source = evt && evt.source ? String(evt.source) : "heartbeat";
+          const eventType = evt && evt.eventType ? String(evt.eventType) : "unknown";
+          const status = evt && evt.status ? String(evt.status) : "observed";
+          const observedAt = evt && _validIsoTimestamp(evt.observedAt) ? evt.observedAt : ts;
+
+          if (seenKeys.has(key)) duplicateCount += 1;
+          seenKeys.add(key);
+
+          const existing = selectEvent.get(deviceId, key);
+          const existingObservedAt = existing ? (existing.observed_at || existing.updated_at || null) : null;
+          if (existingObservedAt && Date.parse(observedAt) < Date.parse(existingObservedAt)) {
+            staleCount += 1;
+            continue;
+          }
+
+          if (existing) {
+            updateEvent.run(
+              source,
+              eventType,
+              status,
+              observedAt,
+              jsonStringify(evt || {}),
+              observedAt,
+              deviceId,
+              key
+            );
+          } else {
+            insertEvent.run(
+              uid("evt"),
+              deviceId,
+              key,
+              source,
+              eventType,
+              status,
+              observedAt,
+              jsonStringify(evt || {}),
+              observedAt
+            );
+          }
+
+          acceptedKeys.add(key);
+          acceptedThroughObservedAt = observedAt;
+          acceptedThroughEventKey = key;
+        }
+      });
+      tx();
 
       eventAck = {
+        status: "accepted",
         accepted: true,
-        acceptedCount: payload.events.length,
-        acceptedThroughObservedAt: lastObserved,
-        acceptedThroughEventKey: lastKey,
+        acceptedAt: ts,
+        submittedCount: events.length,
+        acceptedCount: acceptedKeys.size,
+        duplicateCount,
+        staleCount,
+        acceptedThroughObservedAt,
+        acceptedThroughEventKey,
+        counts: {
+          submitted: events.length,
+          accepted: acceptedKeys.size,
+          deduplicated: duplicateCount,
+          stale: staleCount,
+        },
         cursor: {
           status: "accepted",
           acceptedAt: ts,
-          acceptedThroughObservedAt: lastObserved,
-          acceptedThroughEventKey: lastKey,
+          acceptedThroughObservedAt,
+          acceptedThroughEventKey,
         },
       };
     }
@@ -1439,6 +1612,7 @@ class AosDb {
         row.status = "sent";
         row.delivered_at = deliveredAt;
         row.updated_at = deliveredAt;
+        row.delivery_recorded = true;
       }
       return _mapCommandRow(row);
     });
@@ -1555,12 +1729,25 @@ class AosDb {
       ok: true,
       commandId,
       status: incomingStatus,
+      ignored: false,
+      conflict: false,
+      incomingStatus,
+      incomingUpdatedAt: ts,
+      currentStatus: incomingStatus,
+      currentUpdatedAt: ts,
       lastAckStatus: incomingStatus,
       lastAckAt: ts,
       acknowledgedAt: cmd.acknowledged_at || ts,
       completedAt,
       error: safeError,
-      updatedAt: ts
+      updatedAt: ts,
+      conflictPolicy: {
+        name: "monotonic_command_ack",
+        winner: "incoming",
+        ignored: false,
+        incomingStatus,
+        currentStatus: incomingStatus
+      }
     };
   }
 
@@ -1626,7 +1813,7 @@ class AosDb {
         type: r.command_type,
         status: r.status,
         payload: jsonParse(r.payload_json, {}),
-        deliveredAt: r.delivered_at,
+        deliveredAt: canonicalTimestamp(r.delivered_at),
         acknowledgedAt: r.acknowledged_at,
         completedAt: r.completed_at,
         lastAckStatus: r.last_ack_status,
@@ -1708,6 +1895,7 @@ class AosDb {
    * List command audit records with optional filters and pagination.
    *
    * @param {object} [opts]
+   * @param {string} [opts.commandId]   – Filter by command ID.
    * @param {string} [opts.deviceId]     – Filter by device ID.
    * @param {string} [opts.commandType]  – Filter by command type.
    * @param {string} [opts.status]       – Filter by audit status.
@@ -1727,6 +1915,10 @@ class AosDb {
     if (opts.deviceId) {
       conditions.push("device_id = ?");
       params.push(opts.deviceId);
+    }
+    if (opts.commandId) {
+      conditions.push("command_id = ?");
+      params.push(opts.commandId);
     }
     if (opts.commandType) {
       conditions.push("command_type = ?");
@@ -1802,9 +1994,9 @@ class AosDb {
       source: r.source,
       eventType: r.event_type,
       status: r.status,
-      observedAt: r.observed_at,
+      observedAt: canonicalTimestamp(r.observed_at),
       event: jsonParse(r.event_json, {}),
-      ingestedAt: r.ingested_at,
+      ingestedAt: canonicalTimestamp(r.ingested_at),
     }));
   }
 
@@ -1835,14 +2027,14 @@ class AosDb {
       commandId: r.command_id,
       userId: r.user_id,
       status: r.status,
-      deliveredAt: r.delivered_at,
-      displayedAt: r.displayed_at,
-      dismissedAt: r.dismissed_at,
-      acknowledgedAt: r.acknowledged_at,
-      completedAt: r.completed_at,
+      deliveredAt: canonicalTimestamp(r.delivered_at),
+      displayedAt: canonicalTimestamp(r.displayed_at),
+      dismissedAt: canonicalTimestamp(r.dismissed_at),
+      acknowledgedAt: canonicalTimestamp(r.acknowledged_at),
+      completedAt: canonicalTimestamp(r.completed_at),
       error: r.error,
-      createdAt: r.created_at,
-      updatedAt: r.updated_at,
+      createdAt: canonicalTimestamp(r.created_at),
+      updatedAt: canonicalTimestamp(r.updated_at),
     }));
   }
 
@@ -1924,6 +2116,7 @@ class AosDb {
       rates: {
         deliveryRate: rate(delivery.delivered),
         displayRate: rate(delivery.displayed),
+        completionRate: rate(delivery.completed),
         dismissalRate: rate(delivery.dismissed),
         failureRate: rate(delivery.failed)
       },
@@ -2284,9 +2477,20 @@ class AosDb {
    */
   getLikedArtworks(userId) {
     const rows = this.db.prepare(
-      "SELECT artwork_id FROM aos_artwork_likes WHERE user_id = ? ORDER BY created_at DESC"
+      "SELECT artwork_id FROM aos_artwork_likes WHERE user_id = ? ORDER BY created_at DESC, artwork_id ASC"
     ).all(userId);
     return rows.map(r => r.artwork_id);
+  }
+
+  /**
+   * List unique user IDs that have liked artwork signals.
+   * @returns {Array<string>}
+   */
+  listLikedArtworkUserIds() {
+    const rows = this.db.prepare(
+      "SELECT DISTINCT user_id FROM aos_artwork_likes WHERE user_id IS NOT NULL ORDER BY user_id ASC"
+    ).all();
+    return rows.map(r => r.user_id);
   }
 
   /**
@@ -2335,25 +2539,49 @@ class AosDb {
    * @returns {Array<object>}
    */
   getStreamContent(context = {}) {
-    const { deviceId, ownerUserId, subscriptionTier, activeArtists = [], streamCategories = null } = context;
+    const {
+      deviceId,
+      ownerUserId,
+      subscriptionTier,
+      activeArtists = [],
+      streamCategories = null,
+      mediaPreferences = null,
+      selectionDiagnostics = null
+    } = context;
     const limit = context.limit || 30;
     const nowISO = now();
+    const diagnostics = selectionDiagnostics && typeof selectionDiagnostics === "object" ? selectionDiagnostics : null;
 
     // Cool-down period for displayed content (6 hours)
     const COOL_DOWN_HOURS = 6;
     const coolDownCutoff = new Date(Date.now() - COOL_DOWN_HOURS * 60 * 60 * 1000).toISOString();
 
-    // Build set of excluded broadcast IDs for this device (dedup)
-    // Exclude broadcasts that are queued, delivered, completed, acknowledged, or dismissed
-    // Emergency and critical priority items bypass this exclusion
-    const excludedSet = new Set();
+    // Build sets of suppressed broadcast IDs for this device.
+    // Transient queued/delivered rows suppress normal content only during the
+    // cool-down window; terminal user outcomes stay suppressed until changed.
+    // Emergency and critical priority items bypass these exclusions.
+    const deliveryCooldownSet = new Set();
+    const terminalDeliverySet = new Set();
     if (deviceId) {
       try {
         const excluded = this.db.prepare(
-          `SELECT broadcast_id FROM aos_broadcast_deliveries
-           WHERE device_id = ? AND status IN ('queued', 'delivered', 'completed', 'acknowledged', 'dismissed')`
-        ).all(deviceId);
-        for (const row of excluded) excludedSet.add(row.broadcast_id);
+          `SELECT broadcast_id, status FROM aos_broadcast_deliveries
+           WHERE device_id = ?
+             AND (
+               status IN ('completed', 'acknowledged', 'dismissed')
+               OR (
+                 status IN ('queued', 'delivered')
+                 AND COALESCE(delivered_at, queued_at, updated_at, created_at) >= ?
+               )
+             )`
+        ).all(deviceId, coolDownCutoff);
+        for (const row of excluded) {
+          if (['completed', 'acknowledged', 'dismissed'].includes(String(row.status || '').toLowerCase())) {
+            terminalDeliverySet.add(row.broadcast_id);
+          } else {
+            deliveryCooldownSet.add(row.broadcast_id);
+          }
+        }
       } catch (_) { /* table may not exist in fresh bootstrap */ }
     }
 
@@ -2388,40 +2616,25 @@ class AosDb {
          created_at DESC`
     ).all(nowISO, nowISO);
 
+    const skipped = {
+      targeting: 0,
+      category: 0,
+      mediaPreference: 0,
+      dedupRecent: 0,
+      cachedFreshness: 0,
+      limit: 0
+    };
+
     // Filter by targeting
     const filtered = rows.filter(row => {
-      const targetType = row.target_type;
-      const targetValue = row.target_value;
-
-      // "all" targets pass through
-      if (!targetType || targetType === 'all') return true;
-
-      // Parse target_value as comma-separated list
-      const values = String(targetValue || '')
-        .split(',')
-        .map(v => v.trim())
-        .filter(Boolean);
-
-      if (values.length === 0) return true;
-
-      switch (targetType) {
-        case 'device':
-        case 'device_id':
-          return deviceId ? values.includes(deviceId) : false;
-        case 'owner':
-        case 'user_id':
-          return ownerUserId ? values.includes(ownerUserId) : false;
-        case 'tier':
-        case 'subscription_tier':
-          return subscriptionTier ? values.includes(subscriptionTier) : false;
-        case 'exclude_device':
-          return deviceId ? !values.includes(deviceId) : true;
-        case 'exclude_owner':
-        case 'exclude_user':
-          return ownerUserId ? !values.includes(ownerUserId) : true;
-        default:
-          return true;
-      }
+      const allowed = _streamTargetAllowed(row, {
+        deviceId,
+        ownerUserId,
+        subscriptionTier,
+        activeArtists
+      });
+      if (!allowed) skipped.targeting += 1;
+      return allowed;
     });
 
     // Filter by user's preferred stream categories (null/empty = all categories)
@@ -2433,21 +2646,59 @@ class AosDb {
         const rank = _priorityRank(row.priority);
         if (rank >= 400) return true; // always include emergency/critical
         const category = _broadcastTypeToCategory(row.type);
-        return categorySet.has(category.toLowerCase());
+        const allowed = categorySet.has(category.toLowerCase());
+        if (!allowed) skipped.category += 1;
+        return allowed;
       });
     }
 
+    const mediaFiltered = categoryFiltered.filter(row => {
+      const rank = _priorityRank(row.priority);
+      if (rank >= 400) return true;
+      const allowed = _streamMediaAllowed({
+        type: row.type,
+        mediaUrl: row.media_url,
+        thumbnailUrl: row.thumbnail_url
+      }, mediaPreferences);
+      if (!allowed) skipped.mediaPreference += 1;
+      return allowed;
+    });
+
+    const cachedFreshnessSet = new Set();
+    if (deviceId) {
+      try {
+        const latestHeartbeat = this.getLatestHeartbeat(deviceId);
+        const cachedIds = latestHeartbeat &&
+          latestHeartbeat.payload &&
+          latestHeartbeat.payload.storageStatus &&
+          Array.isArray(latestHeartbeat.payload.storageStatus.cachedBroadcastIds)
+          ? latestHeartbeat.payload.storageStatus.cachedBroadcastIds
+          : [];
+        for (const id of cachedIds) cachedFreshnessSet.add(String(id));
+      } catch (_) { /* heartbeat table may not exist in fresh bootstrap */ }
+    }
+
     // Map rows to stream items with source attribution and delivery dedup
-    const candidates = categoryFiltered.filter(row => {
-      // Exclude excluded items (queued, delivered, completed, acknowledged, dismissed)
-      // Exclude recently displayed items (within cool-down) unless emergency/critical
-      if (excludedSet.has(row.id)) {
+    const candidates = mediaFiltered.filter(row => {
+      // Exclude recently queued/delivered items during cool-down and terminal
+      // delivery outcomes unless emergency/critical.
+      if (deliveryCooldownSet.has(row.id) || terminalDeliverySet.has(row.id)) {
         const rank = _priorityRank(row.priority);
-        return rank >= 400; // keep emergency (500) and critical (400)
+        const allowed = rank >= 400; // keep emergency (500) and critical (400)
+        if (!allowed) skipped.dedupRecent += 1;
+        return allowed;
       }
       if (recentlyDisplayedSet.has(row.id)) {
         const rank = _priorityRank(row.priority);
-        return rank >= 400; // keep emergency (500) and critical (400)
+        const allowed = rank >= 400; // keep emergency (500) and critical (400)
+        if (!allowed) skipped.dedupRecent += 1;
+        return allowed;
+      }
+      if (cachedFreshnessSet.has(String(row.id))) {
+        const rank = _priorityRank(row.priority);
+        const allowed = rank >= 400;
+        if (!allowed) skipped.cachedFreshness += 1;
+        return allowed;
       }
       return true;
     }).map(row => {
@@ -2508,7 +2759,142 @@ class AosDb {
       });
     }
 
-    return _mixStreamItemsByPriorityAndCategory(candidates, limit);
+    const selected = _mixStreamItemsByPriorityAndCategory(candidates, limit);
+    skipped.limit = Math.max(0, candidates.length - selected.length);
+
+    if (diagnostics) {
+      const selectedCategories = {};
+      const selectedPriorities = {};
+      for (const item of selected) {
+        const category = item.category || _broadcastTypeToCategory(item.type);
+        selectedCategories[category] = (selectedCategories[category] || 0) + 1;
+        const priority = item.priority || "normal";
+        selectedPriorities[priority] = (selectedPriorities[priority] || 0) + 1;
+      }
+      Object.assign(diagnostics, {
+        redacted: true,
+        totalActiveCandidates: rows.length,
+        selectedCount: selected.length,
+        skippedCount: Object.values(skipped).reduce((sum, value) => sum + value, 0),
+        skipped,
+        selected: {
+          categories: selectedCategories,
+          priorities: selectedPriorities,
+          urgentCount: selected.filter(item => _priorityRank(item.priority) >= 400).length,
+          cacheEligibleCount: selected.filter(item => item.cacheAllowed && (item.mediaUrl || item.thumbnailUrl)).length
+        },
+        activeFilters: {
+          streamCategories: Array.isArray(streamCategories) ? streamCategories.map(value => String(value).toLowerCase()) : [],
+          mediaPreferences: mediaPreferences && typeof mediaPreferences === "object" ? {
+            allowImages: mediaPreferences.allowImages !== false,
+            allowVideos: mediaPreferences.allowVideos !== false,
+            allowSoundWorks: mediaPreferences.allowSoundWorks !== false,
+            allowGenerativeWorks: mediaPreferences.allowGenerativeWorks !== false
+          } : {},
+          targetContext: {
+            device: Boolean(deviceId),
+            owner: Boolean(ownerUserId),
+            subscriptionTier: Boolean(subscriptionTier),
+            activeArtists: activeArtists.length
+          }
+        }
+      });
+    }
+
+    return selected;
+  }
+
+  /**
+   * Find the next future stream item that will be eligible for a device when
+   * its starts_at window opens. Used by hosted polling so frames wake for
+   * scheduled curatorial/news/broadcast/artwork items instead of idling past
+   * their start time.
+   *
+   * @param {object} context
+   * @param {string} context.deviceId
+   * @param {string} [context.ownerUserId]
+   * @param {string} [context.subscriptionTier]
+   * @param {string[]|null} [context.streamCategories]
+   * @param {object|null} [context.mediaPreferences]
+   * @returns {object|null}
+   */
+  getNextScheduledStreamStart(context = {}) {
+    const {
+      deviceId,
+      ownerUserId,
+      subscriptionTier,
+      activeArtists = [],
+      streamCategories = null,
+      mediaPreferences = null
+    } = context;
+    const nowISO = now();
+
+    let rows = [];
+    try {
+      rows = this.db.prepare(
+        `SELECT * FROM aos_broadcasts
+         WHERE status = 'published'
+           AND starts_at IS NOT NULL
+           AND starts_at > ?
+           AND (expires_at IS NULL OR expires_at > ?)
+         ORDER BY
+           starts_at ASC,
+           CASE priority
+             WHEN 'emergency' THEN 500
+             WHEN 'critical' THEN 400
+             WHEN 'high' THEN 300
+             WHEN 'normal' THEN 200
+             WHEN 'low' THEN 100
+             ELSE 200
+           END DESC,
+           created_at DESC
+         LIMIT 500`
+      ).all(nowISO, nowISO);
+    } catch (_) {
+      return null;
+    }
+
+    const categorySet = Array.isArray(streamCategories) && streamCategories.length > 0
+      ? new Set(streamCategories.map(value => String(value).toLowerCase()))
+      : null;
+
+    for (const row of rows) {
+      const rank = _priorityRank(row.priority);
+      const category = _broadcastTypeToCategory(row.type);
+      const targetAllowed = _streamTargetAllowed(row, {
+        deviceId,
+        ownerUserId,
+        subscriptionTier,
+        activeArtists
+      });
+      if (!targetAllowed) continue;
+
+      if (categorySet && rank < 400 && !categorySet.has(category.toLowerCase())) {
+        continue;
+      }
+
+      if (rank < 400 && !_streamMediaAllowed({
+        type: row.type,
+        mediaUrl: row.media_url,
+        thumbnailUrl: row.thumbnail_url
+      }, mediaPreferences)) {
+        continue;
+      }
+
+      return {
+        id: row.id,
+        startsAt: row.starts_at,
+        expiresAt: row.expires_at || null,
+        type: row.type || "content",
+        category,
+        priority: row.priority || "normal",
+        cacheAllowed: !!row.cache_allowed,
+        hasMedia: Boolean(row.media_url || row.thumbnail_url),
+        targetType: row.target_type || "all"
+      };
+    }
+
+    return null;
   }
 
   /**
@@ -2996,7 +3382,7 @@ class AosDb {
       remoteEnabled: !!row.remote_enabled,
       disabled: !!row.disabled,
       subscriptionStatus: row.subscription_status,
-      lastHeartbeatAt: row.last_heartbeat_at,
+      lastHeartbeatAt: canonicalTimestamp(row.last_heartbeat_at),
       currentMode: row.current_mode,
       currentArtworkId: row.current_artwork_id,
       networkOnline: !!row.network_online,
@@ -3006,10 +3392,10 @@ class AosDb {
       releaseStatus: row.release_status || 'idle',
       releaseTargetVersion: row.release_target_version || null,
       releaseChannel: row.release_channel || null,
-      releaseUpdatedAt: row.release_updated_at || null,
+      releaseUpdatedAt: canonicalTimestamp(row.release_updated_at || null),
       releaseError: row.release_error || null,
-      createdAt: row.created_at,
-      updatedAt: row.updated_at,
+      createdAt: canonicalTimestamp(row.created_at),
+      updatedAt: canonicalTimestamp(row.updated_at),
     };
   }
 }
