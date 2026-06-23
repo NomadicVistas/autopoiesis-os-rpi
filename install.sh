@@ -66,9 +66,21 @@ install -d -o "$USER_NAME" -g "$USER_NAME" "$INSTALL_DIR/cache/artworks" "$INSTA
 ln -sfn "$INSTALL_DIR/current" "$INSTALL_DIR/app"
 
 "$INSTALL_DIR/app/scripts/bootstrap.sh"
-# Check that the SQLite3 native module can be loaded
+# Check that the SQLite3 native module can be loaded, and attempt to fix if needed
 if ! node -e "require('better-sqlite3')" 2>/dev/null; then
-  echo "Warning: SQLite3 native module failed to load. Running 'npm rebuild' in /app may fix this." >&2
+  echo "Warning: SQLite3 native module failed to load. Attempting to fix by running 'npm rebuild' in /app..." >&2
+  if cd "$INSTALL_DIR/app" && npm rebuild --silent 2>/dev/null; then
+    echo "SQLite3 native module rebuilt successfully." >&2
+    # Verify the fix worked
+    if node -e "require('better-sqlite3')" 2>/dev/null; then
+      echo "SQLite3 native module now loads correctly." >&2
+    else
+      echo "Warning: SQLite3 native module still fails to load after rebuild." >&2
+    fi
+  else
+    echo "Warning: Failed to rebuild SQLite3 native module. Manual intervention may be required." >&2
+    echo "You can try running: cd /opt/autopoiesis-os/app && npm rebuild" >&2
+  fi
 fi
 
 if [[ "$SKIP_KIOSK_CONFIG" == false ]]; then

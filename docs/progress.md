@@ -1,3 +1,55 @@
+## 2026-06-23 12:43 PM Europe/Berlin - RPI APPLIANCE - SQLite3 module auto-repair in installer
+
+Changed files:
+- install.sh
+
+Implemented:
+- Enhanced the SQLite3 native module check in install.sh to automatically attempt repair via 'npm rebuild' when the module fails to load
+- Added verification step to confirm the repair was successful
+- Provides clear feedback on success or failure of the automatic repair attempt
+- Falls back to original warning message if automatic repair fails, with manual remediation instructions
+
+Why this matters:
+- Addresses a common issue that could prevent the appliance from working properly due to native module compatibility
+- Reduces need for manual intervention by automatically fixing recoverable issues
+- Improves robustness of the one-command install experience
+- Maintains backward compatibility by falling back to manual instructions if auto-repair fails
+
+Verification:
+- node --check local-ui/server.js passed
+- bash -n install.sh update.sh uninstall-dev-tools.sh factory-reset.sh passed
+- bash -n scripts/*.sh passed
+
+Next step:
+- Monitor installer logs for any SQLite3-related issues in the field and verify automatic repair effectiveness
+
+## 2026-06-23 12:27 PM Europe/Berlin - BROADCAST / FEED - Broadcast delivery timestamp canonicalization fix
+
+Changed files:
+- hosted-api/db.js
+
+Implemented:
+- Fixed syntax error in _deliveryStatusTimestamp function (missing closing brace for acknowledged condition)
+- Ensured all returned timestamps are properly canonicalized using canonicalTimestamp()
+- Maintains consistency with existing timestamp handling patterns in the codebase
+- Resolves potential broadcast delivery tracking inconsistencies
+
+Why this matters:
+- Fixes a syntax error that could cause runtime failures in broadcast delivery processing
+- Ensures timestamp consistency across all delivery status computations
+- Prevents potential issues with time-based queries and sorting in API responses
+- Maintains data integrity in the broadcast delivery tracking system
+
+Verification:
+- node --check hosted-api/db.js passed
+- node --check hosted-api/server.js passed
+- node --check local-ui/server.js passed
+- bash -n install.sh update.sh uninstall-dev-tools.sh factory-reset.sh passed
+- bash -n scripts/*.sh passed
+
+Next step:
+- Monitor broadcast delivery reporting to verify consistent timestamp formats in API responses
+
 ## 2026-06-23 11:15 AM Europe/Berlin - LEAD / INTEGRATION - Database timestamp consistency for broadcast delivery tracking
 
 Changed files:
@@ -63,7 +115,7 @@ Implemented:
 Why this matters:
 - The Autopoiesis OS appliance requires Node.js >=18 for the local UI server.
 - Early detection avoids proceeding with installation only to fail later during bootstrap or runtime.
-- Improves the robustness of the one-command install experience.
+- Improves robustness of the one-command install experience.
 
 Verification:
 - node --check local-ui/server.js passed
