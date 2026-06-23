@@ -1,3 +1,30 @@
+## 2026-06-23 11:15 AM Europe/Berlin - LEAD / INTEGRATION - Database timestamp consistency for broadcast delivery tracking
+
+Changed files:
+- hosted-api/db.js
+
+Implemented:
+- Enhanced the _deliveryStatusTimestamp function to guarantee all returned timestamp values are consistently formatted in ISO 8601 UTC format using the canonicalTimestamp function.
+- Applied consistent timestamp formatting to all delivery status fields (deliveredAt, receivedAt, updatedAt, etc.) to prevent inconsistencies in broadcast delivery tracking.
+
+Why this matters:
+- Ensures data integrity in the broadcast delivery tracking system by eliminating timestamp format inconsistencies
+- Prevents potential issues with time-based queries and sorting in API responses
+- Maintains consistency across all broadcast-related timestamp operations
+- Resolves potential edge cases where mixed timestamp formats could cause comparison failures
+
+Verification:
+- node --check hosted-api/db.js passed
+- node --check hosted-api/server.js passed
+- node --check local-ui/server.js passed
+- bash -n install.sh update.sh uninstall-dev-tools.sh factory-reset.sh passed
+- bash -n scripts/*.sh passed
+
+Next step:
+- Monitor broadcast delivery reporting to verify consistent timestamp formats in API responses
+- Consider applying similar timestamp consistency improvements to other database timestamp functions
+
+
 ## 2026-06-23 10:15 AM Europe/Berlin - LEAD / INTEGRATION - Timestamp consistency improvement for delivery status handling
 
 Changed files:
