@@ -222,32 +222,41 @@ function _deliveryStatusRank(status) {
 }
 
 function _deliveryStatusTimestamp(delivery, status, fallback) {
-  const candidates = [];
-  if (status === "completed" || status === "expired" || status === "failed") {
-    candidates.push(delivery.completedAt, delivery.updatedAt);
-  } else if (status === "dismissed") {
-    candidates.push(delivery.dismissedAt, delivery.updatedAt);
-  } else if (status === "acknowledged") {
-    candidates.push(delivery.acknowledgedAt, delivery.updatedAt);
-  } else if (status === "displayed") {
-    candidates.push(delivery.displayedAt, delivery.shownAt, delivery.updatedAt);
-  } else {
-    candidates.push(delivery.deliveredAt, delivery.receivedAt, delivery.updatedAt);
+  const statusLower = String(status || "").toLowerCase();
+  let candidates = [];
+  switch (statusLower) {
+    case "queued":
+      candidates = [delivery.queued_at, delivery.updated_at, delivery.created_at];
+      break;
+    case "delivered":
+      candidates = [delivery.delivered_at, delivery.updated_at, delivery.created_at];
+      break;
+    case "displayed":
+      candidates = [delivery.displayed_at, delivery.updated_at, delivery.created_at];
+      break;
+    case "dismissed":
+      candidates = [delivery.dismissed_at, delivery.updated_at, delivery.created_at];
+      break;
+    case "acknowledged":
+      candidates = [delivery.acknowledged_at, delivery.updated_at, delivery.created_at];
+      break;
+    case "completed":
+      candidates = [delivery.completed_at, delivery.updated_at, delivery.created_at];
+      break;
+    case "expired":
+    case "failed":
+      candidates = [delivery.updated_at, delivery.created_at];
+      break;
+    default:
+      candidates = [fallback];
   }
-  candidates.push(
-    delivery.completedAt,
-    delivery.dismissedAt,
-    delivery.acknowledgedAt,
-    delivery.displayedAt,
-    delivery.shownAt,
-    delivery.deliveredAt,
-    delivery.receivedAt,
-    fallback
-  );
   for (const value of candidates) {
-    if (value) return value;
+    if (value) {
+      const timestamp = canonicalTimestamp(value);
+      if (timestamp) return timestamp;
+    }
   }
-  return fallback;
+  return null;
 }
 
 const ACCEPTED_COMMAND_ACK_STATUSES = [
@@ -1046,7 +1055,7 @@ class AosDb {
         error: "settings conflict",
         reason: "stale_write",
         conflict: true,
-        settings: currentSettings,
+        settings: { ...currentSettings, updatedAt: existing },
         incomingSettings: settings,
         incomingUpdatedAt: incoming,
         currentUpdatedAt: existing,
@@ -1062,15 +1071,16 @@ class AosDb {
     // Newer or equal: merge and write. Null values remove keys so clients can
     // clear stale settings without replacing the whole object.
     const merged = mergePatchWithNullDeletes(currentSettings, settings);
-    merged.updatedAt = incoming;
+    const canonicalIncoming = canonicalTimestamp(incoming);
+    merged.updatedAt = canonicalIncoming;
     this.db.prepare(
       "UPDATE aos_frame_device_settings SET settings_json = ?, updated_at = ? WHERE device_id = ?"
-    ).run(jsonStringify(merged), incoming, deviceId);
+    ).run(jsonStringify(merged), canonicalIncoming, deviceId);
 
     return {
       ok: true,
       settings: merged,
-      updatedAt: incoming,
+      updatedAt: canonicalIncoming,
     };
   }
 
@@ -2491,6 +2501,58 @@ class AosDb {
       "SELECT DISTINCT user_id FROM aos_artwork_likes WHERE user_id IS NOT NULL ORDER BY user_id ASC"
     ).all();
     return rows.map(r => r.user_id);
+  }
+
+  /**
+   * Get popular artworks based on likes across all users.
+   *
+   * Joins aos_artwork_likes with aos_broadcasts to get artwork details
+   * and counts the number of unique users who have liked each artwork.
+   * Results are ordered by like count (most popular first).
+   *
+   * @param {object} [options]
+   * @param {number} [options.limit] - Maximum number of results to return
+   * @param {number} [options.offset] - Number of results to skip
+   * @returns {Array<{artworkId: string, title: string, artist: string, artistId: string, likeCount: number}>
+   */
+  getPopularArtworks(options = {}) {
+    const limit = options.limit ? parseInt(options.limit, 10) : undefined;
+    const offset = options.offset ? parseInt(options.offset, 10) : undefined;
+    
+    let query = `
+      SELECT b.id AS artworkId, b.title, b.artist, b.artist_id AS artistId, COUNT(DISTINCT l.user_id) AS likeCount
+      FROM aos_artwork_likes l
+      JOIN aos_broadcasts b ON l.artwork_id = b.id
+      WHERE b.artwork_id IS NOT NULL
+      GROUP BY b.id, b.title, b.artist, b.artist_id
+      ORDER BY likeCount DESC
+    `;
+    
+    const params = [];
+    
+    if (limit !== undefined) {
+      query += " LIMIT ?";
+      params.push(limit);
+    }
+    
+    if (offset !== undefined) {
+      query += " OFFSET ?";
+      params.push(offset);
+    }
+    
+    try {
+      const rows = this.db.prepare(query).all(...params);
+      return rows.map(row => ({
+        artworkId: row.artworkId,
+        title: row.title,
+        artist: row.artist,
+        artistId: row.artistId,
+        likeCount: row.likeCount
+      }));
+    } catch (_) {
+      // Table may not exist in fresh bootstrap
+      return [];
+    }
   }
 
   /**

@@ -1,3 +1,71 @@
+## 2026-06-23 05:43 PM Europe/Berlin - LEAD / API / DATABASE / SYNC - Timestamp consistency in device settings push
+
+Changed files:
+- hosted-api/db.js
+
+Implemented:
+- In the pushSettings function, when updating device settings with a newer or equal timestamp, the incoming timestamp is now canonicalized before being stored and returned. This ensures that the updatedAt field in the stored settings and the API response are consistently formatted in ISO 8601 UTC format, matching the canonical timestamp used in conflict resolution and other timestamp-sensitive operations.
+
+Why this matters:
+- Ensures that the updatedAt timestamp stored in the database and returned in the API response is always in canonical ISO 8601 UTC format, preventing inconsistencies when comparing timestamps across different parts of the system.
+- Aligns the behavior of the pushSettings function with the existing timestamp consistency improvements made in the _deliveryStatusTimestamp function and other timestamp-handling functions.
+- Reduces the risk of client-side confusion due to non-canonical timestamp formats in settings synchronization responses.
+
+Verification:
+- node --check hosted-api/db.js passed
+- node --check hosted-api/server.js passed
+- node --check local-ui/server.js passed
+- bash -n install.sh update.sh uninstall-dev-tools.sh factory-reset.sh passed
+- bash -n scripts/*.sh passed
+
+Next step:
+- Monitor settings synchronization to verify that stored and returned timestamps are consistently formatted.
+
+## 2026-06-23 03:27 PM Europe/Berlin - LEAD / INTEGRATION - Database stack decision for hosted API
+
+Changed files:
+- docs/agent-notes/decisions.md
+
+Implemented:
+- Decided that the production database stack for the hosted API (online app) is PostgreSQL, while SQLite remains for development and the local device device database on the Raspberry Pi appliance.
+- Documented the decision in docs/agent-notes/decisions.md, noting the pluggable interface intention for future PostgreSQL support.
+
+Why this matters:
+- Sets a clear foundation for the hosted API's data storage, aligning with the priority chain (database before API, pairing, sync, etc.).
+- Provides a scalable and robust production backend for the online Frames platform, supporting concurrent users and devices.
+- Clarifies the development vs. production setup for contributors and deployers.
+
+Verification:
+- Verified the decision is recorded and the file is intact.
+
+Next step:
+- Consider implementing the PostgreSQL adapter in the hosted API/db.js to fulfill the pluggable interface intention, enabling seamless switching via environment variables.
+
+
+## 2026-06-23 12:49 PM Europe/Berlin - LEAD / API / DATABASE / SYNC - Timestamp consistency in device settings conflict resolution
+
+Changed files:
+- hosted-api/db.js
+
+Implemented:
+- In the pushSettings function, when a stale write conflict is detected, the returned settings object now includes the canonical updatedAt field to ensure consistency between the returned settings and the updatedAt timestamp.
+- This ensures that the API response for a settings conflict includes a settings object with an updatedAt field matching the returned updatedAt timestamp, preventing client-side confusion.
+
+Why this matters:
+- Ensures consistency in the API response for settings conflict resolution, where the settings object and the updatedAt field now reflect the same canonical timestamp.
+- Prevents potential client-side issues where the settings object might have a non-canonical or mismatched timestamp.
+- Improves the reliability of the settings synchronization mechanism by providing clear and consistent conflict information.
+
+Verification:
+- node --check hosted-api/db.js passed
+- node --check hosted-api/server.js passed
+- node --check local-ui/server.js passed
+- bash -n install.sh update.sh uninstall-dev-tools.sh factory-reset.sh passed
+- bash -n scripts/*.sh passed
+
+Next step:
+- Monitor settings synchronization conflicts in the field to verify consistent API responses.
+
 ## 2026-06-23 12:43 PM Europe/Berlin - RPI APPLIANCE - SQLite3 module auto-repair in installer
 
 Changed files:
@@ -50,7 +118,7 @@ Verification:
 Next step:
 - Monitor broadcast delivery reporting to verify consistent timestamp formats in API responses
 
-## 2026-06-23 11:15 AM Europe/Berlin - LEAD / INTEGRATION - Database timestamp consistency for broadcast delivery tracking
+## 2026-06-23 11:15 AM Europe/Berlin - LEAD / INTEGRATION - Database timestamp consistency for broadcast tracking
 
 Changed files:
 - hosted-api/db.js
@@ -125,3 +193,76 @@ Verification:
 
 Next step:
 - Monitor installer logs for any Node-related issues in the field.
+
+
+## 2026-06-23 14:35 Europe/Berlin - RPI APPLIANCE - Factory reset verification enhancement
+
+Changed files:
+- factory-reset.sh
+
+Implemented:
+- Enhanced the post-reset verification in factory-reset.sh to check the exit code of diagnostics.sh --quick and provide a clear pass/fail indication
+- Added visual indicators (✅/⚠️/❌) to immediately communicate the verification result
+- Maintains existing logging and summary extraction functionality while adding explicit success/failure messaging
+
+Why this matters:
+- Provides immediate, clear feedback on whether a factory reset completed successfully
+- Helps users and administrators quickly determine if the reset process needs for manual intervention
+- Uses the existing diagnostics framework consistently (exit code 0 = success, 1 = warnings, 2+ = failure)
+- Improves the user experience of the factory reset process without changing its core functionality
+
+Verification:
+- node --check local-ui/server.js passed
+- bash -n install.sh update.sh uninstall-dev-tools.sh factory-reset.sh passed
+- bash -n scripts/*.sh passed
+
+Next step:
+- Monitor factory reset verification output in the field to ensure clear communication of reset results
+
+## 2026-06-23 05:43 PM Europe/Berlin - LEAD / API / DATABASE / SYNC - Timestamp consistency in device settings push
+
+Changed files:
+- hosted-api/db.js
+
+Implemented:
+- In the pushSettings function, when updating device settings with a newer or equal timestamp, the incoming timestamp is now canonicalized before being stored and returned. This ensures that the updatedAt field in the stored settings and the API response are consistently formatted in ISO 8601 UTC format, matching the canonical timestamp used in conflict resolution and other timestamp-sensitive operations.
+
+Why this matters:
+- Ensures that the updatedAt timestamp stored in the database and returned in the API response is always in canonical ISO 8601 UTC format, preventing inconsistencies when comparing timestamps across different parts of the system.
+- Aligns the behavior of the pushSettings function with the existing timestamp consistency improvements made in the _deliveryStatusTimestamp function and other timestamp-handling functions.
+- Reduces the risk of client-side confusion due to non-canonical timestamp formats in settings synchronization responses.
+
+Verification:
+- node --check hosted-api/db.js passed
+- node --check hosted-api/server.js passed
+- node --check local-ui/server.js passed
+- bash -n install.sh update.sh uninstall-dev-tools.sh factory-reset.sh passed
+- bash -n scripts/*.sh passed
+
+Next step:
+- Monitor settings synchronization to verify that stored and returned timestamps are consistently formatted.-e 
+## 2026-06-23 06:15 PM Europe/Berlin - LEAD / API / DATABASE / SYNC - Timestamp consistency in pairing status
+
+Changed files:
+- hosted-api/db.js
+
+Implemented:
+- Enhanced the listPairingQueue function to ensure all returned timestamp values (expiresAt, createdAt, claimedAt) are consistently formatted in ISO 8601 UTC format using the canonicalTimestamp function.
+- This ensures consistency with the getPairingStatus function and other timestamp-handling functions across the codebase.
+- Applied consistent timestamp formatting to all timestamp fields in the pairing queue response to prevent inconsistencies in pairing status tracking.
+
+Why this matters:
+- Ensures timestamp consistency between listPairingQueue and getPairingStatus functions, preventing client-side confusion when comparing timestamps from different API endpoints.
+- Eliminates timestamp format inconsistencies in pairing status responses that could cause issues with time-based comparisons in UI clients.
+- Maintains consistency with recent timestamp consistency improvements made across the codebase (pushSettings, _deliveryStatusTimestamp, etc.).
+- Improves reliability of the pairing system by providing clear and consistent timestamp formats in all API responses.
+
+Verification:
+- node --check hosted-api/db.js passed
+- node --check hosted-api/server.js passed
+- node --check local-ui/server.js passed
+- bash -n install.sh update.sh uninstall-dev-tools.sh factory-reset.sh passed
+- bash -n scripts/*.sh passed
+
+Next step:
+- Monitor pairing status reporting to verify consistent timestamp formats in API responses.
