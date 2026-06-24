@@ -1,3 +1,27 @@
+## 2026-06-24 2:35 PM Europe/Berlin - RPI APPLIANCE - Internet connectivity verification in Wi-Fi setup
+
+Changed files:
+- scripts/connect-wifi.sh
+
+Implemented:
+- Added `--verify-internet` option to `connect-wifi.sh` to check for actual internet connectivity after connecting to a Wi-Fi network.
+- The verification uses `ip route get 8.8.8.8` to ensure a route to a public DNS server exists, catching issues like captive portals or misconfigured networks.
+- Updated the connection plan JSON output to include the new option and its associated next actions.
+
+Why this matters:
+- Prevents the appliance from reporting a successful Wi-Fi connection when actual internet access is unavailable.
+- Provides immediate feedback during onboarding, reducing the need for later troubleshooting when the appliance fails to pair or sync.
+- Ensures the "connected" state reflects functional connectivity, not just an established L2/L3 link.
+
+Verification:
+- node --check local-ui/server.js passed
+- bash -n scripts/connect-wifi.sh passed
+- bash -n install.sh update.sh uninstall-dev-tools.sh factory-reset.sh scripts/*.sh passed
+
+Next step:
+- Integrate `--verify-internet` into the local UI's Wi-Fi onboarding workflow to improve the user experience.
+
+
 ## 2026-06-24 04:49 AM Europe/Berlin - LEAD / API / DATABASE / SYNC - Timestamp consistency in heartbeat and event ingestion
 
 ## 2026-06-24 03:15 AM Europe/Berlin - LEAD / INTEGRATION - Heartbeat sync enhancement for command polling
@@ -256,7 +280,7 @@ Why this matters:
 - Provides immediate, clear feedback on whether a factory reset completed successfully
 - Helps users and administrators quickly determine if the reset process needs for manual intervention
 - Uses the existing diagnostics framework consistently (exit code 0 = success, 1 = warnings, 2+ = failure)
-- Improves the user experience of the factory reset process without changing its core functionality
+- Improes the user experience of the factory reset process without changing its core functionality
 
 Verification:
 - node --check local-ui/server.js passed
@@ -428,3 +452,31 @@ Verification:
 
 Next step:
 - Monitor configuration verification logs in the field to ensure kiosk OS setup is reliable
+## 2026-06-24 12:30 PM Europe/Berlin - PULSE / BROADCAST / FEED - Broadcast delivery statistics endpoint
+
+Changed files:
+- hosted-api/db.js
+- hosted-api/server.js
+
+Implemented:
+- Added getBroadcastDeliveryStats() function to AosDb class in hosted-api/db.js
+- Added handleAdminBroadcastDeliveryStatistics() function in hosted-api/server.js
+- Added new GET /frames/admin/broadcast-deliveries/statistics endpoint
+
+Why this matters:
+- Provides administrators with insights into broadcast delivery performance and success rates
+- Enables monitoring of delivery statistics including success rates, average delivery times, and failure analysis
+- Helps identify trends and issues in the broadcast delivery system
+- Complements existing analytics endpoints for artwork, artists, and preferences
+- Enhances the observability and operability of the broadcast/feed system
+
+Verification:
+- node --check hosted-api/db.js passed
+- node --check hosted-api/server.js passed
+- node --check local-ui/server.js passed
+- bash -n install.sh update.sh uninstall-dev-tools.sh factory-reset.sh passed
+- bash -n scripts/*.sh passed
+
+Next step:
+- Monitor usage of new statistics endpoint to ensure it provides valuable insights for platform administrators
+- Consider adding more detailed analytics based on usage patterns
