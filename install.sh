@@ -56,6 +56,37 @@ if [ "$(printf '%s\n' "$REQUIRED_MAJOR" "$NODE_VERSION" | sort -V | head -n1)" !
   exit 1
 fi
 
+# Check disk space for installation directories
+check_disk_space() {
+  local dir="$1"
+  local min_bytes="$2"
+  local check_dir="$dir"
+  # If the directory doesn't exist, check its parent
+  while [[ ! -e "$check_dir" && "$check_dir" != "/" ]]; do
+    check_dir="$(dirname "$check_dir")"
+  done
+  # Now check_dir exists (at least as the root)
+  local avail
+  avail=$(df --output=avail -B1 "$check_dir" 2>/dev/null | tail -n1)
+  if [[ -z "$avail" || "$avail" =~ [^0-9] ]]; then
+    echo "Warning: Could not determine available space for $dir" >&2
+    return 0  # Skip the check if we can't determine
+  fi
+  if (( avail < min_bytes )); then
+    echo "Error: Insufficient disk space in $(df --output=target "$check_dir" | tail -n1)." >&2
+    echo "  Available: $avail bytes, Required: $min_bytes bytes" >&2
+    echo "  Please free up space and try again." >&2
+    exit 1
+  fi
+}
+
+# Require at least 1 GB free space for each of the installation directories
+MIN_FREE_BYTES=1073741824  # 1 GB
+check_disk_space "$INSTALL_DIR" "$MIN_FREE_BYTES"
+check_disk_space "$DATA_DIR" "$MIN_FREE_BYTES"
+check_disk_space "$LOG_DIR" "$MIN_FREE_BYTES"
+
+
 "$REPO_DIR/scripts/ensure-appliance-user.sh"
 
 install -d -o "$USER_NAME" -g "$USER_NAME" "$INSTALL_DIR" "$INSTALL_DIR/releases" "$DATA_DIR" "$LOG_DIR"

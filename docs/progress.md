@@ -1,3 +1,23 @@
+## 2026-06-24 02:35 AM Europe/Berlin - RPI APPLIANCE - Disk space check in installer
+
+Changed files:
+- install.sh
+
+Implemented:
+- Added a disk space check in the install.sh script to verify at least 1 GB of free space in the installation, data, and log directories before proceeding with the installation. This prevents installation failures due to insufficient disk space.
+
+Why this matters:
+- Ensures the installation process fails early with a clear message if there is insufficient disk space, improving the robustness of the one-click install experience.
+- Prevents partial installations or cryptic errors later in the process due to disk space exhaustion.
+
+Verification:
+- node --check local-ui/server.js passed
+- bash -n install.sh update.sh uninstall-dev-tools.sh factory-reset.sh scripts/*.sh passed
+
+Next step:
+- Monitor installer logs for any disk space related issues in the field.
+
+
 ## 2026-06-23 05:43 PM Europe/Berlin - LEAD / API / DATABASE / SYNC - Timestamp consistency in device settings push
 
 Changed files:
@@ -75,7 +95,7 @@ Implemented:
 - Enhanced the SQLite3 native module check in install.sh to automatically attempt repair via 'npm rebuild' when the module fails to load
 - Added verification step to confirm the repair was successful
 - Provides clear feedback on success or failure of the automatic repair attempt
-- Falls back to original warning message if automatic repair fails, with manual remediation instructions
+- Falls back to original warning message if auto-repair fails, with manual remediation instructions
 
 Why this matters:
 - Addresses a common issue that could prevent the appliance from working properly due to native module compatibility
