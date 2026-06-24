@@ -249,6 +249,45 @@ configure_gdm3_autologin() {
   fi
 }
 
+# ─── Verification ────────────────────────────────────────────────────────---
+
+verify_configuration() {
+  if [[ "$DRY_RUN" == "1" ]]; then
+    log "Skipping verification in dry-run mode"
+    return 0
+  fi
+
+  log "Running post-configuration verification..."
+
+  # Use the diagnostics script to verify kiosk OS configuration
+  if [[ -x "$APP_DIR/scripts/diagnostics.sh" ]]; then
+    "$APP_DIR/scripts/diagnostics.sh" --quick 2>&1 | tee -a "$LOG_DIR/configure-kiosk-os-verification.log" || true
+    local diag_exit_code=${PIPESTATUS[0]}
+    echo "Verification log written to $LOG_DIR/configure-kiosk-os-verification.log"
+
+    # Check diagnostics exit code and provide clear result
+    if [[ $diag_exit_code -eq 0 ]]; then
+      echo "✅ Kiosk OS configuration verification PASSED - All checks passed"
+    elif [[ $diag_exit_code -eq 1 ]]; then
+      echo "⚠️  Kiosk OS configuration verification COMPLETED WITH WARNINGS - Some checks had warnings but no failures"
+    else
+      echo "❌ Kiosk OS configuration verification FAILED - One or more critical checks failed"
+      echo "   Please review the verification log for details"
+      return 1
+    fi
+
+    # Extract summary line if available
+    if tail -5 "$LOG_DIR/configure-kiosk-os-verification.log" | grep -q "Summary:"; then
+      tail -5 "$LOG_DIR/configure-kiosk-os-verification.log" | grep "Summary:"
+    else
+      echo "Verification completed (see log for details)."
+    fi
+  else
+    log "WARNING: Verification script not found at $APP_DIR/scripts/diagnostics.sh"
+    log "Skipping verification"
+  fi
+}
+
 # ─── 3. Disable screen blanking ─────────────────────────────────────────────
 
 configure_screen_blanking() {
@@ -352,6 +391,19 @@ echo
 configure_cursor_hiding
 echo
 
+# Run verification unless in dry-run mode
+if [[ "$DRY_RUN" != "1" ]]; then
+  if ! verify_configuration; then
+    echo ""
+    echo "WARNING: Kiosk OS configuration verification failed!" >&2
+    echo "The appliance may not start correctly in kiosk mode after reboot." >&2
+    echo "You can manually verify with:" >&2
+    echo "  sudo $APP_DIR/scripts/diagnostics.sh --quick" >&2
+    echo ""
+    # Don't fail the script - continue but warn the user
+  fi
+
+fi
 if [[ "$DRY_RUN" == "1" ]]; then
   echo "Dry run complete. No changes were made."
 else

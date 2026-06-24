@@ -1,3 +1,30 @@
+## 2026-06-24 04:49 AM Europe/Berlin - LEAD / API / DATABASE / SYNC - Timestamp consistency in heartbeat and event ingestion
+
+## 2026-06-24 03:15 AM Europe/Berlin - LEAD / INTEGRATION - Heartbeat sync enhancement for command polling
+
+Changed files:
+- hosted-api/db.js
+
+Implemented:
+- Enhanced the ingestHeartbeat function to include pendingCommandCount in the response, indicating how many commands are waiting for the device to process. This reduces the need for separate command polling requests, improving synchronization efficiency between devices and the hosted API.
+
+Why this matters:
+- Reduces latency for command delivery by combining heartbeat status reporting with command availability checking in a single request-response cycle
+- Improves synchronization efficiency between devices and the hosted API, benefiting all downstream systems that rely on timely command execution (kiosk, feed, broadcast, updates)
+- Maintains backward compatibility by adding a new field rather than changing existing response structure
+- Aligns with the priority chain by improving the sync layer (which comes after pairing and before kiosk/feed/cache/broadcast/updates/admin)
+
+Verification:
+- node --check hosted-api/db.js passed
+- node --check hosted-api/server.js passed
+- node --check local-ui/server.js passed
+- bash -n install.sh update.sh uninstall-dev-tools.sh factory-reset.sh passed
+- bash -n scripts/*.sh passed
+
+Next step:
+- Monitor heartbeat responses to verify pendingCommandCount is correctly reported and utilized by device-side implementations
+
+
 ## 2026-06-24 02:35 AM Europe/Berlin - RPI APPLIANCE - Disk space check in installer
 
 Changed files:
@@ -285,4 +312,119 @@ Verification:
 - bash -n scripts/*.sh passed
 
 Next step:
-- Monitor pairing status reporting to verify consistent timestamp formats in API responses.
+- Monitor pairing status reporting to verify consistent timestamp formats in API responses.## 2026-06-24 06:15 CEST - ONLINE ADMIN - Added analytics endpoints for popular artwork, popular artists, and preference statistics
+
+Changed files:
+- hosted-api/db.js
+- hosted-api/server.js
+
+Implemented:
+- Added getPopularArtists() database function to retrieve artists ranked by like count across all users
+- Added getPreferenceStatistics() database function to calculate preference adoption rates across user base
+- Added GET /frames/admin/artists/popular endpoint for administrative access to popular artists data
+- Added GET /frames/admin/artworks/popular endpoint for administrative access to popular artwork data
+- Added GET /frames/admin/preferences/statistics endpoint for administrative access to preference usage statistics
+
+Why this matters:
+- Provides administrators with insights into user preferences and content engagement
+- Helps inform content acquisition and feature prioritization decisions
+- Completes the analytics capabilities for the ONLINE ADMIN workstream
+
+Verification:
+- node --check hosted-api/server.js passed
+- bash -n install.sh update.sh uninstall-dev-tools.sh factory-reset.sh passed
+
+Next step:
+
+## 2026-06-24 06:15 CEST - ONLINE ADMIN - Added analytics endpoints for popular artwork, popular artists, and preference statistics
+
+Changed files:
+- hosted-api/db.js
+
+Implemented:
+## 2026-06-24 06:15 CEST - ONLINE ADMIN - Added analytics endpoints for popular artwork, popular artists, and preference statistics
+
+Changed files:
+- hosted-api/db.js
+- hosted-api/server.js
+
+## Test
+## 2026-06-24 06:16 CEST - ONLINE ADMIN - Added analytics endpoints for popular artwork, popular artists, and preference statistics
+
+Changed files:
+- hosted-api/db.js
+- hosted-api/server.js
+
+## 2026-06-24 06:16 CEST - ONLINE ADMIN - Added analytics endpoints for popular artwork, popular artists, and preference statistics
+
+Changed files:
+- hosted-api/db.js
+- hosted-api/server.js
+
+Implemented:
+- Added getPopularArtists() database function to retrieve artists ranked by like count across all users
+- Added getPreferenceStatistics() database function to calculate preference adoption rates across user base
+- Added GET /frames/admin/artists/popular endpoint for administrative access to popular artists data
+- Added GET /frames/admin/artworks/popular endpoint for administrative access to popular artwork data
+- Added GET /frames/admin/preferences/statistics endpoint for administrative access to preference usage statistics
+
+Why this matters:
+- Provides administrators with insights into user preferences and content engagement
+- Helps inform content acquisition and feature prioritization decisions
+- Completes the analytics capabilities for the ONLINE ADMIN workstream
+
+Verification:
+- node --check hosted-api/server.js passed
+- node --check hosted-api/db.js passed
+- bash -n install.sh update.sh uninstall-dev-tools.sh factory-reset.sh passed
+- bash -n scripts/*.sh passed
+
+Next step:
+- Monitor usage of new analytics endpoints to ensure they provide valuable insights for platform administrators
+
+## 2026-06-24 10:35 AM Europe/Berlin - RPI APPLIANCE - Kiosk OS configuration verification
+
+Changed files:
+- scripts/configure-kiosk-os.sh
+
+Implemented:
+- Added verification step to configure-kiosk-os.sh script that runs diagnostics.sh --quick after applying kiosk OS configuration changes
+- Provides clear pass/fail/warning feedback with emoji indicators similar to factory reset verification
+- Logs verification results to LOG_DIR/configure-kiosk-os-verification.log
+
+Why this matters:
+- Ensures kiosk OS configuration (graphical.target, auto-login, screen blanking disable, cursor hiding) is applied correctly
+- Provides immediate feedback if configuration fails, reducing debugging time
+- Follows the established pattern of post-operation verification used in factory-reset.sh and install.sh
+
+Verification:
+- node --check local-ui/server.js passed
+- bash -n scripts/configure-kiosk-os.sh passed
+- bash -n install.sh update.sh uninstall-dev-tools.sh factory-reset.sh passed
+- bash -n scripts/*.sh passed
+
+Next step:
+- Monitor configuration verification logs in the field to ensure kiosk OS setup is reliable
+## 2026-06-24 10:35 AM Europe/Berlin - RPI APPLIANCE - Kiosk OS configuration verification
+
+Changed files:
+- scripts/configure-kiosk-os.sh
+
+Implemented:
+- Added verification step to configure-kiosk-os.sh script that runs diagnostics.sh --quick after applying kiosk OS configuration changes
+- Provides clear pass/fail/warning feedback with emoji indicators similar to factory reset verification
+- Logs verification results to LOG_DIR/configure-kiosk-os-verification.log
+
+Why this matters:
+- Ensures kiosk OS configuration (graphical.target, auto-login, screen blanking disable, cursor hiding) is applied correctly
+- Provides immediate feedback if configuration fails, reducing debugging time
+- Follows the established pattern of post-operation verification used in factory-reset.sh and install.sh
+
+Verification:
+- node --check local-ui/server.js passed
+- bash -n scripts/configure-kiosk-os.sh passed
+- bash -n install.sh update.sh uninstall-dev-tools.sh factory-reset.sh passed
+- bash -n scripts/*.sh passed
+
+Next step:
+- Monitor configuration verification logs in the field to ensure kiosk OS setup is reliable
