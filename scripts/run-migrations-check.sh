@@ -29,6 +29,24 @@ FAIL=0
 pass() { PASS=$((PASS + 1)); }
 fail() { FAIL=$((FAIL + 1)); echo "FAIL: $*" >&2; }
 
+sqlite_query() {
+  local db_path="$1"
+  local sql="$2"
+  node - "$REPO_ROOT" "$db_path" "$sql" <<'NODE'
+const repoRoot = process.argv[2];
+const dbPath = process.argv[3];
+const sql = process.argv[4];
+const Database = require(require.resolve("better-sqlite3", { paths: [repoRoot] }));
+const db = new Database(dbPath, { readonly: true });
+const rows = db.prepare(sql).raw().all();
+if (rows.length) {
+  process.stdout.write(rows.map((row) => row.join("|")).join("\n"));
+  process.stdout.write("\n");
+}
+db.close();
+NODE
+}
+
 cleanup() {
   rm -f /tmp/aos-migrate-test-*.db
   rm -rf /tmp/aos-migrate-test-dir-*
@@ -58,7 +76,7 @@ fi
 echo -n "3. Fresh database creation ... "
 rm -f /tmp/aos-migrate-test-fresh.db
 out="$("$RUNNER" --db /tmp/aos-migrate-test-fresh.db --engine sqlite --no-validate 2>&1)"
-tables="$(sqlite3 /tmp/aos-migrate-test-fresh.db ".tables" | tr ' ' '\n' | sort)"
+tables="$(sqlite_query /tmp/aos-migrate-test-fresh.db "SELECT name FROM sqlite_schema WHERE type = 'table' ORDER BY name;" | sort)"
 required_tables=(
   aos_frame_devices
   aos_frame_pairing_codes
@@ -91,7 +109,7 @@ fi
 
 # ── Step 4: Migration tracking table structure ───────────────────────────
 echo -n "4. Tracking table structure ... "
-cols="$(sqlite3 /tmp/aos-migrate-test-fresh.db "PRAGMA table_info(aos_schema_migrations);")"
+cols="$(sqlite_query /tmp/aos-migrate-test-fresh.db "PRAGMA table_info(aos_schema_migrations);")"
 if echo "$cols" | grep -q "id" && echo "$cols" | grep -q "applied_at"; then
   pass; echo "ok"
 else
@@ -126,7 +144,7 @@ if echo "$out3" | grep -q "\[dry-run\] would apply"; then
   if [[ ! -f /tmp/aos-migrate-test-dryrun.db ]]; then
     pass; echo "ok (no database created in dry-run)"
   else
-    tables_dry="$(sqlite3 /tmp/aos-migrate-test-dryrun.db ".tables" 2>/dev/null || true)"
+    tables_dry="$(sqlite_query /tmp/aos-migrate-test-dryrun.db "SELECT name FROM sqlite_schema WHERE type = 'table' ORDER BY name;" 2>/dev/null || true)"
     if [[ -z "$tables_dry" ]]; then
       pass; echo "ok (empty database in dry-run)"
     else
@@ -178,7 +196,7 @@ fi
 
 # ── Step 12: PostgreSQL migration id recorded ────────────────────────────
 echo -n "12. PostgreSQL migration id tracked ... "
-ids="$(sqlite3 /tmp/aos-migrate-test-contract.db "SELECT id FROM aos_schema_migrations ORDER BY id;")"
+ids="$(sqlite_query /tmp/aos-migrate-test-contract.db "SELECT id FROM aos_schema_migrations ORDER BY id;")"
 if echo "$ids" | grep -q "20260607000001_initial_aos_frames" && echo "$ids" | grep -q "sqlite-validation-schema"; then
   pass; echo "ok (both ids tracked)"
 else

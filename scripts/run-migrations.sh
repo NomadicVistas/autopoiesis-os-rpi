@@ -59,6 +59,7 @@ MIGRATION_DIR="${MIGRATION_DIR:-${AUTOPOIESIS_MIGRATION_DIR:-migrations}}"
 REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 SCHEMA_CHECK="$REPO_ROOT/scripts/aos-schema-contract-check.sh"
 SQLITE_SCHEMA="$REPO_ROOT/scripts/aos-schema-sqlite-validation.sql"
+SQLITE_BACKEND=""
 
 # ── validate engine ───────────────────────────────────────────────────────
 case "$ENGINE" in
@@ -73,13 +74,21 @@ if [[ ! -d "$MIGRATION_DIR" ]]; then
 fi
 
 if [[ "$ENGINE" == "sqlite" ]]; then
-  command -v sqlite3 >/dev/null 2>&1 || {
-    echo "run-migrations: sqlite3 CLI required for sqlite engine" >&2
-    exit 1
-  }
   if [[ ! -f "$SQLITE_SCHEMA" ]]; then
     echo "run-migrations: SQLite schema not found: $SQLITE_SCHEMA" >&2
     exit 1
+  fi
+  if command -v sqlite3 >/dev/null 2>&1; then
+    SQLITE_BACKEND="sqlite3"
+  else
+    node - "$REPO_ROOT" <<'NODE' >/dev/null 2>&1 || {
+const repoRoot = process.argv[2];
+require(require.resolve("better-sqlite3", { paths: [repoRoot] }));
+NODE
+      echo "run-migrations: sqlite engine requires sqlite3 CLI or Node with better-sqlite3" >&2
+      exit 1
+    }
+    SQLITE_BACKEND="node"
   fi
 fi
 
@@ -91,16 +100,56 @@ fi
 
 # ── SQLite helpers ────────────────────────────────────────────────────────
 run_sqlite() {
-  sqlite3 "$DB_PATH" "$@"
+  if [[ "$SQLITE_BACKEND" == "sqlite3" ]]; then
+    sqlite3 "$DB_PATH" "$@"
+    return
+  fi
+
+  local query="${1:-}"
+  node - "$REPO_ROOT" "$DB_PATH" "$query" <<'NODE'
+const repoRoot = process.argv[2];
+const dbPath = process.argv[3];
+const query = process.argv[4] || "";
+const Database = require(require.resolve("better-sqlite3", { paths: [repoRoot] }));
+
+const db = new Database(dbPath);
+
+if (query && /^\s*select\b/i.test(query)) {
+  const rows = db.prepare(query).raw().all();
+  if (rows.length > 0) {
+    process.stdout.write(rows.map((row) => row.join("|")).join("\n"));
+    process.stdout.write("\n");
+  }
+}
+
+db.close();
+NODE
 }
 
 ensure_tracking_table_sqlite() {
-  run_sqlite <<'SQL'
+  if [[ "$SQLITE_BACKEND" == "sqlite3" ]]; then
+    run_sqlite <<'SQL'
 CREATE TABLE IF NOT EXISTS aos_schema_migrations (
   id         TEXT NOT NULL PRIMARY KEY,
   applied_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
 SQL
+    return
+  fi
+
+  node - "$REPO_ROOT" "$DB_PATH" <<'NODE'
+const repoRoot = process.argv[2];
+const dbPath = process.argv[3];
+const Database = require(require.resolve("better-sqlite3", { paths: [repoRoot] }));
+const db = new Database(dbPath);
+db.exec(`
+CREATE TABLE IF NOT EXISTS aos_schema_migrations (
+  id         TEXT NOT NULL PRIMARY KEY,
+  applied_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+`);
+db.close();
+NODE
 }
 
 applied_ids_sqlite() {
@@ -109,7 +158,20 @@ applied_ids_sqlite() {
 
 record_migration_sqlite() {
   local mid="$1"
-  run_sqlite "INSERT OR IGNORE INTO aos_schema_migrations (id) VALUES ('$mid');"
+  if [[ "$SQLITE_BACKEND" == "sqlite3" ]]; then
+    run_sqlite "INSERT OR IGNORE INTO aos_schema_migrations (id) VALUES ('$mid');"
+    return
+  fi
+
+  node - "$REPO_ROOT" "$DB_PATH" "$mid" <<'NODE'
+const repoRoot = process.argv[2];
+const dbPath = process.argv[3];
+const migrationId = process.argv[4];
+const Database = require(require.resolve("better-sqlite3", { paths: [repoRoot] }));
+const db = new Database(dbPath);
+db.prepare("INSERT OR IGNORE INTO aos_schema_migrations (id) VALUES (?)").run(migrationId);
+db.close();
+NODE
 }
 
 # ── PostgreSQL helpers (stub for future implementation) ───────────────────
@@ -161,7 +223,20 @@ apply_sqlite_schema() {
   fi
 
   # The SQLite validation schema already contains BEGIN TRANSACTION / COMMIT.
-  run_sqlite < "$SQLITE_SCHEMA"
+  if [[ "$SQLITE_BACKEND" == "sqlite3" ]]; then
+    run_sqlite < "$SQLITE_SCHEMA"
+  else
+    node - "$REPO_ROOT" "$DB_PATH" "$SQLITE_SCHEMA" <<'NODE'
+const repoRoot = process.argv[2];
+const dbPath = process.argv[3];
+const schemaPath = process.argv[4];
+const Database = require(require.resolve("better-sqlite3", { paths: [repoRoot] }));
+const fs = require("fs");
+const db = new Database(dbPath);
+db.exec(fs.readFileSync(schemaPath, "utf8"));
+db.close();
+NODE
+  fi
 
   record_migration_sqlite "$schema_id"
 

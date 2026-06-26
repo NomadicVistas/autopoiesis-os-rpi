@@ -28,8 +28,6 @@ Environment:
 Schema JSON may be either:
   - an array of sqlite-style rows with rowType/row_type = "column" or "index"
   - an object with tables: [{ name, columns, primaryKey, unique }]
-
-SQLite database checks require the sqlite3 CLI.
 EOF
 }
 
@@ -41,9 +39,9 @@ fi
 [[ -f "$SOURCE" ]] || fail "schema source not found: $SOURCE"
 
 if LC_ALL=C grep -qa '^SQLite format 3' "$SOURCE"; then
-  command -v sqlite3 >/dev/null 2>&1 || fail "sqlite3 is required to inspect SQLite database files; provide schema JSON instead"
   TMP_FILE="$(mktemp)"
-  sqlite3 -readonly "$SOURCE" <<'SQL' >"$TMP_FILE"
+  if command -v sqlite3 >/dev/null 2>&1; then
+    sqlite3 -readonly "$SOURCE" <<'SQL' >"$TMP_FILE"
 .mode json
 SELECT
   'column' AS row_type,
@@ -71,6 +69,43 @@ SELECT
 FROM sqlite_schema AS m, pragma_index_list(m.name) AS il, pragma_index_info(il.name) AS ii
 WHERE m.type = 'table' AND m.name LIKE 'aos_%';
 SQL
+  else
+    node - "$PWD" "$SOURCE" <<'NODE' >"$TMP_FILE"
+const repoRoot = process.argv[2];
+const dbPath = process.argv[3];
+const Database = require(require.resolve("better-sqlite3", { paths: [repoRoot] }));
+const db = new Database(dbPath, { readonly: true });
+const sql = `
+SELECT
+  'column' AS row_type,
+  m.name AS table_name,
+  p.name AS column_name,
+  p.type AS column_type,
+  p."notnull" AS not_null,
+  p.pk AS pk_ordinal,
+  NULL AS index_name,
+  NULL AS index_unique,
+  NULL AS index_seq
+FROM sqlite_schema AS m, pragma_table_info(m.name) AS p
+WHERE m.type = 'table' AND m.name LIKE 'aos_%'
+UNION ALL
+SELECT
+  'index' AS row_type,
+  m.name AS table_name,
+  ii.name AS column_name,
+  NULL AS column_type,
+  NULL AS not_null,
+  NULL AS pk_ordinal,
+  il.name AS index_name,
+  il."unique" AS index_unique,
+  ii.seqno AS index_seq
+FROM sqlite_schema AS m, pragma_index_list(m.name) AS il, pragma_index_info(il.name) AS ii
+WHERE m.type = 'table' AND m.name LIKE 'aos_%';
+`;
+process.stdout.write(JSON.stringify(db.prepare(sql).all(), null, 2));
+db.close();
+NODE
+  fi
   SOURCE="$TMP_FILE"
 fi
 
