@@ -7068,6 +7068,282 @@ label { display: grid; gap: 8px; color: #c8c6bb; font-size: 18px; }
 .welcome-night-toggle { grid-column: 1 / -1; }
 .welcome-night-times { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; margin-top: 10px; }
 .welcome-night-times[hidden] { display: none; }
+@media (max-width: 960px), (max-height: 640px) {
+body { overflow-x: hidden; }
+.screen { padding: 18px; align-items: start; place-items: stretch; }
+.panel, .overlay-card {
+  padding: 22px;
+}
+.panel.wide, .onboarding, .broadcast-panel, .frame-gallery, .frame-empty, .offline-gallery, .offline-empty, .compact, .overlay-card {
+  width: min(100%, 1000px);
+  max-width: 100%;
+}
+.kicker { margin-bottom: 8px; font-size: 14px; }
+h1 { margin-bottom: 12px; font-size: clamp(30px, 6vw, 54px); }
+p { font-size: 17px; line-height: 1.3; }
+label, .frame-count, .dash-tile span, .frame-caption, .offline-caption, .overlay-card p, .setup-error, .note, .muted {
+  font-size: 15px;
+}
+.status { gap: 10px; margin: 18px 0; }
+.status div {
+  grid-template-columns: 110px 1fr;
+  gap: 12px;
+  padding: 10px 0;
+}
+.actions, .grid, .check-grid, .dashboard-grid, .compact-form {
+  gap: 12px;
+}
+button, .button, input, select {
+  min-height: 48px;
+  font-size: 15px;
+  padding: 11px 13px;
+}
+.onboarding {
+  min-height: auto;
+}
+.onboarding h1, .broadcast-panel h1, .dashboard-panel h1, .offline-gallery h1, .offline-empty h1 {
+  font-size: clamp(30px, 6vw, 52px);
+}
+.onboarding h2, .welcome-step h2, .overlay-card h2 {
+  font-size: clamp(22px, 4vw, 34px);
+}
+.steps { margin: 16px 0; }
+.step {
+  grid-template-columns: 64px minmax(0, 1fr);
+  gap: 18px;
+  padding: 20px;
+}
+.step-index {
+  width: 52px;
+  height: 52px;
+  font-size: 20px;
+}
+.step.current h2 {
+  font-size: clamp(28px, 6vw, 48px);
+  margin-bottom: 12px;
+}
+.step.current p {
+  max-width: none;
+  font-size: clamp(17px, 2.5vw, 24px);
+}
+.setup-controls {
+  grid-template-columns: 120px 1fr 120px;
+}
+.setup-dots button {
+  width: 40px;
+  min-height: 40px;
+}
+.pairing-code {
+  margin: 14px 0;
+  padding: 16px;
+  font-size: clamp(24px, 6vw, 44px);
+}
+.pairing-code.error {
+  font-size: clamp(18px, 3.8vw, 28px);
+}
+.launch { min-height: 56px; font-size: 17px; }
+.frame-screen, .offline-screen {
+  padding: 16px;
+}
+.frame-media {
+  min-height: min(52vh, 360px);
+}
+.frame-media img, .frame-media video {
+  height: min(52vh, 360px);
+}
+.frame-audio-work {
+  min-height: min(52vh, 360px);
+  padding: 20px;
+}
+.frame-audio-work strong, .text-only {
+  font-size: clamp(24px, 5vw, 40px);
+}
+.frame-audio-work span {
+  font-size: 18px;
+}
+.offline-stage img, .offline-stage video, .broadcast-media img {
+  max-height: min(46vh, 320px);
+}
+.welcome-panel {
+  gap: 16px;
+}
+.welcome-header h1 {
+  font-size: clamp(34px, 7vw, 64px);
+}
+.welcome-header p, .welcome-step p {
+  font-size: 16px;
+}
+.welcome-dot {
+  min-height: 40px;
+  padding: 8px 14px;
+  font-size: 14px;
+}
+.welcome-steps {
+  min-height: 0;
+}
+}
+@media (max-height: 540px) {
+body { overflow-x: hidden; }
+.screen { padding: 12px; align-items: start; place-items: stretch; }
+.panel, .overlay-card {
+  padding: 14px;
+}
+.kicker { margin-bottom: 4px; font-size: 11px; }
+h1 { margin-bottom: 6px; font-size: clamp(20px, 4vw, 30px); }
+p { font-size: 14px; line-height: 1.22; }
+label, .frame-count, .dash-tile span, .frame-caption, .offline-caption, .overlay-card p, .setup-error, .note, .muted, .status-pill strong {
+  font-size: 12px;
+}
+.status-pills {
+  gap: 8px;
+  margin: 8px 0 10px;
+}
+.status-pill {
+  min-width: 96px;
+  gap: 2px;
+  padding: 7px 10px;
+}
+.status-pill span {
+  font-size: 10px;
+}
+.status { gap: 6px; margin: 10px 0; }
+.status div {
+  gap: 6px;
+  padding: 7px 0;
+}
+button, .button, input, select {
+  min-height: 38px;
+  font-size: 13px;
+  padding: 8px 10px;
+}
+.actions, .grid, .check-grid, .dashboard-grid, .compact-form {
+  gap: 8px;
+}
+.dashboard-panel h1,
+.onboarding h1,
+.broadcast-panel h1,
+.offline-gallery h1,
+.offline-empty h1 {
+  font-size: clamp(20px, 4vw, 30px);
+}
+.dashboard-grid {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  margin: 12px 0;
+}
+.dash-tile {
+  min-height: 84px;
+  gap: 4px;
+  padding: 12px;
+}
+.dash-tile strong {
+  font-size: clamp(18px, 3.8vw, 28px);
+}
+.gateway-actions {
+  margin-top: 12px;
+}
+.frame-screen, .offline-screen {
+  padding: 12px;
+}
+.frame-topline {
+  gap: 10px;
+}
+.frame-stage, .offline-stage {
+  gap: 10px;
+  margin: 10px 0;
+}
+.frame-media {
+  min-height: min(40vh, 180px);
+}
+.frame-media img, .frame-media video {
+  height: min(40vh, 180px);
+}
+.frame-audio-work {
+  min-height: min(40vh, 180px);
+  gap: 8px;
+  padding: 10px;
+}
+.frame-audio-work strong, .text-only {
+  font-size: clamp(16px, 4vw, 24px);
+}
+.frame-audio-work span {
+  font-size: 12px;
+}
+.frame-overlay {
+  padding: 12px;
+  place-items: center;
+}
+.overlay-card h2 {
+  font-size: clamp(18px, 3.8vw, 28px);
+}
+.overlay-card p {
+  margin-bottom: 10px;
+}
+.overlay-actions {
+  margin-top: 10px;
+}
+.offline-stage img, .offline-stage video, .broadcast-media img {
+  max-height: min(34vh, 150px);
+}
+.offline-caption,
+.frame-caption {
+  gap: 8px;
+}
+.offline-caption strong,
+.frame-caption strong {
+  font-size: 16px;
+}
+.network-list {
+  gap: 8px;
+  margin: 12px 0;
+}
+.welcome-panel {
+  gap: 8px;
+  grid-template-rows: auto auto 1fr auto;
+}
+.welcome-header h1 {
+  font-size: clamp(20px, 4.2vw, 32px);
+  line-height: 0.92;
+}
+.welcome-header p {
+  margin: 2px auto 0;
+  font-size: 12px;
+}
+.welcome-progress {
+  gap: 6px;
+  margin: 0;
+}
+.welcome-dot {
+  min-height: 32px;
+  padding: 6px 10px;
+  font-size: 12px;
+}
+.welcome-steps {
+  min-height: 0;
+}
+.welcome-step h2 {
+  margin-bottom: 8px;
+  font-size: clamp(18px, 3.6vw, 26px);
+}
+.welcome-step p {
+  margin-bottom: 10px;
+  font-size: 12px;
+}
+.pairing-code {
+  margin: 10px 0;
+  padding: 12px;
+  font-size: clamp(18px, 5vw, 28px);
+}
+.pairing-code.error {
+  font-size: clamp(14px, 3vw, 18px);
+}
+.compact-form {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+.welcome-night-toggle,
+.compact-form > button {
+  grid-column: 1 / -1;
+}
+}
 @media (max-width: 560px), (max-height: 420px) {
 body { overflow-x: hidden; }
 .screen { padding: 12px; align-items: start; place-items: stretch; }
